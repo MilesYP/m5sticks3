@@ -1,0 +1,14 @@
+# PlatformIO 編譯產物與工具鏈快取（每個子專案各自的 .pio/，動輒數百 MB）
+.pio/
+
+# VS Code 個人設定（PlatformIO 會自動重新產生）
+.vscode/
+
+# macOS 系統檔
+.DS_Store
+
+# 暫存檔
+*.tmp
+
+# 第三方網站的離線存檔：著作權屬原網站，不公開散布（本機保留參考即可）
+docs/M5Stack RF Wiki*.html

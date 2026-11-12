@@ -1,0 +1,384 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>StickS3 養成計畫</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: a phone-first learning track. Numbered stages down a left rail (the order IS the curriculum), each stage a card with goal / hardware / concepts / hands-on / milestone. Blueprint-ish maker aesthetic. */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --ink:#15202a; --muted:#5a6672; --line:#d7dde3;
+  --accent:#0e7c86;            /* signal teal */
+  --accent-soft:#d8eef0;
+  --amber:#b26a00; --amber-soft:#faecd4;   /* milestones */
+  --code-bg:#0f1720; --code-fg:#dbe4ec; --code-com:#7d8ea0; --code-key:#6fd3c6; --code-str:#e0b071;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1218; --surface:#161e26; --ink:#e6ecf2; --muted:#93a1af; --line:#28333d;
+  --accent:#49c3cc; --accent-soft:#113037; --amber:#eaa94a; --amber-soft:#3a2a12;
+  --code-bg:#0a1016; --code-fg:#dbe4ec; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1218; --surface:#161e26; --ink:#e6ecf2; --muted:#93a1af; --line:#28333d;
+  --accent:#49c3cc; --accent-soft:#113037; --amber:#eaa94a; --amber-soft:#3a2a12;
+  --code-bg:#0a1016; --code-fg:#dbe4ec; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.65;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 56px}
+.wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+h1,h2,h3{margin:0;line-height:1.3;text-wrap:balance}
+p{margin:0}
+a{color:var(--accent)}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+
+header{display:flex;flex-direction:column;gap:12px;padding-top:6px}
+header h1{font-size:clamp(28px,6vw,42px);font-weight:900;letter-spacing:.01em}
+.lede{color:var(--muted);max-width:60ch}
+
+.kit{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kit div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.kit b{display:block;font-size:14.5px}
+.kit small{color:var(--muted);font-size:12.5px;line-height:1.45}
+
+.howto{background:var(--accent-soft);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.howto h2{font-size:16px}
+.howto p{font-size:14.5px}
+.howto .tutor{font-size:14px;color:var(--ink)}
+.howto .tutor b{color:var(--accent)}
+
+.track{display:flex;flex-direction:column;gap:18px}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.stage > summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:16px 18px}
+.stage > summary::-webkit-details-marker{display:none}
+.num{width:40px;height:40px;flex:none;border-radius:10px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--f-mono);font-weight:700;font-size:17px}
+.stage[data-done="1"] .num{background:var(--amber)}
+.sh{display:flex;flex-direction:column;gap:3px;min-width:0}
+.sh h3{font-size:18px;font-weight:900}
+.sh .sub{font-size:13px;color:var(--muted)}
+.chev{color:var(--muted);font-size:13px;white-space:nowrap}
+.stage[open] .chev .c-close{display:none}
+.stage:not([open]) .chev .c-open{display:none}
+.body{padding:0 18px 20px;display:flex;flex-direction:column;gap:16px;border-top:1px solid var(--line)}
+.body{padding-top:16px}
+
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.meta div{min-width:0}
+.meta dt{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:3px}
+.meta dd{margin:0;font-size:14px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:12px;font-weight:600;background:var(--accent-soft);color:var(--accent);padding:1px 9px;border-radius:999px;white-space:nowrap}
+
+.do h4,.win h4{font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 6px}
+.do h4{color:var(--ink)} .win h4{color:var(--amber)}
+.do ol{margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:5px;font-size:14.5px}
+.do ol li::marker{color:var(--accent);font-weight:700}
+.win{background:var(--amber-soft);border-radius:8px;padding:12px 14px}
+.win p{font-size:14.5px}
+
+pre{margin:0;background:var(--code-bg);border-radius:8px;padding:14px;overflow-x:auto;font-family:var(--f-mono);font-size:12.5px;line-height:1.6;color:var(--code-fg)}
+pre .c{color:var(--code-com)} pre .k{color:var(--code-key)} pre .s{color:var(--code-str)}
+.caption{font-size:12.5px;color:var(--muted);margin-top:6px}
+
+.done-row{display:flex;align-items:center;gap:10px;padding-top:4px}
+.done-row label{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;color:var(--muted)}
+.done-row input{width:20px;height:20px;accent-color:var(--amber);flex:none}
+
+.progress{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;display:flex;align-items:center;gap:12px}
+.bar{flex:1;height:8px;border-radius:999px;background:var(--line);overflow:hidden;min-width:0}
+.bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:999px;transition:width .3s}
+.ptxt{font-family:var(--f-mono);font-size:13px;color:var(--muted);white-space:nowrap}
+
+.after{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.after h2{font-size:17px}
+.after ul{margin:0;padding-left:1.2em;font-size:14.5px;display:flex;flex-direction:column;gap:4px}
+footer{font-size:13px;color:var(--muted)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.bar i{transition:none}}
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">自學路線圖 · M5StickS3</span>
+  <h1>StickS3 養成計畫</h1>
+  <p class="lede">用你手上的四樣硬體，從完全不會到能自己寫韌體：先讓機器動起來，再一路學會 C/C++、I2C、紅外線與 Sub-GHz 訊號、選單介面，最後把「用語音控制家電」整合成自己的作品。每一關都有動手目標和驗收標準。</p>
+  <div class="kit">
+    <div><b>M5StickS3</b><small>ESP32-S3 主機・螢幕・紅外線收發・麥克風喇叭・IMU</small></div>
+    <div><b>Scroll Unit</b><small>滾輪編碼器＋按鍵・I2C 0x40・當選單操作</small></div>
+    <div><b>CardKB</b><small>迷你鍵盤・I2C 0x5F・輸入文字與指令</small></div>
+    <div><b>RF Pack S3</b><small>CC1101 433MHz＋nRF24・SPI・Sub-GHz 訊號</small></div>
+  </div>
+</header>
+
+<div class="progress" aria-label="學習進度">
+  <div class="bar"><i id="barFill"></i></div>
+  <span class="ptxt" id="barTxt">0 / 9</span>
+</div>
+
+<div class="howto">
+  <h2>怎麼用這份計畫</h2>
+  <p>照編號一關一關往下走，每關做完勾「完成」，進度會自己記住。前期不用買齊，<b>第 0～4 關只要 StickS3 本體</b>就能開始；Scroll Unit、CardKB、RF Pack 到貨後再接上對應的關卡。</p>
+  <p class="tutor"><b>把 Claude Code 當你的隨身助教。</b>你不用背語法——遇到看不懂的錯誤、要補完程式、要查某顆晶片的腳位，就把畫面和這份計畫貼給它，請它解釋、生成、逐行帶你讀。你負責理解「為什麼這樣設計」，打字交給它。</p>
+</div>
+
+<div class="track">
+
+  <!-- 0 -->
+  <details class="stage" id="s0" open>
+    <summary><span class="num">0</span><span class="sh"><h3>開箱與環境準備</h3><span class="sub">先確認硬體是活的，再把 Mac 的開發環境裝好</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ USB-C 資料線</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">韌體/firmware</span><span class="tag">燒錄/flash</span><span class="tag">序列埠</span></dd></div>
+        <div><dt>時間</dt><dd>約 1 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>用瀏覽器到 <span class="mono">flash.pingequa.com</span> 或 <span class="mono">bruce.computer/flasher</span>，把 Bruce 韌體刷進去——這一步<b>不用寫程式</b>，先證明板子、線、Mac 三者都正常。</li>
+        <li>在 Mac 裝開發環境：安裝 <b>VS Code ＋ PlatformIO</b>（嵌入式開發用的編譯燒錄外掛）。請 Claude Code 幫你一步步裝好、建立第一個 StickS3 專案。</li>
+        <li>認識硬體地圖：ESP32-S3（大腦）、1.14 吋螢幕、正面按鈕、IMU、紅外線、Grove 孔、背面 Hat2 排針、麥克風喇叭。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>Bruce 開機畫面出現；PlatformIO 能編譯並上傳一個空白專案到 StickS3 不報錯。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="0">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 1 -->
+  <details class="stage" id="s1">
+    <summary><span class="num">1</span><span class="sh"><h3>第一支程式：Hello StickS3</h3><span class="sub">螢幕顯示、讀按鈕、序列埠除錯</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">setup/loop</span><span class="tag">變數・函式</span><span class="tag">數位輸入</span><span class="tag">序列埠除錯</span></dd></div>
+        <div><dt>時間</dt><dd>約 1～2 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>在螢幕印出文字，理解 <span class="mono">setup()</span>（開機跑一次）和 <span class="mono">loop()</span>（反覆跑）的差別。</li>
+        <li>讀正面藍色按鈕，按一下讓螢幕計數 ＋1，並用序列埠（Serial Monitor）同步印出數字——學會「用印訊息來除錯」。</li>
+        <li>把顏色、字體大小、位置玩一遍，熟悉座標。</li>
+      </ol></div>
+      <pre><span class="c">// 用 M5Unified 函式庫，它會自動辨識 StickS3</span>
+<span class="k">#include</span> &lt;M5Unified.h&gt;
+<span class="k">int</span> count = 0;
+<span class="k">void</span> setup() {
+  M5.begin();                 <span class="c">// 初始化螢幕、按鈕、電源</span>
+  M5.Display.setTextSize(3);
+  M5.Display.print(<span class="s">"Hello StickS3"</span>);
+}
+<span class="k">void</span> loop() {
+  M5.update();                <span class="c">// 每圈更新按鈕狀態</span>
+  <span class="k">if</span> (M5.BtnA.wasPressed()) { <span class="c">// 正面按鈕被按下</span>
+    count++;
+    M5.Display.clear();
+    M5.Display.setCursor(0, 0);
+    M5.Display.printf(<span class="s">"count: %d"</span>, count);
+    Serial.printf(<span class="s">"count=%d\n"</span>, count); <span class="c">// 送到序列埠除錯</span>
+  }
+}</pre>
+      <p class="caption">按鈕名稱、腳位依 StickS3 版本可能微調，交給 Claude Code 依規格確認。</p>
+      <div class="win"><h4>里程碑</h4><p>按一下按鈕，螢幕和序列埠都看到數字 ＋1。你看得懂這段每一行在做什麼。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="1">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 2 -->
+  <details class="stage" id="s2">
+    <summary><span class="num">2</span><span class="sh"><h3>感測器：讓機器「感覺」</h3><span class="sub">用 IMU 偵測搖晃與傾斜</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3（內建 IMU）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">浮點數</span><span class="tag">條件判斷</span><span class="tag">感測器讀值</span><span class="tag">門檻/threshold</span></dd></div>
+        <div><dt>時間</dt><dd>約 1 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>讀六軸 IMU 的加速度，印在螢幕上，邊搖邊看數字怎麼變。</li>
+        <li>設一個「門檻值」：當加速度超過某值就判定為「搖晃」，螢幕顯示一個表情或換底色。</li>
+        <li>做「螢幕朝下＝睡眠」：用 Z 軸判斷翻面，把背光關掉。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>搖一搖螢幕有反應、翻過來會「睡著」。你學會把感測器的連續數值變成「事件」。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="2">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 3 -->
+  <details class="stage" id="s3">
+    <summary><span class="num">3</span><span class="sh"><h3>接上 Scroll Unit：學會 I2C</h3><span class="sub">外接裝置怎麼跟主機對話</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ <b>Scroll Unit</b>（Grove）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">I2C 匯流排</span><span class="tag">裝置位址</span><span class="tag">函式庫</span><span class="tag">讀規格書</span></dd></div>
+        <div><dt>時間</dt><dd>約 2 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>先跑一支「I2C 掃描器」，掃出接在 Grove 上的裝置位址——應該看到 Scroll Unit 的 <span class="mono">0x40</span>。這一步讓你真正理解「位址」是什麼。</li>
+        <li>裝 M5 的 Scroll Unit 函式庫，讀滾輪的轉動值和按鍵狀態，印在螢幕上。</li>
+        <li>把「轉滾輪＝數字增減、按下＝歸零」做出來。</li>
+      </ol></div>
+      <pre><span class="c">// I2C 掃描器：找出 Grove 上接了哪些裝置</span>
+<span class="k">#include</span> &lt;Wire.h&gt;
+<span class="k">void</span> setup() {
+  Serial.begin(115200);
+  Wire.begin();               <span class="c">// Grove 的 I2C 腳位讓 Claude Code 依 StickS3 補上</span>
+  <span class="k">for</span> (<span class="k">uint8_t</span> a = 1; a &lt; 127; a++) {
+    Wire.beginTransmission(a);
+    <span class="k">if</span> (Wire.endTransmission() == 0)
+      Serial.printf(<span class="s">"found 0x%02X\n"</span>, a); <span class="c">// 掃到就印位址</span>
+  }
+}
+<span class="k">void</span> loop() {}</pre>
+      <div class="win"><h4>里程碑</h4><p>掃描器印出 0x40；轉滾輪時螢幕數字跟著動。你懂了「一條線上掛多個裝置、靠位址分辨」這個核心觀念。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="3">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 4 -->
+  <details class="stage" id="s4">
+    <summary><span class="num">4</span><span class="sh"><h3>第一次訊號複製：紅外線</h3><span class="sub">學會你家電視遙控器的碼，再發射出去</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3（內建紅外線收發）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">紅外線協定</span><span class="tag">時序/timing</span><span class="tag">編碼解碼</span><span class="tag">位元運算</span></dd></div>
+        <div><dt>時間</dt><dd>約 2～3 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>用紅外線接收，把電視遙控器的碼解出來，螢幕顯示協定（如 NEC）和數值。</li>
+        <li>把學到的碼存成變數，按按鈕時用紅外線發射出去，實際控制電視。</li>
+        <li>理解「固定碼可複製、滾動碼不行」，並知道只玩自己的設備。</li>
+      </ol></div>
+      <pre><span class="c">// 用 IRremoteESP8266：接收並印出遙控器的碼</span>
+<span class="k">#include</span> &lt;IRrecv.h&gt;
+<span class="k">#include</span> &lt;IRutils.h&gt;
+IRrecv irrecv(IR_RX_PIN);      <span class="c">// 腳位讓 Claude Code 依 StickS3 補上</span>
+decode_results r;
+<span class="k">void</span> setup() { Serial.begin(115200); irrecv.enableIRIn(); }
+<span class="k">void</span> loop() {
+  <span class="k">if</span> (irrecv.decode(&amp;r)) {
+    Serial.println(resultToHumanReadableBasic(&amp;r)); <span class="c">// 協定＋碼</span>
+    irrecv.resume();           <span class="c">// 準備收下一個</span>
+  }
+}</pre>
+      <div class="win"><h4>里程碑</h4><p>按你 StickS3 上的鍵，電視真的開關了。這是你的第一個「複製訊號控制家電」成果。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="4">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 5 -->
+  <details class="stage" id="s5">
+    <summary><span class="num">5</span><span class="sh"><h3>接上 CardKB：文字輸入與選單</h3><span class="sub">把操作介面做得好用</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ <b>Scroll Unit</b> ＋ <b>CardKB</b></dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">狀態機</span><span class="tag">陣列/清單</span><span class="tag">字串處理</span><span class="tag">事件迴圈</span></dd></div>
+        <div><dt>時間</dt><dd>約 2～3 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>用 Scroll Unit 做一個可上下捲動、按下選取的選單（這是你之後所有功能的共用骨架）。</li>
+        <li>接上 CardKB（I2C <span class="mono">0x5F</span>），讀鍵盤輸入，讓你能幫每個項目命名、輸入數值。</li>
+        <li>學「狀態機」：用一個變數記住現在在哪一頁（主選單／輸入中／執行中），畫面跟著切換。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>一個滾輪捲、鍵盤打字的選單系統成形。你學會用狀態機組織一個互動程式。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="5">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 6 -->
+  <details class="stage" id="s6">
+    <summary><span class="num">6</span><span class="sh"><h3>接上 RF Pack：Sub-GHz 與 SPI</h3><span class="sub">433MHz 無線訊號的擷取與分析</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ <b>RF Pack S3</b>（背面螺絲鎖）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">SPI 匯流排</span><span class="tag">調變 OOK/ASK</span><span class="tag">固定碼 vs 滾動碼</span><span class="tag">頻率</span></dd></div>
+        <div><dt>時間</dt><dd>約 3 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>先用 Bruce 的 Sub-GHz 功能擷取一個 433MHz 裝置（你自己的無線插座／門鈴），看它的頻率與波形。</li>
+        <li>進階：在自己的程式裡用 SPI 驅動 CC1101，接收 OOK 訊號，理解「SPI 和 I2C 的差別」。</li>
+        <li>把固定碼存下來、重放，驗證能不能控制那個裝置。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>擷取到自家無線插座的 433MHz 碼並成功重放。你現在同時掌握 I2C（週邊）和 SPI（高速模組）兩種匯流排。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="6">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 7 -->
+  <details class="stage" id="s7">
+    <summary><span class="num">7</span><span class="sh"><h3>整合作品：自製統一遙控器</h3><span class="sub">把前面學的全部串起來</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>四樣全上</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">資料持久化 NVS</span><span class="tag">模組化</span><span class="tag">專案架構</span></dd></div>
+        <div><dt>時間</dt><dd>約 1 週</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>做一個選單：滾輪選「IR 家電」或「RF 裝置」→ 進去選已存的鍵 → 發射。CardKB 用來新增、命名。</li>
+        <li>學「資料持久化」：用 Preferences/NVS 把學到的碼存進快閃記憶體，關機也不會不見。</li>
+        <li>把程式拆成幾個檔案（IR 一塊、RF 一塊、選單一塊），體會「模組化」為什麼重要。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>一台你自己寫的統一遙控器：能學、能存、能發，重開機資料還在。這是你的第一個完整作品。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="7">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 8 -->
+  <details class="stage" id="s8">
+    <summary><span class="num">8</span><span class="sh"><h3>連網與語音：走向 AI 助手</h3><span class="sub">Wi-Fi、API、小智，與串接電腦</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3（麥克風喇叭）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">Wi-Fi/網路</span><span class="tag">JSON</span><span class="tag">API 呼叫</span><span class="tag">ESP-IDF</span><span class="tag">MCP</span></dd></div>
+        <div><dt>時間</dt><dd>約 1～2 週</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>連 Wi-Fi，打一個 HTTP API、解析 JSON 回應，把結果顯示在螢幕——學會機器怎麼上網拿資料。</li>
+        <li>刷官方「小智」韌體，體驗語音助手；再研究怎麼把麥克風音訊串到電腦／雲端 AI。</li>
+        <li>進階終點：用 ESP-IDF 在小智裡加一個 MCP 工具，讓你「說一句話」就觸發第 7 關的紅外線／RF 發射——語音控制家電成形。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>對著機器說「幫我開電視」，它就發射紅外線開電視。你走完了從點燈到 AI 語音整合的一整條路。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="8">完成這一關</label></div>
+    </div>
+  </details>
+
+</div>
+
+<div class="after">
+  <h2>走完之後，你會的</h2>
+  <ul>
+    <li>C/C++ 嵌入式程式：變數、函式、條件、陣列、狀態機、模組化</li>
+    <li>硬體溝通三大介面：GPIO、I2C、SPI，以及怎麼讀規格書找位址與腳位</li>
+    <li>訊號知識：紅外線與 Sub-GHz 的編碼、調變、固定碼與滾動碼</li>
+    <li>連網與整合：Wi-Fi、API、JSON，以及 ESP-IDF 與 MCP 的 AI 整合</li>
+    <li>最重要的：把一個想法，一路做成一台能用的裝置</li>
+  </ul>
+</div>
+
+<footer>這份計畫以 M5StickS3、Scroll Unit、CardKB、RF Pack S3 四樣硬體設計。程式片段為示意骨架，確切腳位與函式庫版本請搭配 Claude Code 依你的實機補完。只分析與控制自有設備。</footer>
+</div>
+
+<script>
+(function(){
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.done-row input[data-k]'));
+  var fill = document.getElementById('barFill'), txt = document.getElementById('barTxt');
+  function save(k, v){ try{ localStorage.setItem('sticks3-course-'+k, v?'1':'0'); }catch(e){} }
+  function load(k){ try{ return localStorage.getItem('sticks3-course-'+k)==='1'; }catch(e){ return false; } }
+  function refresh(){
+    var done = 0;
+    boxes.forEach(function(b){
+      var st = b.closest('.stage');
+      if(b.checked){ done++; st.setAttribute('data-done','1'); } else { st.removeAttribute('data-done'); }
+    });
+    var pct = Math.round(done / boxes.length * 100);
+    fill.style.width = pct + '%';
+    txt.textContent = done + ' / ' + boxes.length;
+  }
+  boxes.forEach(function(b){
+    b.checked = load(b.getAttribute('data-k'));
+    b.addEventListener('change', function(){ save(b.getAttribute('data-k'), b.checked); refresh(); });
+  });
+  refresh();
+})();
+</script>
+
+</body></html>
