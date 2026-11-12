@@ -17,7 +17,7 @@
 | `docs/` | PRD、養成計畫、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
-| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | 尚未建立 |
+| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 骨架已編譯，待實機驗收 |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
 
@@ -40,6 +40,7 @@
 本體只有一個 Grove 孔、無分接線。**CardKB 和 Scroll Unit 永遠二選一，不會同時存在。**
 → 開機時先做 I2C 掃描，偵測到 `0x5F` 就啟用 CardKB 流程，偵測到 `0x40` 就啟用 Scroll 流程，都沒有就走純 RF/攜帶模式。**不要假設哪個一定在。**
 → Grove 匯流排是 `M5.Ex_I2C`（SDA=G9 / SCL=G10）；內部匯流排 `M5.In_I2C`（G47/G48）上固定有 `0x18` ES8311、`0x68` BMI270、`0x6E` M5PM1。Grove 供電要 `M5.Power.setExtOutput(true)`。
+→ **`M5.Ex_I2C` 要自己 `begin()`**：M5Unified 0.3.0 只有在 `cfg.external_imu/rtc`（預設皆 false）時才會呼叫 `Ex_I2C.begin()`（原始碼 `_begin_rtc_imu`）。`selftest/` 沒呼叫，未 begin 時掃描是否仍有效尚未確認 → 驗收時 Grove 的 `(none)` 不能當作配件偵測正常的證據，以 `firmware/` M0 插配件實測為準。
 
 ### 鐵則二：互斥狀態機（Mutually Exclusive State Machine）
 8MB PSRAM 與中斷資源有限，**同一時間只有一個模式的重資源在運作**，切換模式時必須關閉前一個模式的資源再開新的。這是整個韌體的骨架。
@@ -52,7 +53,12 @@
 | 空中體感滑鼠 | BLE HID, BMI270, Scroll(I2C) | Wi-Fi, ES8311, RF Pack |
 
 ### 鐵則三：實體急停（Physical Kill Switch）
-任何模式下、尤其模式 2（HID 外掛），**拍一下正面實體按鈕（BtnA / G11）= 立即停止送出所有 HID 封包並斷線**。這段邏輯必須是最高優先、不可被其他工作阻塞（放在獨立高優先 task 或中斷旗標）。
+按鍵配置見第 2 節「按鍵配置決議」。
+- **模式 2（HID 外掛）**：**拍一下正面實體按鈕（BtnA / G11）= 立即停止送出所有 HID 封包並斷線**。走 G11 下降緣硬體中斷，不經主迴圈。
+- **所有模式**：**側鍵 B 按住滿 3 秒 = 急停備援**（不等放開）。
+- **兩段式實作**（`firmware/src/killswitch.*`）：第一段在 ISR＋最高優先權 task 關閉「輸出閘門」（`killswitch::outputAllowed()`），**日後 HID/RF 送出任何封包前都必須先查這個閘門**；第二段由主迴圈呼叫 `mode_manager::emergencyStop()` → 目前模式 `exit()` → `Safe`。
+- 急停後停在 `Safe`（紅底 KILLED），**B 短按才回到急停前的模式並重新 `enter()`**，不會自動續跑。
+- 急停 task 與 ISR 內不可呼叫 `Serial`（USB CDC 沒接電腦時可能卡住）或任何可能阻塞的函式。
 
 ### 鐵則四：腳位絕不臆測
 腳位一律依實機驗證過的資料，不確定就先停下來問 Miles 或查官方文件，**不要填一個看起來合理的數字**。以下為已驗證腳位（來源：Bruce `boards/m5stack-sticks3`，2026-11-12 以 `acceptance-test` v5 實機驗證）：
@@ -80,9 +86,20 @@
 3. **掌上射頻工具**：CC1101 做固定碼（PT2262/SC2260/EV1527）學習、存 NVS、一鍵複製發射；RSSI 掃描以柱狀/瀑布圖顯示，近訊號源時喇叭發蓋革式嗶聲。Scroll Unit 切頻率/選單。台灣遙控器常見 315MHz 與 433.92MHz，兩者都要支援。
 4. **空中體感滑鼠**：BMI270 姿態解算（Pitch/Yaw→游標），BLE HID 當藍牙滑鼠。正面鍵＝左鍵，Scroll 滾動＝捲動，Scroll 按壓＝右鍵。
 
-### ⚠ 待決議：正面鍵 A 的職責衝突
-目前規格讓正面鍵 A 同時負責：(1) 骨架階段的「循環切換模式」、(2) 鐵則三的「急停」、(3) 模式 4 的「滑鼠左鍵」。三者互相衝突（例如模式 2 中按 A 想切模式卻觸發急停，或模式 4 點左鍵觸發急停）。
-**開始寫骨架前必須先和 Miles 確認按鍵配置**（候選方向：側鍵 B 負責切模式／選單；A 在模式 2 專職急停；模式 4 的急停改為長按或其他手勢）。決議後更新本節與鐵則三。
+### 按鍵配置決議（2026-11-13，Miles 選定「方案 1」）
+原問題：正面鍵 A 同時被分配到切換模式、急停、模式 4 左鍵，互相衝突。決議為「**A＝做事／停，B＝系統鍵**」：
+
+| 操作 | 功能 |
+| :-- | :-- |
+| B 短按（< 1 秒） | 切到下一模式（Desktop → HidAgent → RfTool → AirMouse 循環）；在 `Safe` 中＝解除急停、回原模式 |
+| B 按住 1～3 秒後放開 | 序列埠重印狀態報告 |
+| B 按住滿 3 秒 | 全域急停備援（立即觸發，放開不再產生事件） |
+| A（模式 2） | 按下即急停（硬體中斷） |
+| A（模式 4） | 滑鼠左鍵（模式 4 急停走 B 長按 3 秒） |
+| A（模式 1／3） | 模式內主動作（各里程碑再定義） |
+| 電源鍵 | **韌體不使用**：單擊＝硬體重置、雙擊＝關機，且 M5Unified 需經 I2C 輪詢 M5PM1 才讀得到，不夠即時 |
+
+被否決的方案：A 全域專職急停（模式 4 失去正面左鍵）、A 長按 1 秒急停（慌亂時撐不滿 1 秒，模式 2 不可靠）。
 
 ## 3. 技術棧與函式庫（版本已在驗收專案中實測）
 - **建置**：PlatformIO，`platform = espressif32@6.12.0`、`board = esp32-s3-devkitc-1`、Arduino framework。PSRAM／Flash 設定（照抄 `selftest/platformio.ini`，已驗證 8MB PSRAM 正常）：
@@ -102,8 +119,10 @@
 ## 4. 建議模組切分（放在 `firmware/src/`）
 ```
 firmware/src/
-  main.cpp            // 進入點：init → mode_manager loop
-  mode_manager.*      // 互斥狀態機；模式切換時呼叫各 HAL 的 enter()/exit()
+  config.h            // 具名常數：腳位、I2C 位址、按鍵門檻（M0 已建）
+  main.cpp            // 進入點：init → mode_manager loop（M0 已建）
+  mode_manager.*      // 互斥狀態機；模式切換時呼叫各 HAL 的 enter()/exit()（M0 已建）
+  ui_status.*         // M0 狀態畫面＋序列埠報告（M0 已建）
   hal_power.*         // Wi-Fi/BLE/ES8311/RF/USB 的開關與低功耗休眠（鐵則二核心）
   input_hal.*         // 開機 I2C 掃描，辨識 CardKB(0x5F)/Scroll(0x40)，統一輸入事件
   killswitch.*        // 正面按鈕急停，最高優先（鐵則三）
@@ -121,7 +140,7 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
 
 ## 6. 建置順序（不要一次做四個模式）
 0. ✅ **硬體驗收**（2026-11-12）：`selftest/`、`acceptance-test/` 全數通過。
-1. **骨架**（下一步）：`firmware/` PlatformIO 專案、`mode_manager` 狀態機、`input_hal` I2C 偵測、`killswitch`。能開機、能切換「空模式」。**先解決第 2 節的按鍵待決議。**
+1. **骨架**（2026-11-13 程式完成、編譯通過，待實機驗收）：`firmware/` PlatformIO 專案、`mode_manager` 狀態機、`input_hal` I2C 偵測、`killswitch`。能開機、能切換「空模式」。按鍵配置已決議（第 2 節）。
 2. **模式 1 離線版**：Grok Idle 表情＋眨眼，不連網。驗證顯示與狀態機。
 3. 模式 1 疊音訊與 Wi-Fi 後端 → 模式 3（RF，有實體成果最有成就感）→ 模式 4（BLE 滑鼠）→ 模式 2（最複雜，留最後）。
 每做一個切片就編譯、燒錄、實機驗證、`git commit` + `git push` 再往下。
