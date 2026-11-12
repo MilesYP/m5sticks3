@@ -145,5 +145,10 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
 - 動工前先給簡短計畫與要改的檔案，取得同意再寫（Miles 說「開始實作」才動手；說「先討論」就停在需求與計畫）。
 - 不確定的腳位、板子設定、函式庫版本，**先問或先查，不要臆測**。
 - 解釋專有名詞；提供可直接編譯/燒錄的完整片段與步驟。
-- 每個里程碑結束給一句「怎麼驗收」，並提醒 commit + push。
+- 每個里程碑結束給一句「怎麼驗收」。
+- **進度與記憶以 repo 為唯一真相來源**（Miles 會在 Claude Code CLI、claude.ai/Cowork 等不同 Session 之間切換，各 Session 的記憶不互通，只有 repo 大家都讀得到）。每個里程碑或工作階段結束時：
+  1. 在 `docs/PROGRESS.md` 最上方新增一筆紀錄（格式見該檔說明）：日期、Session 類型、做了什麼、驗收結果、遇到的坑、下一步。
+  2. 新的設計決議或工程規則寫回本檔（`CLAUDE.md`）對應章節。
+  3. `git commit` + `git push`。
+- 開始新工作前，先讀 `docs/PROGRESS.md` 最上面幾筆，掌握其他 Session 做到哪裡。
 - 若在雲端環境作業：PlatformIO 套件伺服器可能連不上，編譯以 Miles 的 Mac 為準；寫入 Mac 的檔案後要用 checksum（如 `md5`）確認內容正確。

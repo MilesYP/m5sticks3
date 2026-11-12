@@ -15,6 +15,7 @@
 1. `CLAUDE.md`：工程約定、鐵則一～五、已驗證腳位、函式庫版本
 2. `docs/M5StickS3+RF Pack S3.md`：PRD
 3. `docs/hardware-acceptance-test.md`：硬體驗收紀錄與實測結論
+4. `docs/PROGRESS.md`：跨 Session 進度紀錄（先看「目前狀態」與最上面幾筆）
 
 **背景**：硬體已驗收完成。`selftest/` 與 `acceptance-test/` 是驗收用的獨立專案，**不要改它們**。正式韌體要建在新的 `firmware/` 子資料夾（獨立 PlatformIO 專案，設定照抄 `selftest/platformio.ini`）。
 
@@ -39,7 +40,7 @@
 3. 插 CardKB 或 Scroll 開機，能正確辨識（若手邊沒有配件，至少顯示「無」）。
 4. 觸發急停後立即進入安全狀態，畫面有明確提示。
 
-每一步結束請附：改了哪些檔、如何編譯燒錄（長按電源鍵到綠燈閃 → Upload → 短按電源鍵）、怎麼驗收、以及提醒我 `git commit` + `git push`。
+每一步結束請附：改了哪些檔、如何編譯燒錄（長按電源鍵到綠燈閃 → Upload → 短按電源鍵）、怎麼驗收。M0 完成時依 `CLAUDE.md` 第 9 節更新 `docs/PROGRESS.md`，再 `git commit` + `git push`。
 
 === PROMPT 結束 ===
 
