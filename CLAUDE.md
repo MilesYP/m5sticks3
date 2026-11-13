@@ -139,7 +139,7 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
 - **授權注意**：該 repo 的 `airplay/` 是 GPL-3.0，含它的韌體要連帶 GPL。若借用該段程式，sketch 要標註。
 
 ## 6. 建置順序（不要一次做四個模式）
-0. ✅ **硬體驗收**（2026-11-12）：`selftest/`、`acceptance-test/` 全數通過。
+0. ⚠ **硬體驗收**：`selftest/`（StickS3 本體）通過；RF Pack 的 nRF24 與 CC1101 SPI 通過，但 **CC1101 接收故障（2026-11-13 確認，已向賣家申請換貨）**。**新 RF Pack 到貨並通過驗收（v5 SPI ＋ v6 RSSI，見 `docs/PROGRESS.md`）前，不做依賴 CC1101 收發的開發（M3）**；其他里程碑照常。
 1. **骨架**（2026-11-13 程式完成、編譯通過，待實機驗收）：`firmware/` PlatformIO 專案、`mode_manager` 狀態機、`input_hal` I2C 偵測、`killswitch`。能開機、能切換「空模式」。按鍵配置已決議（第 2 節）。
 2. **模式 1 離線版**：Grok Idle 表情＋眨眼，不連網。驗證顯示與狀態機。
 3. 模式 1 疊音訊與 Wi-Fi 後端 → 模式 3（RF，有實體成果最有成就感）→ 模式 4（BLE 滑鼠）→ 模式 2（最複雜，留最後）。
