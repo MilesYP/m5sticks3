@@ -1,0 +1,813 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>StickS3 執行計劃</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: a phone-first learning track. Numbered stages down a left rail (the order IS the curriculum), each stage a card with goal / hardware / concepts / hands-on / milestone. Blueprint-ish maker aesthetic. */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --ink:#15202a; --muted:#5a6672; --line:#d7dde3;
+  --accent:#0e7c86;            /* signal teal */
+  --accent-soft:#d8eef0;
+  --amber:#b26a00; --amber-soft:#faecd4;   /* milestones */
+  --code-bg:#0f1720; --code-fg:#dbe4ec; --code-com:#7d8ea0; --code-key:#6fd3c6; --code-str:#e0b071;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d1218; --surface:#161e26; --ink:#e6ecf2; --muted:#93a1af; --line:#28333d;
+  --accent:#49c3cc; --accent-soft:#113037; --amber:#eaa94a; --amber-soft:#3a2a12;
+  --code-bg:#0a1016; --code-fg:#dbe4ec; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1218; --surface:#161e26; --ink:#e6ecf2; --muted:#93a1af; --line:#28333d;
+  --accent:#49c3cc; --accent-soft:#113037; --amber:#eaa94a; --amber-soft:#3a2a12;
+  --code-bg:#0a1016; --code-fg:#dbe4ec; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.65;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 56px}
+.wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+h1,h2,h3{margin:0;line-height:1.3;text-wrap:balance}
+p{margin:0}
+a{color:var(--accent)}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+
+header{display:flex;flex-direction:column;gap:12px;padding-top:6px}
+header h1{font-size:clamp(28px,6vw,42px);font-weight:900;letter-spacing:.01em}
+.lede{color:var(--muted);max-width:60ch}
+
+.kit{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kit div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.kit b{display:block;font-size:14.5px}
+.kit small{color:var(--muted);font-size:12.5px;line-height:1.45}
+
+.howto{background:var(--accent-soft);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.howto h2{font-size:16px}
+.howto p{font-size:14.5px}
+.howto .tutor{font-size:14px;color:var(--ink)}
+.howto .tutor b{color:var(--accent)}
+
+.track{display:flex;flex-direction:column;gap:18px}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.stage > summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:16px 18px}
+.stage > summary::-webkit-details-marker{display:none}
+.num{width:40px;height:40px;flex:none;border-radius:10px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--f-mono);font-weight:700;font-size:17px}
+.stage[data-done="1"] .num{background:var(--amber)}
+.sh{display:flex;flex-direction:column;gap:3px;min-width:0}
+.sh h3{font-size:18px;font-weight:900}
+.sh .sub{font-size:13px;color:var(--muted)}
+.chev{color:var(--muted);font-size:13px;white-space:nowrap}
+.stage[open] .chev .c-close{display:none}
+.stage:not([open]) .chev .c-open{display:none}
+.body{padding:0 18px 20px;display:flex;flex-direction:column;gap:16px;border-top:1px solid var(--line)}
+.body{padding-top:16px}
+
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.meta div{min-width:0}
+.meta dt{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:3px}
+.meta dd{margin:0;font-size:14px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:12px;font-weight:600;background:var(--accent-soft);color:var(--accent);padding:1px 9px;border-radius:999px;white-space:nowrap}
+
+.do h4,.win h4{font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 6px}
+.do h4{color:var(--ink)} .win h4{color:var(--amber)}
+.do ol{margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:5px;font-size:14.5px}
+.do ol li::marker{color:var(--accent);font-weight:700}
+.win{background:var(--amber-soft);border-radius:8px;padding:12px 14px}
+.win p{font-size:14.5px}
+
+pre{margin:0;background:var(--code-bg);border-radius:8px;padding:14px;overflow-x:auto;font-family:var(--f-mono);font-size:12.5px;line-height:1.6;color:var(--code-fg)}
+pre .c{color:var(--code-com)} pre .k{color:var(--code-key)} pre .s{color:var(--code-str)}
+.caption{font-size:12.5px;color:var(--muted);margin-top:6px}
+
+.done-row{display:flex;align-items:center;gap:10px;padding-top:4px}
+.done-row label{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;color:var(--muted)}
+.done-row input{width:20px;height:20px;accent-color:var(--amber);flex:none}
+
+.progress{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;display:flex;align-items:center;gap:12px}
+.bar{flex:1;height:8px;border-radius:999px;background:var(--line);overflow:hidden;min-width:0}
+.bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:999px;transition:width .3s}
+.ptxt{font-family:var(--f-mono);font-size:13px;color:var(--muted);white-space:nowrap}
+
+.after{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.after h2{font-size:17px}
+.after ul{margin:0;padding-left:1.2em;font-size:14.5px;display:flex;flex-direction:column;gap:4px}
+footer{font-size:13px;color:var(--muted)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.bar i{transition:none}}
+
+/* ── 2026-11 新增：目前進度 / M0 圖解 ── */
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:16px}
+.sec > h2{font-size:21px;font-weight:900}
+.sec .lede2{font-size:14.5px;color:var(--muted)}
+.sec h3.sub3{font-size:15.5px;font-weight:900;margin-top:4px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+:root{--ok:#2f8f4e;--ok-soft:#dcf0e2;--gate:#8a4fbf;--gate-soft:#eee2f8;--todo:#8b97a3}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ok:#5cc47e;--ok-soft:#173222;--gate:#c193ee;--gate-soft:#2c1f3a;--todo:#6b7783}}
+:root[data-theme="dark"]{--ok:#5cc47e;--ok-soft:#173222;--gate:#c193ee;--gate-soft:#2c1f3a;--todo:#6b7783}
+.st-done{background:var(--ok)} .st-doing{background:var(--accent)} .st-next{background:var(--amber)} .st-todo{background:var(--todo)} .st-gate{background:var(--gate)}
+
+.road{display:grid;grid-template-columns:1fr;gap:14px}
+@media (min-width:760px){.road{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)}}
+.tl{list-style:none;margin:0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:15px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 14px 42px}
+.tl li:last-child{padding-bottom:0}
+.tl .pin{position:absolute;left:6px;top:3px;width:20px;height:20px;border-radius:50%;border:3px solid var(--surface);box-shadow:0 0 0 1px var(--line)}
+.tl .ttl{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.tl .ttl b{font-size:15px}
+.tl .code{font-family:var(--f-mono);font-size:12px;font-weight:700;color:var(--muted)}
+.pill{font-size:11.5px;font-weight:700;padding:0 8px;border-radius:999px;white-space:nowrap;color:#fff}
+.tl p{font-size:13.5px;color:var(--muted);margin-top:2px}
+.tl li.is-doing .ttl b{color:var(--accent)}
+.lane{background:var(--gate-soft);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.lane h3{font-size:15px;color:var(--gate)}
+.lane ol{margin:0;padding-left:1.25em;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+.lane ol li::marker{color:var(--gate);font-weight:700}
+.lane .now{font-weight:700}
+.lane .gatebox{border:2px dashed var(--gate);border-radius:10px;padding:10px 12px;font-size:13.5px;background:var(--surface)}
+.lane .gatebox b{color:var(--gate)}
+.lane small{font-size:12.5px;color:var(--muted)}
+
+.maptbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.maptbl th,.maptbl td{border-bottom:1px solid var(--line);padding:7px 6px;text-align:left;vertical-align:top}
+.maptbl th{font-size:11.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.tblwrap{overflow-x:auto}
+
+/* 模擬器 */
+.sim{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
+@media (min-width:760px){.sim{grid-template-columns:auto minmax(0,1fr)}}
+.dev{justify-self:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+.body-shell{position:relative;background:#2a2f35;border-radius:26px;padding:22px 16px 18px;box-shadow:inset 0 0 0 2px #444b53,0 6px 18px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:16px}
+.body-shell canvas{width:203px;height:360px;border-radius:4px;background:#000;image-rendering:pixelated;box-shadow:0 0 0 6px #111}
+.btnA{width:120px;height:44px;border-radius:12px;border:0;background:#2f7de1;color:#fff;font:700 15px var(--f-body);cursor:pointer;box-shadow:0 4px 0 #1b4f93;touch-action:none;user-select:none;-webkit-user-select:none}
+.btnA:active,.btnA.down{transform:translateY(3px);box-shadow:0 1px 0 #1b4f93}
+.btnB{position:absolute;right:-30px;top:110px;width:30px;height:84px;border-radius:0 10px 10px 0;border:0;background:#59616b;color:#fff;font:700 13px var(--f-mono);cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;writing-mode:vertical-rl}
+.btnB.down{background:#3d434a;right:-26px}
+.holdbar{width:240px;display:flex;flex-direction:column;gap:3px}
+.holdtrack{position:relative;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--accent-soft) 0 33.3%,var(--amber-soft) 33.3% 100%);overflow:hidden;border:1px solid var(--line)}
+.holdtrack i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent)}
+.holdtrack i.r{background:var(--amber)} .holdtrack i.k{background:#d33}
+.holdlbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-family:var(--f-mono)}
+.simctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px}
+.simctl select,.simctl button{font:13px var(--f-body);padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.serial{background:var(--code-bg);color:var(--code-fg);border-radius:10px;padding:12px;font:12px/1.55 var(--f-mono);height:360px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.serial .t{color:var(--code-com)} .serial .w{color:#ff7b7b} .serial .m{color:var(--code-key)}
+.serhead{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--muted);margin-bottom:6px}
+.hint{font-size:12.5px;color:var(--muted)}
+kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--surface)}
+
+.diag{width:100%;min-width:620px;height:auto;display:block}
+.flow{display:grid;grid-template-columns:1fr;gap:12px}
+@media (min-width:700px){.flow{grid-template-columns:1fr 1fr}}
+.card2{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.card2 h4{font-size:14px;margin:0}
+.card2 ol,.card2 ul{margin:0;padding-left:1.25em;font-size:13.5px;display:flex;flex-direction:column;gap:4px}
+.card2 code,.sec p code,.sec li code,.sec td code{font-family:var(--f-mono);font-size:12.5px;background:var(--accent-soft);color:var(--accent);padding:0 4px;border-radius:4px}
+.term{font-size:13px;color:var(--muted)}
+.term b{color:var(--ink)}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.checks label{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.checks input{width:18px;height:18px;margin-top:3px;accent-color:var(--ok);flex:none}
+.notice{background:var(--gate-soft);border-left:4px solid var(--gate);border-radius:8px;padding:10px 14px;font-size:14px}
+.notice b{color:var(--gate)}
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">自學路線圖 · M5StickS3</span>
+  <h1>StickS3 執行計劃</h1>
+  <p class="lede">用你手上的四樣硬體，從完全不會到能自己寫韌體：先讓機器動起來，再一路學會 C/C++、I2C、紅外線與 Sub-GHz 訊號、選單介面，最後把「用語音控制家電」整合成自己的作品。每一關都有動手目標和驗收標準。</p>
+  <div class="kit">
+    <div><b>M5StickS3</b><small>ESP32-S3 主機・螢幕・紅外線收發・麥克風喇叭・IMU</small></div>
+    <div><b>Scroll Unit</b><small>滾輪編碼器＋按鍵・I2C 0x40・當選單操作</small></div>
+    <div><b>CardKB</b><small>迷你鍵盤・I2C 0x5F・輸入文字與指令</small></div>
+    <div><b>RF Pack S3</b><small>CC1101 433MHz＋nRF24・SPI・Sub-GHz 訊號</small></div>
+  </div>
+</header>
+
+<div class="progress" aria-label="學習進度">
+  <div class="bar"><i id="barFill"></i></div>
+  <span class="ptxt" id="barTxt">0 / 9</span>
+</div>
+
+<div class="howto">
+  <h2>怎麼用這份計畫</h2>
+  <p>照編號一關一關往下走，每關做完勾「完成」，進度會自己記住。前期不用買齊，<b>第 0～4 關只要 StickS3 本體</b>就能開始；Scroll Unit、CardKB、RF Pack 到貨後再接上對應的關卡。</p>
+  <p class="tutor"><b>把 Claude Code 當你的隨身助教。</b>你不用背語法——遇到看不懂的錯誤、要補完程式、要查某顆晶片的腳位，就把畫面和這份計畫貼給它，請它解釋、生成、逐行帶你讀。你負責理解「為什麼這樣設計」，打字交給它。</p>
+</div>
+
+<!-- ═══════════ 2026-11 新增：目前進度 ═══════════ -->
+<section class="sec" id="now">
+  <span class="eyebrow">目前進度 · 更新於 2026-11-13</span>
+  <h2>韌體路線圖：做到哪、接下來做什麼</h2>
+  <p class="lede2">下面這條線是正式韌體 <code>firmware/</code> 的里程碑（M0～M4），依 <code>CLAUDE.md</code> 第 6 節的建置順序排列；右邊是 RF Pack 換貨的支線，它只會卡住「M3 的燒錄實測」，不卡開發。</p>
+  <div class="legend">
+    <span><i class="dot st-done"></i>完成</span>
+    <span><i class="dot st-doing"></i>進行中</span>
+    <span><i class="dot st-next"></i>下一步</span>
+    <span><i class="dot st-todo"></i>排隊中</span>
+    <span><i class="dot st-gate"></i>可開發，燒錄要等新 RF Pack</span>
+  </div>
+
+  <div class="notice" style="margin:10px 0 0"><b>2026-11-15 更新</b>：UI 與架構定案 — 雲端中控（Cloudflare＋GPT-Live）、語音常駐、直橫雙版面、紅外線獨立成 M1.5、M3 分 S3 軌／RF 軌。畫面細節見 <a href="StickS3 介面規格.html">StickS3 介面規格</a>。</div>
+  <div class="road">
+    <ol class="tl">
+      <li><i class="pin st-done"></i>
+        <div class="ttl"><span class="code">H</span><b>硬體驗收</b><span class="pill st-done">完成 11-12</span></div>
+        <p>StickS3 本體自檢通過；RF Pack 的 nRF24、CC1101 SPI 讀寫通過。11-13 確認 <b>CC1101 收訊故障</b> → 申請換貨。</p></li>
+      <li class="is-doing"><i class="pin st-doing"></i>
+        <div class="ttl"><span class="code">M0</span><b>韌體骨架</b><span class="pill st-doing">待實機驗收</span></div>
+        <p>狀態機、Grove 偵測、急停、狀態畫面都寫好並編譯通過。下一步燒進板子照驗收清單測一遍。<a href="#m0">→ 看 M0 長怎樣</a></p></li>
+      <li><i class="pin st-next"></i>
+        <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-next">下一步</span></div>
+        <p>圓角眼睛＋情緒：待機呼吸眨眼、開心、生氣、驚嚇、想睡睡著；搖晃／拍打／聲音觸發。直橫雙版面。細節見 <a href="StickS3 介面規格.html">介面規格</a>。</p></li>
+      <li><i class="pin st-todo"></i>
+        <div class="ttl"><span class="code">M1-B</span><b>語音對話（常駐）</b><span class="pill st-todo">排隊</span></div>
+        <p>GPT-Live 語音＋Cloudflare 中控（存對話、工具呼叫）；長按 A／喚醒詞叫出，上下分區不蓋表情，講完收起。</p></li>
+      <li><i class="pin st-todo"></i>
+        <div class="ttl"><span class="code">M1.5</span><b>紅外線萬能遙控器</b><span class="pill st-todo">排隊・S3 可做</span></div>
+        <p>S3 本體內建紅外線（TX G46／RX G42）。學習電視／冷氣固定碼、存 NVS、重放。不依賴 RF 版。</p></li>
+      <li><i class="pin st-todo"></i>
+        <div class="ttl"><span class="code">M4</span><b>空中體感滑鼠</b><span class="pill st-todo">排隊</span></div>
+        <p>BMI270 姿態 → 低通濾波 → BLE HID 滑鼠；A＝左鍵。啟動時語音暫停。</p></li>
+      <li><i class="pin st-todo"></i>
+        <div class="ttl"><span class="code">M2</span><b>HID 外掛（語音驅動）</b><span class="pill st-todo">最後做</span></div>
+        <p>語音指揮後端模型操作電腦：截圖→視覺模型→座標→S3 當 USB 鍵鼠執行。先做 PC／macOS。A 鍵硬體急停。</p></li>
+      <li><i class="pin st-gate"></i>
+        <div class="ttl"><span class="code">M3</span><b>無線電工具箱</b><span class="pill st-gate">S3 軌可做・RF 軌等新板</span></div>
+        <p>把 Bruce 的功能移植成友善介面。<b>S3 軌</b>（Wi-Fi／BLE 掃描與實驗，限自有設備）用 S3 本體，可與 M4／M2 並行；<b>RF 軌</b>（433MHz 學習重放、RSSI 掃描、nRF24）走 CC1101，等新 RF 版驗收。</p></li>
+    </ol>
+
+    <aside class="lane" aria-label="RF Pack 換貨支線">
+      <h3>RF Pack S3 換貨支線</h3>
+      <ol>
+        <li>11-13 確認故障、決定換貨（不退款）</li>
+        <li class="now">寄信給 PINGEQUA ← 目前在這</li>
+        <li>賣家回覆／RMA 編號</li>
+        <li>寄回舊板</li>
+        <li>收到新板</li>
+        <li>重跑驗收：<b>v5 SPI</b> ＋ <b>v6 RSSI</b>（有天線／拔天線／按遙控器）</li>
+      </ol>
+      <div class="gatebox"><b>合流點</b>：v5＋v6 都通過 → 才把含 RF 功能的韌體燒進「StickS3＋新 RF Pack」做 M3 實測。</div>
+      <small>退換期限約 <b>2026-11-26</b>。等待期間開發照常，含 M3 的程式也照寫；M1-A／M1-B／M1.5／M4／M2 與 M3 的 S3 軌只用 S3 本體，可隨時燒錄。正常背景 RSSI 應約 -95～-105 dBm，且拔天線會變。</small>
+    </aside>
+  </div>
+
+  <h3 class="sub3">養成關卡 ↔ 韌體里程碑對照</h3>
+  <div class="tblwrap"><table class="maptbl">
+    <thead><tr><th>關卡</th><th>對應里程碑</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr><td>0 開箱與環境</td><td>硬體驗收</td><td>✅ Bruce 已刷、PlatformIO 可編譯燒錄</td></tr>
+      <tr><td>1 Hello StickS3</td><td><code>selftest/</code>、M0</td><td>✅ 自檢通過；M0 待燒錄</td></tr>
+      <tr><td>2 IMU 感測器</td><td>M4 空中滑鼠</td><td>⏳ 排隊</td></tr>
+      <tr><td>3 Scroll Unit／I2C</td><td>M0 Grove 偵測</td><td>🟡 M0 會掃描 0x40，待插配件實測</td></tr>
+      <tr><td>4 紅外線</td><td><code>M1.5</code> 紅外線遙控器</td><td>🟢 已排入・S3 可做</td></tr>
+      <tr><td>5 CardKB＋狀態機</td><td>M0 狀態機、M1 靜音輸入</td><td>🟡 狀態機已寫好</td></tr>
+      <tr><td>6 RF Pack／SPI</td><td>M3</td><td>🟣 SPI 已驗證；收訊等新板</td></tr>
+      <tr><td>7 統一遙控器</td><td>M3＋NVS</td><td>⏳ 排隊</td></tr>
+      <tr><td>8 連網與語音</td><td>M1-B</td><td>⏳ 排隊</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ═══════════ 2026-11 新增：M0 圖解 ═══════════ -->
+<section class="sec" id="m0">
+  <span class="eyebrow">M0 圖解 · firmware/ 骨架</span>
+  <h2>M0 燒進板子後：畫面與操作</h2>
+  <p class="lede2">M0 還沒有任何真功能——四個模式都是「空殼」，切換時只在序列埠印出 <code>exit()</code>／<code>enter()</code>。它要驗證的是骨架：<b>狀態機切得對、急停夠快、Grove 配件認得出來</b>。下面的模擬器照 <code>ui_status.cpp</code> 的座標與顏色畫，按鍵邏輯照 <code>main.cpp</code>／<code>input_hal.cpp</code> 實作，可以直接按按看。</p>
+
+  <div class="sim">
+    <div class="dev">
+      <div class="body-shell">
+        <canvas id="lcd" width="270" height="480" aria-label="StickS3 螢幕模擬"></canvas>
+        <button class="btnA" id="bA" aria-label="正面按鍵 A">A</button>
+        <button class="btnB" id="bB" aria-label="側鍵 B">B 側鍵</button>
+      </div>
+      <div class="holdbar" aria-hidden="true">
+        <div class="holdtrack"><i id="holdFill"></i></div>
+        <div class="holdlbl"><span>0</span><span>1s 重印報告</span><span>3s 急停</span></div>
+      </div>
+      <div class="simctl">
+        <label>Grove 配件
+          <select id="grove"><option>None</option><option>CardKB</option><option>Scroll</option></select></label>
+        <button id="reboot">重新開機</button>
+      </div>
+      <p class="hint">鍵盤：<kbd>A</kbd> 正面鍵、按住 <kbd>B</kbd> 側鍵。換 Grove 配件要重新開機才會重掃（M0 只在開機掃一次）。</p>
+    </div>
+    <div>
+      <div class="serhead"><span>序列埠監看（Serial Monitor，115200）</span><button id="clr" class="hint" style="border:0;background:none;cursor:pointer;color:var(--accent)">清除</button></div>
+      <div class="serial" id="ser" role="log" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <h3 class="sub3">狀態機：誰會跳到誰</h3>
+  <div class="tblwrap"><svg class="diag" viewBox="0 0 680 300" role="img" aria-label="M0 狀態機圖">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+      <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d33"/></marker>
+      <marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ok)"/></marker>
+    </defs>
+    <style>
+      .nb{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+      .nt{fill:var(--ink);font:700 15px var(--f-mono);text-anchor:middle}
+      .ns{fill:var(--muted);font:11px var(--f-body);text-anchor:middle}
+      .ln{stroke:var(--muted);stroke-width:1.5;fill:none}
+      .lb{fill:var(--muted);font:12px var(--f-body);text-anchor:middle}
+    </style>
+    <!-- 循環回頭弧 -->
+    <path class="ln" d="M585,72 C585,22 75,22 75,72" marker-end="url(#ar)"/>
+    <text class="lb" x="330" y="30">B 短按：AirMouse → 回到 Desktop</text>
+    <!-- 四模式 -->
+    <g><rect class="nb" x="10" y="74" width="130" height="52" rx="10"/><text class="nt" x="75" y="98">Desktop</text><text class="ns" x="75" y="116">模式 1・開機預設</text></g>
+    <g><rect class="nb" x="180" y="74" width="130" height="52" rx="10"/><text class="nt" x="245" y="98">HidAgent</text><text class="ns" x="245" y="116">模式 2・A＝急停</text></g>
+    <g><rect class="nb" x="350" y="74" width="130" height="52" rx="10"/><text class="nt" x="415" y="98">RfTool</text><text class="ns" x="415" y="116">模式 3</text></g>
+    <g><rect class="nb" x="520" y="74" width="130" height="52" rx="10"/><text class="nt" x="585" y="98">AirMouse</text><text class="ns" x="585" y="116">模式 4</text></g>
+    <path class="ln" d="M140,100 H178" marker-end="url(#ar)"/><text class="lb" x="160" y="92">B</text>
+    <path class="ln" d="M310,100 H348" marker-end="url(#ar)"/><text class="lb" x="330" y="92">B</text>
+    <path class="ln" d="M480,100 H518" marker-end="url(#ar)"/><text class="lb" x="500" y="92">B</text>
+    <!-- 匯流到 Safe -->
+    <path class="ln" d="M75,126 V170 H585 M245,126 V170 M415,126 V170 M585,126 V170"/>
+    <path class="ln" d="M300,170 V214" marker-end="url(#ar)"/>
+    <text class="lb" x="470" y="188">任一模式：B 按住滿 3 秒（急停備援）</text>
+    <path d="M262,126 C262,170 300,190 318,212" fill="none" stroke="#d33" stroke-width="2.2" marker-end="url(#arR)"/>
+    <text x="168" y="200" fill="#d33" font-size="12" font-weight="700" text-anchor="middle">HidAgent 中按 A（硬體中斷）</text>
+    <!-- Safe -->
+    <g><rect x="250" y="216" width="160" height="56" rx="10" fill="#d33"/><text x="330" y="241" fill="#fff" font-weight="900" font-size="16" text-anchor="middle" font-family="var(--f-mono)">Safe（KILLED）</text><text x="330" y="260" fill="#fff" font-size="11" text-anchor="middle">所有輸出關閉・紅底畫面</text></g>
+    <path d="M410,244 H508" fill="none" stroke="var(--ok)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arG)"/>
+    <text x="592" y="238" fill="var(--ok)" font-size="12" font-weight="700" text-anchor="middle">B 短按：解除急停</text>
+    <text x="592" y="256" fill="var(--ok)" font-size="12" font-weight="700" text-anchor="middle">回到急停前的模式</text>
+  </svg></div>
+  <p class="hint">手機上可左右滑動看完整圖。</p>
+
+  <div class="flow">
+    <div class="card2">
+      <h4>按鍵配置（CLAUDE.md 第 2 節決議）</h4>
+      <ul>
+        <li><b>B 短按</b>（&lt;1 秒）：下一個模式；在 Safe 中＝解除急停</li>
+        <li><b>B 按住 1～3 秒後放開</b>：序列埠重印狀態報告</li>
+        <li><b>B 按住滿 3 秒</b>：全域急停（不用等放開）</li>
+        <li><b>A</b>：只有 HidAgent 中是急停；其他模式 M0 先只印 log</li>
+        <li><b>電源鍵</b>：韌體不用（單擊重置、雙擊關機）</li>
+      </ul>
+    </div>
+    <div class="card2">
+      <h4>開機流程（setup）</h4>
+      <ol>
+        <li><code>M5.begin()</code> 初始化螢幕、按鍵、電源</li>
+        <li><code>input_hal</code>：開 Grove 5V → 等 200ms → 掃 I2C，認出 CardKB（0x5F）或 Scroll（0x40）</li>
+        <li><code>killswitch</code>：建立最高優先 task＋掛上 A 鍵中斷</li>
+        <li><code>mode_manager</code>：進 Desktop</li>
+        <li>畫第一張狀態畫面＋印一次報告</li>
+      </ol>
+    </div>
+    <div class="card2">
+      <h4>主迴圈（loop）每一圈</h4>
+      <ol>
+        <li>急停已觸發？→ 回收目前模式資源、進 Safe</li>
+        <li>讀按鍵事件 → 切模式／重印／急停</li>
+        <li>每 500ms 重畫一次畫面（顯示 uptime）</li>
+      </ol>
+      <p class="term">全程不用長 <code>delay()</code>，按鍵隨時有反應。</p>
+    </div>
+    <div class="card2">
+      <h4>急停為什麼分兩段</h4>
+      <ol>
+        <li><b>第一段（微秒級）</b>：按下 A 觸發硬體中斷，直接把「輸出閘門」關掉，不等主迴圈。</li>
+        <li><b>第二段（毫秒級）</b>：主迴圈看到旗標，正式關掉模式資源、切進 Safe、畫紅底。</li>
+      </ol>
+      <p class="term">紅底畫面上的 <code>gate: N us</code> 就是第一段花了幾微秒，實機才量得到。</p>
+    </div>
+  </div>
+  <p class="term"><b>中斷（ISR）</b>：硬體偵測到按鍵電位變化時，CPU 立刻暫停手上的事去跑一小段程式，不必等主迴圈輪到。<b>Task</b>：FreeRTOS 裡可以獨立排程的工作，優先權越高越先跑。<b>Sprite（畫布）</b>：先在記憶體裡畫好整張畫面再一次推到螢幕，避免閃爍。</p>
+
+  <h3 class="sub3">M0 實機驗收清單</h3>
+  <ul class="checks" id="m0checks">
+    <li><label><input type="checkbox" data-m0="1">開機畫面顯示 MODE＝Desktop、INPUT 顯示目前插的配件</label></li>
+    <li><label><input type="checkbox" data-m0="2">B 短按循環四個模式，序列埠依序印 <code>exit()</code> → <code>enter()</code></label></li>
+    <li><label><input type="checkbox" data-m0="3">插 CardKB／Scroll 後開機，INPUT 正確顯示 CardKB／Scroll</label></li>
+    <li><label><input type="checkbox" data-m0="4">HidAgent 按 A → 紅底 KILLED；B 短按恢復。AirMouse 按 A 不急停，B 按住 3 秒才急停</label></li>
+    <li><label><input type="checkbox" data-m0="5">A、B 交錯連打 20 次不當機</label></li>
+  </ul>
+  <p class="term">這一輪不用裝 RF Pack（M0 不碰 CC1101）。燒錄連不上時：長按電源鍵約 2 秒到綠燈閃 → 放開 → Upload，燒完短按電源鍵啟動。</p>
+</section>
+
+
+<div class="track">
+
+  <!-- 0 -->
+  <details class="stage" id="s0" open>
+    <summary><span class="num">0</span><span class="sh"><h3>開箱與環境準備</h3><span class="sub">先確認硬體是活的，再把 Mac 的開發環境裝好</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ USB-C 資料線</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">韌體/firmware</span><span class="tag">燒錄/flash</span><span class="tag">序列埠</span></dd></div>
+        <div><dt>時間</dt><dd>約 1 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>用瀏覽器到 <span class="mono">flash.pingequa.com</span> 或 <span class="mono">bruce.computer/flasher</span>，把 Bruce 韌體刷進去——這一步<b>不用寫程式</b>，先證明板子、線、Mac 三者都正常。</li>
+        <li>在 Mac 裝開發環境：安裝 <b>VS Code ＋ PlatformIO</b>（嵌入式開發用的編譯燒錄外掛）。請 Claude Code 幫你一步步裝好、建立第一個 StickS3 專案。</li>
+        <li>認識硬體地圖：ESP32-S3（大腦）、1.14 吋螢幕、正面按鈕、IMU、紅外線、Grove 孔、背面 Hat2 排針、麥克風喇叭。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>Bruce 開機畫面出現；PlatformIO 能編譯並上傳一個空白專案到 StickS3 不報錯。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="0">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 1 -->
+  <details class="stage" id="s1">
+    <summary><span class="num">1</span><span class="sh"><h3>第一支程式：Hello StickS3</h3><span class="sub">螢幕顯示、讀按鈕、序列埠除錯</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">setup/loop</span><span class="tag">變數・函式</span><span class="tag">數位輸入</span><span class="tag">序列埠除錯</span></dd></div>
+        <div><dt>時間</dt><dd>約 1～2 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>在螢幕印出文字，理解 <span class="mono">setup()</span>（開機跑一次）和 <span class="mono">loop()</span>（反覆跑）的差別。</li>
+        <li>讀正面藍色按鈕，按一下讓螢幕計數 ＋1，並用序列埠（Serial Monitor）同步印出數字——學會「用印訊息來除錯」。</li>
+        <li>把顏色、字體大小、位置玩一遍，熟悉座標。</li>
+      </ol></div>
+      <pre><span class="c">// 用 M5Unified 函式庫，它會自動辨識 StickS3</span>
+<span class="k">#include</span> &lt;M5Unified.h&gt;
+<span class="k">int</span> count = 0;
+<span class="k">void</span> setup() {
+  M5.begin();                 <span class="c">// 初始化螢幕、按鈕、電源</span>
+  M5.Display.setTextSize(3);
+  M5.Display.print(<span class="s">"Hello StickS3"</span>);
+}
+<span class="k">void</span> loop() {
+  M5.update();                <span class="c">// 每圈更新按鈕狀態</span>
+  <span class="k">if</span> (M5.BtnA.wasPressed()) { <span class="c">// 正面按鈕被按下</span>
+    count++;
+    M5.Display.clear();
+    M5.Display.setCursor(0, 0);
+    M5.Display.printf(<span class="s">"count: %d"</span>, count);
+    Serial.printf(<span class="s">"count=%d\n"</span>, count); <span class="c">// 送到序列埠除錯</span>
+  }
+}</pre>
+      <p class="caption">按鈕名稱、腳位依 StickS3 版本可能微調，交給 Claude Code 依規格確認。</p>
+      <div class="win"><h4>里程碑</h4><p>按一下按鈕，螢幕和序列埠都看到數字 ＋1。你看得懂這段每一行在做什麼。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="1">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 2 -->
+  <details class="stage" id="s2">
+    <summary><span class="num">2</span><span class="sh"><h3>感測器：讓機器「感覺」</h3><span class="sub">用 IMU 偵測搖晃與傾斜</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3（內建 IMU）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">浮點數</span><span class="tag">條件判斷</span><span class="tag">感測器讀值</span><span class="tag">門檻/threshold</span></dd></div>
+        <div><dt>時間</dt><dd>約 1 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>讀六軸 IMU 的加速度，印在螢幕上，邊搖邊看數字怎麼變。</li>
+        <li>設一個「門檻值」：當加速度超過某值就判定為「搖晃」，螢幕顯示一個表情或換底色。</li>
+        <li>做「螢幕朝下＝睡眠」：用 Z 軸判斷翻面，把背光關掉。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>搖一搖螢幕有反應、翻過來會「睡著」。你學會把感測器的連續數值變成「事件」。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="2">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 3 -->
+  <details class="stage" id="s3">
+    <summary><span class="num">3</span><span class="sh"><h3>接上 Scroll Unit：學會 I2C</h3><span class="sub">外接裝置怎麼跟主機對話</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ <b>Scroll Unit</b>（Grove）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">I2C 匯流排</span><span class="tag">裝置位址</span><span class="tag">函式庫</span><span class="tag">讀規格書</span></dd></div>
+        <div><dt>時間</dt><dd>約 2 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>先跑一支「I2C 掃描器」，掃出接在 Grove 上的裝置位址——應該看到 Scroll Unit 的 <span class="mono">0x40</span>。這一步讓你真正理解「位址」是什麼。</li>
+        <li>裝 M5 的 Scroll Unit 函式庫，讀滾輪的轉動值和按鍵狀態，印在螢幕上。</li>
+        <li>把「轉滾輪＝數字增減、按下＝歸零」做出來。</li>
+      </ol></div>
+      <pre><span class="c">// I2C 掃描器：找出 Grove 上接了哪些裝置</span>
+<span class="k">#include</span> &lt;Wire.h&gt;
+<span class="k">void</span> setup() {
+  Serial.begin(115200);
+  Wire.begin();               <span class="c">// Grove 的 I2C 腳位讓 Claude Code 依 StickS3 補上</span>
+  <span class="k">for</span> (<span class="k">uint8_t</span> a = 1; a &lt; 127; a++) {
+    Wire.beginTransmission(a);
+    <span class="k">if</span> (Wire.endTransmission() == 0)
+      Serial.printf(<span class="s">"found 0x%02X\n"</span>, a); <span class="c">// 掃到就印位址</span>
+  }
+}
+<span class="k">void</span> loop() {}</pre>
+      <div class="win"><h4>里程碑</h4><p>掃描器印出 0x40；轉滾輪時螢幕數字跟著動。你懂了「一條線上掛多個裝置、靠位址分辨」這個核心觀念。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="3">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 4 -->
+  <details class="stage" id="s4">
+    <summary><span class="num">4</span><span class="sh"><h3>第一次訊號複製：紅外線</h3><span class="sub">學會你家電視遙控器的碼，再發射出去</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3（內建紅外線收發）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">紅外線協定</span><span class="tag">時序/timing</span><span class="tag">編碼解碼</span><span class="tag">位元運算</span></dd></div>
+        <div><dt>時間</dt><dd>約 2～3 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>用紅外線接收，把電視遙控器的碼解出來，螢幕顯示協定（如 NEC）和數值。</li>
+        <li>把學到的碼存成變數，按按鈕時用紅外線發射出去，實際控制電視。</li>
+        <li>理解「固定碼可複製、滾動碼不行」，並知道只玩自己的設備。</li>
+      </ol></div>
+      <pre><span class="c">// 用 IRremoteESP8266：接收並印出遙控器的碼</span>
+<span class="k">#include</span> &lt;IRrecv.h&gt;
+<span class="k">#include</span> &lt;IRutils.h&gt;
+IRrecv irrecv(IR_RX_PIN);      <span class="c">// 腳位讓 Claude Code 依 StickS3 補上</span>
+decode_results r;
+<span class="k">void</span> setup() { Serial.begin(115200); irrecv.enableIRIn(); }
+<span class="k">void</span> loop() {
+  <span class="k">if</span> (irrecv.decode(&amp;r)) {
+    Serial.println(resultToHumanReadableBasic(&amp;r)); <span class="c">// 協定＋碼</span>
+    irrecv.resume();           <span class="c">// 準備收下一個</span>
+  }
+}</pre>
+      <div class="win"><h4>里程碑</h4><p>按你 StickS3 上的鍵，電視真的開關了。這是你的第一個「複製訊號控制家電」成果。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="4">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 5 -->
+  <details class="stage" id="s5">
+    <summary><span class="num">5</span><span class="sh"><h3>接上 CardKB：文字輸入與選單</h3><span class="sub">把操作介面做得好用</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ <b>Scroll Unit</b> ＋ <b>CardKB</b></dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">狀態機</span><span class="tag">陣列/清單</span><span class="tag">字串處理</span><span class="tag">事件迴圈</span></dd></div>
+        <div><dt>時間</dt><dd>約 2～3 晚</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>用 Scroll Unit 做一個可上下捲動、按下選取的選單（這是你之後所有功能的共用骨架）。</li>
+        <li>接上 CardKB（I2C <span class="mono">0x5F</span>），讀鍵盤輸入，讓你能幫每個項目命名、輸入數值。</li>
+        <li>學「狀態機」：用一個變數記住現在在哪一頁（主選單／輸入中／執行中），畫面跟著切換。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>一個滾輪捲、鍵盤打字的選單系統成形。你學會用狀態機組織一個互動程式。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="5">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 6 -->
+  <details class="stage" id="s6">
+    <summary><span class="num">6</span><span class="sh"><h3>接上 RF Pack：Sub-GHz 與 SPI</h3><span class="sub">433MHz 無線訊號的擷取與分析</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3 ＋ <b>RF Pack S3</b>（背面螺絲鎖）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">SPI 匯流排</span><span class="tag">調變 OOK/ASK</span><span class="tag">固定碼 vs 滾動碼</span><span class="tag">頻率</span></dd></div>
+        <div><dt>時間</dt><dd>約 3 晚</dd></div>
+      </dl>
+      <div class="notice"><b>2026-11-13 硬體狀態</b>：這塊 RF Pack 的 CC1101 收訊故障，已申請換貨。SPI 讀寫已驗證正常，這一關的程式可以照常寫、照常編譯；<b>新板到貨並通過 v5 SPI＋v6 RSSI 驗收後</b>，再燒錄實測收發。</div>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>先用 Bruce 的 Sub-GHz 功能擷取一個 433MHz 裝置（你自己的無線插座／門鈴），看它的頻率與波形。</li>
+        <li>進階：在自己的程式裡用 SPI 驅動 CC1101，接收 OOK 訊號，理解「SPI 和 I2C 的差別」。</li>
+        <li>把固定碼存下來、重放，驗證能不能控制那個裝置。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>擷取到自家無線插座的 433MHz 碼並成功重放。你現在同時掌握 I2C（週邊）和 SPI（高速模組）兩種匯流排。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="6">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 7 -->
+  <details class="stage" id="s7">
+    <summary><span class="num">7</span><span class="sh"><h3>整合作品：自製統一遙控器</h3><span class="sub">把前面學的全部串起來</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>四樣全上</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">資料持久化 NVS</span><span class="tag">模組化</span><span class="tag">專案架構</span></dd></div>
+        <div><dt>時間</dt><dd>約 1 週</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>做一個選單：滾輪選「IR 家電」或「RF 裝置」→ 進去選已存的鍵 → 發射。CardKB 用來新增、命名。</li>
+        <li>學「資料持久化」：用 Preferences/NVS 把學到的碼存進快閃記憶體，關機也不會不見。</li>
+        <li>把程式拆成幾個檔案（IR 一塊、RF 一塊、選單一塊），體會「模組化」為什麼重要。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>一台你自己寫的統一遙控器：能學、能存、能發，重開機資料還在。這是你的第一個完整作品。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="7">完成這一關</label></div>
+    </div>
+  </details>
+
+  <!-- 8 -->
+  <details class="stage" id="s8">
+    <summary><span class="num">8</span><span class="sh"><h3>連網與語音：走向 AI 助手</h3><span class="sub">Wi-Fi、API、小智，與串接電腦</span></span><span class="chev"><span class="c-open">收合</span><span class="c-close">展開</span></span></summary>
+    <div class="body">
+      <dl class="meta">
+        <div><dt>硬體</dt><dd>StickS3（麥克風喇叭）</dd></div>
+        <div><dt>程式觀念</dt><dd class="tags"><span class="tag">Wi-Fi/網路</span><span class="tag">JSON</span><span class="tag">API 呼叫</span><span class="tag">ESP-IDF</span><span class="tag">MCP</span></dd></div>
+        <div><dt>時間</dt><dd>約 1～2 週</dd></div>
+      </dl>
+      <div class="do"><h4>動手做</h4><ol>
+        <li>連 Wi-Fi，打一個 HTTP API、解析 JSON 回應，把結果顯示在螢幕——學會機器怎麼上網拿資料。</li>
+        <li>刷官方「小智」韌體，體驗語音助手；再研究怎麼把麥克風音訊串到電腦／雲端 AI。</li>
+        <li>進階終點：用 ESP-IDF 在小智裡加一個 MCP 工具，讓你「說一句話」就觸發第 7 關的紅外線／RF 發射——語音控制家電成形。</li>
+      </ol></div>
+      <div class="win"><h4>里程碑</h4><p>對著機器說「幫我開電視」，它就發射紅外線開電視。你走完了從點燈到 AI 語音整合的一整條路。</p></div>
+      <div class="done-row"><label><input type="checkbox" data-k="8">完成這一關</label></div>
+    </div>
+  </details>
+
+</div>
+
+<div class="after">
+  <h2>走完之後，你會的</h2>
+  <ul>
+    <li>C/C++ 嵌入式程式：變數、函式、條件、陣列、狀態機、模組化</li>
+    <li>硬體溝通三大介面：GPIO、I2C、SPI，以及怎麼讀規格書找位址與腳位</li>
+    <li>訊號知識：紅外線與 Sub-GHz 的編碼、調變、固定碼與滾動碼</li>
+    <li>連網與整合：Wi-Fi、API、JSON，以及 ESP-IDF 與 MCP 的 AI 整合</li>
+    <li>最重要的：把一個想法，一路做成一台能用的裝置</li>
+  </ul>
+</div>
+
+<footer>這份計畫以 M5StickS3、Scroll Unit、CardKB、RF Pack S3 四樣硬體設計。程式片段為示意骨架，確切腳位與函式庫版本請搭配 Claude Code 依你的實機補完。只分析與控制自有設備。</footer>
+</div>
+
+<script>
+(function(){
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.done-row input[data-k]'));
+  var fill = document.getElementById('barFill'), txt = document.getElementById('barTxt');
+  function save(k, v){ try{ localStorage.setItem('sticks3-course-'+k, v?'1':'0'); }catch(e){} }
+  function load(k){ try{ return localStorage.getItem('sticks3-course-'+k)==='1'; }catch(e){ return false; } }
+  function refresh(){
+    var done = 0;
+    boxes.forEach(function(b){
+      var st = b.closest('.stage');
+      if(b.checked){ done++; st.setAttribute('data-done','1'); } else { st.removeAttribute('data-done'); }
+    });
+    var pct = Math.round(done / boxes.length * 100);
+    fill.style.width = pct + '%';
+    txt.textContent = done + ' / ' + boxes.length;
+  }
+  boxes.forEach(function(b){
+    b.checked = load(b.getAttribute('data-k'));
+    b.addEventListener('change', function(){ save(b.getAttribute('data-k'), b.checked); refresh(); });
+  });
+  refresh();
+})();
+</script>
+
+
+<script>
+/* M0 模擬器：邏輯對照 firmware/src 的 main.cpp / input_hal.cpp / mode_manager.cpp / ui_status.cpp */
+(function(){
+  var cv = document.getElementById('lcd'); if(!cv) return;
+  var ctx = cv.getContext('2d'); ctx.scale(2,2);
+  var ser = document.getElementById('ser');
+  var COL = {BLACK:'#000',DARKGREY:'#7b7d7b',CYAN:'#00ffff',WHITE:'#fff',ORANGE:'#ffb400',GREEN:'#00ff00',RED:'#ff0000'};
+  var NAMES = ['Desktop','HidAgent','RfTool','AirMouse','Safe'];
+  var SAFE = 4, REPORT_MS = 1000, KILL_MS = 3000;
+  var st;
+
+  function log(t, cls){
+    var d = document.createElement('div'); if(cls) d.className = cls; d.textContent = t;
+    ser.appendChild(d); while(ser.childNodes.length > 400) ser.removeChild(ser.firstChild);
+    ser.scrollTop = ser.scrollHeight;
+  }
+  function up(){ return Date.now() - st.boot; }
+
+  // ── 畫面：逐字以 6×8（size 倍）點陣格繪製，對齊 M5GFX 預設字型的排版 ──
+  function str(t, x, y, size, color){
+    ctx.fillStyle = color; ctx.textBaseline = 'top';
+    ctx.font = '700 ' + (8*size) + 'px "JetBrains Mono",Menlo,monospace';
+    for(var i=0;i<t.length;i++) ctx.fillText(t[i], x + i*6*size, y);
+  }
+  function render(){
+    if(st.mode === SAFE){
+      ctx.fillStyle = COL.RED; ctx.fillRect(0,0,135,240);
+      str('KILLED',14,40,3,COL.WHITE);
+      str('all output stopped',4,90,1,COL.WHITE);
+      str('src : '+st.src,4,110,1,COL.WHITE);
+      str('from: '+NAMES[st.prev],4,124,1,COL.WHITE);
+      str('gate: '+st.lat+' us',4,138,1,COL.WHITE);
+      str('B: resume',4,190,2,COL.WHITE);
+      return;
+    }
+    ctx.fillStyle = COL.BLACK; ctx.fillRect(0,0,135,240);
+    str('M0 skeleton',4,4,1,COL.DARKGREY);
+    str('MODE',4,24,1,COL.DARKGREY);
+    str(NAMES[st.mode],4,36,2,COL.CYAN);
+    str('INPUT (Grove)',4,68,1,COL.DARKGREY);
+    str(st.grove,4,80,2,COL.WHITE);
+    str('KILL SWITCH',4,112,1,COL.DARKGREY);
+    str(st.armed?'A=ARMED':'OK',4,124,2,st.armed?COL.ORANGE:COL.GREEN);
+    str('B     : next mode',4,176,1,COL.DARKGREY);
+    str('B 1-3s: serial report',4,188,1,COL.DARKGREY);
+    str('B 3s  : KILL',4,200,1,COL.DARKGREY);
+    str(st.armed?'A     : KILL':'A     : (no action)',4,212,1,COL.DARKGREY);
+    str('up '+Math.floor(up()/1000)+'s',4,228,1,COL.DARKGREY);
+  }
+
+  // ── mode_manager ──
+  function switchTo(m){
+    if(m === st.mode) return;
+    log('[mode] '+NAMES[st.mode]+' -> '+NAMES[m],'m');
+    log('  exit('+NAMES[st.mode]+')');
+    st.armed = (m === 1);            // 只有 HidAgent 的 A 是急停
+    st.mode = m;
+    log('  enter('+NAMES[m]+')');
+  }
+  function next(){ if(st.mode !== SAFE) switchTo((st.mode+1)%4); }
+  function emergencyStop(src){
+    if(st.mode === SAFE) return;
+    st.src = src; st.lat = 8 + Math.floor(Math.random()*20);   // 示意值，實機才量得到
+    log('[mode] EMERGENCY STOP (source='+src+', gate closed in '+st.lat+' us)','w');
+    st.prev = st.mode; switchTo(SAFE);
+  }
+  function resume(){
+    if(st.mode !== SAFE) return;
+    st.src = '-'; log('[mode] kill cleared, resuming','m'); switchTo(st.prev);
+  }
+  function report(){
+    var L = ['===== M0 status report =====',
+      'uptime   : '+up()+' ms',
+      'mode     : '+NAMES[st.mode]+' (previous: '+NAMES[st.prev]+')',
+      'grove    : '+st.grove+'  [scan: '+st.scan+']',
+      'kill     : '+(st.mode===SAFE?'TRIGGERED':'idle')+'  source='+st.src+'  gate='+(st.mode===SAFE?'CLOSED':'open')+'  A-armed='+(st.armed?'yes':'no')+'  last-latency='+st.lat+' us',
+      'heap     : (實機才有數值) free / psram (實機才有數值) free',
+      '============================'];
+    L.forEach(function(l){ log(l); });
+  }
+
+  function boot(){
+    var g = document.getElementById('grove').value;
+    st = {mode:0, prev:0, armed:false, src:'-', lat:-1, boot:Date.now(),
+          grove:g, scan: g==='CardKB'?'5F ':g==='Scroll'?'40 ':'(none)'};
+    ser.innerHTML = '';
+    log('===== M5StickS3 firmware M0 =====','m');
+    log('[input] Grove I2C: '+st.scan+' -> '+g);
+    log('[mode] start -> Desktop','m');
+    log('  enter(Desktop)');
+    report(); render();
+  }
+
+  // ── 按鍵 A：HidAgent 中為硬體中斷急停，其他模式只印 log ──
+  var bA = document.getElementById('bA');
+  function pressA(){
+    if(st.mode !== SAFE && st.armed){ emergencyStop('BtnA'); render(); return; }
+    if(st.mode !== SAFE) log('[input] A pressed in '+NAMES[st.mode]+' (no action in M0)','t');
+  }
+  bA.addEventListener('pointerdown', function(e){ e.preventDefault(); bA.classList.add('down'); pressA(); });
+  ['pointerup','pointerleave','pointercancel'].forEach(function(ev){ bA.addEventListener(ev, function(){ bA.classList.remove('down'); }); });
+
+  // ── 按鍵 B：短按／1～3 秒放開／滿 3 秒 ──
+  var bB = document.getElementById('bB'), fill = document.getElementById('holdFill');
+  var bDown = 0, fired = false, raf = 0;
+  function tick(){
+    if(!bDown) return;
+    var t = Date.now() - bDown;
+    fill.style.width = Math.min(100, t/KILL_MS*100) + '%';
+    fill.className = t >= KILL_MS ? 'k' : (t >= REPORT_MS ? 'r' : '');
+    if(!fired && t >= KILL_MS){ fired = true; emergencyStop('BtnB-hold3s'); render(); }
+    raf = requestAnimationFrame(tick);
+  }
+  function bPress(){ if(bDown) return; bDown = Date.now(); fired = false; bB.classList.add('down'); tick(); }
+  function bRelease(){
+    if(!bDown) return;
+    var t = Date.now() - bDown; bDown = 0; cancelAnimationFrame(raf); bB.classList.remove('down');
+    setTimeout(function(){ if(!bDown){ fill.style.width = '0'; fill.className=''; } }, 350);
+    if(fired) return;
+    if(t >= REPORT_MS){ report(); return; }
+    if(st.mode === SAFE) resume(); else next();
+    render();
+  }
+  bB.addEventListener('pointerdown', function(e){ e.preventDefault(); try{bB.setPointerCapture(e.pointerId);}catch(_){} bPress(); });
+  ['pointerup','pointercancel'].forEach(function(ev){ bB.addEventListener(ev, bRelease); });
+
+  document.addEventListener('keydown', function(e){
+    if(e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    var k = e.key.toLowerCase();
+    if(k === 'a' && !e.repeat){ bA.classList.add('down'); pressA(); }
+    if(k === 'b' && !e.repeat) bPress();
+  });
+  document.addEventListener('keyup', function(e){
+    var k = e.key.toLowerCase();
+    if(k === 'a') bA.classList.remove('down');
+    if(k === 'b') bRelease();
+  });
+  document.getElementById('reboot').addEventListener('click', boot);
+  document.getElementById('clr').addEventListener('click', function(){ ser.innerHTML=''; });
+  setInterval(function(){ if(st.mode !== SAFE) render(); }, 500);
+
+  // M0 驗收清單：記在本機瀏覽器
+  Array.prototype.forEach.call(document.querySelectorAll('#m0checks input'), function(b){
+    var key = 'sticks3-m0-' + b.getAttribute('data-m0');
+    try{ b.checked = localStorage.getItem(key) === '1'; }catch(e){}
+    b.addEventListener('change', function(){ try{ localStorage.setItem(key, b.checked?'1':'0'); }catch(e){} });
+  });
+
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ render(); });
+  boot();
+})();
+</script>
+
+</body></html>

@@ -14,7 +14,7 @@
 ### 專案目錄
 | 路徑 | 內容 | 狀態 |
 | :-- | :-- | :-- |
-| `docs/` | PRD、養成計畫、啟動 prompt、硬體驗收紀錄 | — |
+| `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
 | `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 骨架已編譯，待實機驗收 |
@@ -139,10 +139,10 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
 - **授權注意**：該 repo 的 `airplay/` 是 GPL-3.0，含它的韌體要連帶 GPL。若借用該段程式，sketch 要標註。
 
 ## 6. 建置順序（不要一次做四個模式）
-0. ⚠ **硬體驗收**：`selftest/`（StickS3 本體）通過；RF Pack 的 nRF24 與 CC1101 SPI 通過，但 **CC1101 接收故障（2026-11-13 確認，已向賣家申請換貨）**。**新 RF Pack 到貨並通過驗收（v5 SPI ＋ v6 RSSI，見 `docs/PROGRESS.md`）前，不做依賴 CC1101 收發的開發（M3）**；其他里程碑照常。
-1. **骨架**（2026-11-13 程式完成、編譯通過，待實機驗收）：`firmware/` PlatformIO 專案、`mode_manager` 狀態機、`input_hal` I2C 偵測、`killswitch`。能開機、能切換「空模式」。按鍵配置已決議（第 2 節）。
-2. **模式 1 離線版**：Grok Idle 表情＋眨眼，不連網。驗證顯示與狀態機。
-3. 模式 1 疊音訊與 Wi-Fi 後端 → 模式 3（RF，有實體成果最有成就感）→ 模式 4（BLE 滑鼠）→ 模式 2（最複雜，留最後）。
+0. ⚠ **硬體驗收**：`selftest/`（StickS3 本體）通過；RF Pack 的 nRF24 與 CC1101 SPI 通過，但 **CC1101 接收故障（2026-11-13 確認，已向賣家申請換貨）**。**開發照常進行，含 M3 的程式也照寫、照編譯；但新 RF Pack 到貨並通過驗收（v5 SPI ＋ v6 RSSI，見 `docs/PROGRESS.md`）前，不把含 RF 功能的韌體燒進 RF Pack 做收發實測**（2026-11-13 調整）。M1-A/M1-B/M1.5/M4/M2 與 M3 的 S3 軌只用 S3 本體，可隨時燒錄。
+1. **M0 骨架**（2026-11-13 完成、編譯通過，待實機驗收）：狀態機、Grove 偵測、急停、狀態畫面。
+2. **M1-A 表情**：RoboEyes 風圓角眼＋情緒互動（搖晃／拍打／聲音），直橫雙版面。畫面見 `docs/StickS3 介面規格.html`。
+3. **開發順序（2026-11-15 定案）**：M1-A → M1-B（語音＋Cloudflare 中控，常駐、上下分區不蓋表情） → M1.5（紅外線萬能遙控器，S3 本體） → M4（空中滑鼠） → M2（HID，語音驅動） → M3（無線電工具箱：**S3 軌** Wi-Fi/BLE 可現在做、**RF 軌** 433/nRF 等新板）。警用無線電（P25 加密）永久排除；FM 收音機、航空監聽列待辦。
 每做一個切片就編譯、燒錄、實機驗證、`git commit` + `git push` 再往下。
 
 ## 7. 程式規範與約束

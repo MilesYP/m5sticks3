@@ -1,0 +1,170 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StickS3 介面規格</title>
+<style>
+:root{--bg:#f3f5f7;--surf:#fff;--ink:#15202a;--mut:#5a6672;--line:#d7dde3;--ac:#0e7c86;--acs:#d8eef0;--amb:#b26a00}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1218;--surf:#161e26;--ink:#e6ecf2;--mut:#93a1af;--line:#28333d;--ac:#49c3cc;--acs:#113037;--amb:#eaa94a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;padding:24px 16px 72px}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:26px;font-weight:900;margin:0 0 4px}
+h2{font-size:19px;font-weight:900;margin:36px 0 2px;padding-top:16px;border-top:2px solid var(--line)}
+.lede{color:var(--mut);max-width:72ch;margin:0 0 10px}
+.row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-start;margin:14px 0}
+.unit{display:flex;flex-direction:column;align-items:center;gap:6px}
+.cap{font-size:12px;color:var(--mut);text-align:center;line-height:1.45;max-width:240px}
+.cap b{color:var(--ink)}
+.arrow{align-self:center;color:var(--mut);font-size:12px;font-weight:700;text-align:center}
+.arrow b{color:var(--ac)}
+.k{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
+.leg{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;color:var(--mut);margin:6px 0}
+.note{background:var(--acs);border-radius:10px;padding:10px 14px;font-size:13px;margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut)}
+footer{margin-top:40px;font-size:12px;color:var(--mut)}
+.dev{background:#3f444a;border-radius:20px;padding:12px;display:inline-flex;flex-direction:column;align-items:center;gap:9px}
+.dev.land{flex-direction:row}
+.sc{background:#000;border-radius:5px;position:relative;overflow:hidden;font-family:"JetBrains Mono",ui-monospace,monospace;color:#fff}
+.p{width:203px;height:360px}.l{width:360px;height:203px}
+.btnA{background:#2f7de1;border-radius:9px;color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center}
+.dev:not(.land) .btnA{width:120px;height:30px}.dev.land .btnA{width:30px;height:120px}
+.eye{background:#4cf0e8;border-radius:12px}
+.tile{position:absolute;border:1.4px solid #d9dde1;border-radius:4px;padding:3px 5px;overflow:hidden}
+.th{font-size:9px;line-height:1.2}
+.kv{display:flex;justify-content:space-between;font-size:9px;line-height:1.5}
+.bar{height:5px;background:#26313b;border-radius:1px;margin-top:3px}.bar i{display:block;height:100%}
+</style></head>
+<body><div class="wrap">
+<h1>StickS3 介面規格</h1>
+<p class="lede">極客口袋終端的畫面與操作說明書。本頁為設計規格，非最終韌體畫面；數值、對話皆為示意。更新於 2026-11-15。</p>
+<div class="leg">
+<span><span class="k">A</span> 表情頁短按＝資訊頁、長按＝說話；HID 模式＝急停；空中滑鼠＝左鍵</span>
+<span><span class="k">B</span> 開選單 / 下一項 / 長按 3 秒急停</span>
+</div>
+
+<h2>1. 表情頁 × 語音（上下分區，表情為主）</h2>
+<p class="lede">語音啟動時不覆蓋畫面，而是把螢幕讓出一小塊給對話。<b>對話區最多 5 行高</b>（橫拿時是靠 A 鍵側的一條窄欄，約 5 個中文字寬），其餘全給表情，眼睛維持置中不被蓋。講完對話區收起、表情回滿版。</p>
+<div class="row">
+ <div class="unit">
+  <div class="dev"><div class="sc p">
+    <div style="position:absolute;left:5px;top:5px;font-size:9px;color:#5a6672">小S</div>
+    <div style="position:absolute;right:5px;top:5px;font-size:9px;color:#5a6672">78%</div>
+    <div style="position:absolute;left:0;right:0;top:150px;display:flex;justify-content:center;gap:24px"><div class="eye" style="width:40px;height:54px"></div><div class="eye" style="width:40px;height:54px"></div></div>
+    <div style="position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:10px;color:#3a4550">長按 A 跟我說話</div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>待機（無語音）</b><br>表情滿版、居中</div>
+ </div>
+ <div class="arrow"><div>長按 A<br>喚醒詞<br><b>▶</b></div></div>
+ <div class="unit">
+  <div class="dev"><div class="sc p">
+    <div style="position:absolute;left:5px;top:5px;font-size:9px;color:#4cc9f0">LISTENING</div>
+    <div style="position:absolute;left:0;right:0;top:112px;display:flex;justify-content:center;gap:22px"><div class="eye" style="width:36px;height:48px;background:#4cc9f0"></div><div class="eye" style="width:36px;height:48px;background:#4cc9f0"></div></div>
+    <div style="position:absolute;left:8px;right:8px;top:270px;border-top:1px solid #1d6f8c"></div>
+    <div style="position:absolute;left:0;right:0;top:272px;bottom:0;background:#071a20;padding:6px 9px;font-size:11px;line-height:1.55"><span style="color:#4cc9f0">小S：</span>明天台北下午降雨七成，記得帶傘。九點有會議。</div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>語音中</b><br>表情占上方大部分、置中<br>對話區 ≤ 5 行、往下滾</div>
+ </div>
+ <div class="arrow"><div>橫拿</div></div>
+ <div class="unit">
+  <div class="dev land"><div class="sc l">
+    <div style="position:absolute;left:0;right:66px;top:0;bottom:0;display:flex;align-items:center;justify-content:center;gap:16px"><div class="eye" style="width:30px;height:40px;background:#4cc9f0"></div><div class="eye" style="width:30px;height:40px;background:#4cc9f0"></div></div>
+    <div style="position:absolute;right:66px;top:0;bottom:0;border-left:1px solid #1d6f8c"></div>
+    <div style="position:absolute;right:0;width:66px;top:0;bottom:0;background:#071a20;padding:5px 4px;font-size:10px;line-height:1.5"><span style="color:#4cc9f0">小S</span><br>降雨七成帶傘九點開會</div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>橫拿</b><br>對話欄約 5 字寬，靠 A 鍵側<br>文字由左至右、每 5 字換行往下滾</div>
+ </div>
+</div>
+<div class="note">兩種情境是版面重排，不是浮層。空中滑鼠與 HID 佔用藍牙／USB，啟動語音前會先暫停它們。</div>
+
+<h2>2. 表情狀態（M1-A · RoboEyes 風）</h2>
+<p class="lede">放著不動 6 秒想睡、11 秒睡著；搖晃、拍打、聲音觸發反應。顏色與眼型區分情緒。</p>
+<div class="row" style="gap:14px">
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:0;right:0;top:56px;display:flex;justify-content:center;gap:14px"><div class="eye" style="width:22px;height:30px"></div><div class="eye" style="width:22px;height:30px"></div></div></div><div class="cap"><b>待機</b> 青・呼吸眨眼</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:0;right:0;top:56px;display:flex;justify-content:center;gap:14px"><div class="eye" style="width:22px;height:20px;background:#ffd166;border-radius:11px 11px 3px 3px"></div><div class="eye" style="width:22px;height:20px;background:#ffd166;border-radius:11px 11px 3px 3px"></div></div></div><div class="cap"><b>開心</b> 黃・下弧（拍打）</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:0;right:0;top:56px;display:flex;justify-content:center;gap:14px"><div class="eye" style="width:22px;height:28px;background:#ff6b6b;border-radius:9px;clip-path:polygon(0 35%,100% 0,100% 100%,0 100%)"></div><div class="eye" style="width:22px;height:28px;background:#ff6b6b;border-radius:9px;clip-path:polygon(0 0,100% 35%,100% 100%,0 100%)"></div></div></div><div class="cap"><b>生氣</b> 紅・八字眉</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:0;right:0;top:58px;display:flex;justify-content:center;gap:10px"><div class="eye" style="width:18px;height:24px;background:#b388eb"></div><div class="eye" style="width:18px;height:24px;background:#b388eb"></div></div><div style="position:absolute;right:30px;top:52px;color:#4cc9f0;font-size:9px">💧</div></div><div class="cap"><b>驚嚇</b> 紫・發抖冒汗（搖晃）</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:0;right:0;top:66px;display:flex;justify-content:center;gap:14px"><div class="eye" style="width:22px;height:12px;background:#7fb8b4;clip-path:polygon(0 0,100% 0,0 100%)"></div><div class="eye" style="width:22px;height:12px;background:#7fb8b4;clip-path:polygon(0 0,100% 0,100% 100%)"></div></div></div><div class="cap"><b>想睡</b> 6 秒無互動</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:0;right:0;top:72px;display:flex;justify-content:center;gap:14px"><div style="width:22px;height:3px;background:#3d6b69"></div><div style="width:22px;height:3px;background:#3d6b69"></div></div><div style="position:absolute;right:34px;top:52px;color:#7fb8b4;font-size:9px">z</div></div><div class="cap"><b>睡著</b> 11 秒・聲音/拍打喚醒</div></div>
+</div>
+<table><thead><tr><th>觸發</th><th>反應</th></tr></thead><tbody>
+<tr><td>搖晃</td><td>驚嚇</td></tr><tr><td>拍打（清醒）</td><td>隨機 開心 / 生氣</td></tr><tr><td>拍打（睡覺）</td><td>生氣（被吵醒）</td></tr><tr><td>聲音（睡覺）</td><td>驚嚇 或 生氣</td></tr><tr><td>傾斜</td><td>眼睛看向傾斜方向</td></tr><tr><td>長按 A / 喚醒詞</td><td>進入語音對話（上下分區）</td></tr>
+</tbody></table>
+
+<h2>3. 資訊頁（A 短按進入 · 直式 + 橫式）</h2>
+<p class="lede">密集狀態儀表板。板子自讀：時間（Wi-Fi 對時）、電量、IMU、晶片頻率/溫度、記憶體、Wi-Fi 訊號、配件偵測；雲端中控提供：天氣、快訊、已存訊號數。IMU 自動偵測方向切換直/橫。欄位相同，只是重排。</p>
+<div class="row">
+ <div class="unit">
+  <div class="dev"><div class="sc p">
+   <div class="tile" style="left:4px;top:4px;width:140px;height:58px;border-color:#fff"><div style="font-size:30px;font-weight:700;line-height:1">23:57<span style="font-size:12px;color:#7fd3ff">36</span></div><div style="font-size:9px;color:#ffd166">FRI 11/14・UP 02:14</div><div class="bar" style="margin-top:2px"><i style="width:60%;background:#4cc9f0"></i></div></div>
+   <div class="tile" style="right:4px;top:4px;width:48px;height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="width:20px;height:30px;border:1.5px solid #d9dde1;border-radius:2px;display:flex;align-items:flex-end;padding:2px"><div style="width:100%;height:78%;background:#57cc99;border-radius:1px"></div></div><div style="font-size:9px;margin-top:2px">4.02</div></div>
+   <div class="tile" style="left:4px;top:66px;width:92px;height:70px"><div class="th" style="color:#ffd166">IMU</div><div style="width:44px;height:44px;border-radius:50%;border:1.5px solid #d9dde1;position:relative;margin:2px auto 0"><div style="position:absolute;inset:12px;border:1px solid #56636f;border-radius:50%"></div><div style="position:absolute;width:8px;height:8px;background:#e63946;border-radius:50%;left:22px;top:16px"></div></div><div style="font-size:9px;text-align:center">X-0.4 Y0.1</div></div>
+   <div class="tile" style="right:4px;top:66px;width:93px;height:70px;background:#eef6ea;border-color:#eef6ea"><div class="th" style="color:#1d3557;font-weight:700">WEATHER</div><div style="display:flex;align-items:center;gap:5px;margin-top:3px"><div style="width:24px;height:24px;border-radius:50%;background:#ff9f1c"></div><div><div style="font-size:19px;color:#1d3557;line-height:1">24°</div><div style="font-size:9px;color:#1d3557">台北・多雲</div></div></div><div class="kv" style="color:#1d3557;margin-top:4px"><span>濕 72%</span><span>雨 70%</span></div></div>
+   <div class="tile" style="left:4px;top:140px;width:92px;height:50px;border-color:#4cc9f0"><div class="th" style="color:#4cc9f0">CHIP</div><div class="kv"><span>CPU</span><span>240M</span></div><div class="kv"><span>TEMP</span><span style="color:#ff9f1c">48°C</span></div><div class="kv"><span>LOAD</span><span>12%</span></div></div>
+   <div class="tile" style="right:4px;top:140px;width:93px;height:50px;border-color:#b388eb"><div class="th" style="color:#b388eb">MEMORY</div><div class="kv"><span>HEAP</span><span>231K</span></div><div class="bar"><i style="width:72%;background:#b388eb"></i></div><div class="kv"><span>PSRAM</span><span>7.6M</span></div></div>
+   <div class="tile" style="left:4px;top:194px;width:92px;height:50px;border-color:#57cc99"><div class="th" style="color:#57cc99">LINK</div><div class="kv"><span>WiFi</span><span>-58</span></div><div class="kv"><span>CLOUD</span><span style="color:#57cc99">ON</span></div><div class="kv"><span>VOICE</span><span style="color:#8899a6">IDLE</span></div></div>
+   <div class="tile" style="right:4px;top:194px;width:93px;height:50px;border-color:#ff9f1c"><div class="th" style="color:#ff9f1c">MODULES</div><div class="kv"><span>CC1101</span><span style="color:#e63946">NG</span></div><div class="kv"><span>nRF24</span><span style="color:#57cc99">OK</span></div><div class="kv"><span>GROVE</span><span>Scroll</span></div></div>
+   <div class="tile" style="left:4px;top:248px;width:195px;height:80px;border-color:#e63946"><div class="th" style="color:#ff8a8f">快訊 3</div><div style="font-size:9px;line-height:1.45;color:#f4d6d8">台股早盤 +0.8%，電子權值股領漲<br>Fed 官員談降息時點<br>颱風外圍環流，北部午後雷陣雨</div><div style="display:flex;gap:4px;margin-top:4px"><span style="flex:1;background:#4361ee;border-radius:2px;text-align:center;font-size:9px">RF 6</span><span style="flex:1;background:#2a9d8f;border-radius:2px;text-align:center;font-size:9px">IR 4</span><span style="flex:1;background:#ffd166;color:#3a2a00;border-radius:2px;text-align:center;font-size:9px">FW 0.1</span></div></div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>資訊頁・直式</b></div>
+ </div>
+ <div class="unit">
+  <div class="dev land"><div class="sc l">
+   <div class="tile" style="left:4px;top:4px;width:214px;height:40px;border-color:#fff"><span style="font-size:24px;font-weight:700">23:57</span><span style="font-size:10px;color:#7fd3ff">36</span><span style="float:right;font-size:9px;color:#ffd166;margin-top:3px">FRI 11/14<br>UP 02:14</span><div class="bar" style="margin-top:1px"><i style="width:60%;background:#4cc9f0"></i></div></div>
+   <div class="tile" style="left:4px;top:48px;width:72px;height:86px"><div class="th" style="color:#ffd166">IMU</div><div style="width:40px;height:40px;border-radius:50%;border:1.5px solid #d9dde1;position:relative;margin:2px auto 0"><div style="position:absolute;inset:11px;border:1px solid #56636f;border-radius:50%"></div><div style="position:absolute;width:7px;height:7px;background:#e63946;border-radius:50%;left:20px;top:14px"></div></div><div style="font-size:8px;text-align:center">X-0.4 Y0.1</div></div>
+   <div class="tile" style="left:80px;top:48px;width:138px;height:86px;background:#eef6ea;border-color:#eef6ea"><div class="th" style="color:#1d3557;font-weight:700">WEATHER</div><div style="display:flex;align-items:center;gap:6px;margin-top:4px"><div style="width:26px;height:26px;border-radius:50%;background:#ff9f1c"></div><div><div style="font-size:20px;color:#1d3557;line-height:1">24°</div><div style="font-size:9px;color:#1d3557">台北・多雲</div></div></div><div class="kv" style="color:#1d3557;margin-top:6px"><span>濕 72%</span><span>雨 70%</span></div></div>
+   <div class="tile" style="left:4px;top:138px;width:70px;height:46px;border-color:#4cc9f0"><div class="th" style="color:#4cc9f0">CHIP</div><div class="kv"><span>240M</span><span style="color:#ff9f1c">48°</span></div><div class="kv"><span>LOAD</span><span>12%</span></div></div>
+   <div class="tile" style="left:78px;top:138px;width:70px;height:46px;border-color:#b388eb"><div class="th" style="color:#b388eb">MEM</div><div class="kv"><span>HEAP</span><span>231K</span></div><div class="bar"><i style="width:72%;background:#b388eb"></i></div></div>
+   <div class="tile" style="left:152px;top:138px;width:66px;height:46px;border-color:#57cc99"><div class="th" style="color:#57cc99">LINK</div><div class="kv"><span>WiFi</span><span>-58</span></div><div class="kv"><span>CLD</span><span style="color:#57cc99">ON</span></div></div>
+   <div class="tile" style="left:222px;top:4px;width:134px;height:22px;display:flex;align-items:center;gap:6px"><div style="width:14px;height:9px;border:1.5px solid #d9dde1;border-radius:1px;display:flex;align-items:center;padding:1px"><div style="width:78%;height:100%;background:#57cc99"></div></div><span style="font-size:11px;color:#57cc99;font-weight:700">78%</span><span style="font-size:9px;color:#8899a6">4.02V</span></div>
+   <div class="tile" style="left:222px;top:30px;width:134px;height:52px;border-color:#ff9f1c"><div class="th" style="color:#ff9f1c">MODULES</div><div class="kv"><span>CC1101</span><span style="color:#e63946">NG</span></div><div class="kv"><span>nRF24</span><span style="color:#57cc99">OK</span></div><div class="kv"><span>GROVE</span><span>Scroll</span></div></div>
+   <div class="tile" style="left:222px;top:86px;width:134px;height:98px;border-color:#e63946"><div class="th" style="color:#ff8a8f">快訊 3</div><div style="font-size:8.5px;line-height:1.45;color:#f4d6d8">台股早盤 +0.8% 權值領漲<br>Fed 官員談降息時點<br>北部午後雷陣雨</div><div style="display:flex;gap:3px;margin-top:4px"><span style="flex:1;background:#4361ee;border-radius:2px;text-align:center;font-size:8px">RF 6</span><span style="flex:1;background:#2a9d8f;border-radius:2px;text-align:center;font-size:8px">IR 4</span><span style="flex:1;background:#ffd166;color:#3a2a00;border-radius:2px;text-align:center;font-size:8px">FW</span></div></div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>資訊頁・橫式</b>（A 鍵在右；快訊、電量、模組集中在 A 鍵側）</div>
+ </div>
+</div>
+
+<h2>4. 功能選單（B 開啟）</h2>
+<p class="lede">直拿時螢幕夠長，整頁列出 5 項，B 移動選取；橫拿時改「一頁三個」，中間選中、上下預覽，右側點點顯示在第幾項。A 進入。選單中不顯示對話框。</p>
+<div class="row">
+ <div class="unit">
+  <div class="dev"><div class="sc p">
+   <div style="position:absolute;left:6px;top:5px;font-size:10px;color:#8899a6">MENU</div>
+   <div style="position:absolute;left:8px;right:8px;top:24px;height:60px;background:#4cf0e8;border-radius:7px;display:flex;align-items:center;gap:10px;padding:0 10px;color:#05140f"><div style="display:flex;gap:6px"><div style="width:11px;height:17px;background:#05140f;border-radius:4px"></div><div style="width:11px;height:17px;background:#05140f;border-radius:4px"></div></div><div><div style="font-size:13px;font-weight:700">表情語音</div><div style="font-size:9px">HOME・語音助理</div></div></div>
+   <div style="position:absolute;left:8px;right:8px;top:90px;height:50px;border:1.4px solid #2c353e;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#9aa5b1"><span style="font-size:14px;color:#ff9f1c">📡</span><div><div style="font-size:12px">掌上 RF</div><div style="font-size:8px;color:#5a6672">433MHz／nRF・等新板</div></div></div>
+   <div style="position:absolute;left:8px;right:8px;top:146px;height:50px;border:1.4px solid #2c353e;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#9aa5b1"><span style="font-size:14px;color:#57cc99">🔆</span><div><div style="font-size:12px">紅外線遙控器</div><div style="font-size:8px;color:#5a6672">IR・S3 本體</div></div></div>
+   <div style="position:absolute;left:8px;right:8px;top:202px;height:50px;border:1.4px solid #2c353e;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#9aa5b1"><span style="font-size:14px;color:#57cc99">🖱</span><div><div style="font-size:12px">空中滑鼠</div><div style="font-size:8px;color:#5a6672">BLE・語音暫停</div></div></div>
+   <div style="position:absolute;left:8px;right:8px;top:258px;height:50px;border:1.4px solid #2c353e;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#9aa5b1"><span style="font-size:14px;color:#e63946">⌨</span><div><div style="font-size:12px">HID 外掛</div><div style="font-size:8px;color:#5a6672">USB＋語音・A 急停</div></div></div>
+   <div style="position:absolute;left:8px;right:8px;top:314px;height:36px;border:1.4px solid #2c353e;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#9aa5b1"><span style="font-size:13px;color:#b388eb">⚙</span><span style="font-size:11px">設定</span></div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>直式・整頁 5 項</b><br>（＋設定共 6）B 移動選取</div>
+ </div>
+ <div class="unit">
+  <div class="dev land"><div class="sc l">
+   <div style="position:absolute;left:6px;top:5px;font-size:10px;color:#8899a6">MENU 1/5</div>
+   <div style="position:absolute;left:8px;right:18px;top:22px;height:34px;border:1.4px solid #2c353e;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 8px;color:#6b7783"><span style="font-size:12px">⚙</span><span style="font-size:10px">設定</span></div>
+   <div style="position:absolute;left:8px;right:18px;top:60px;height:52px;background:#4cf0e8;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#05140f"><div style="display:flex;gap:5px"><div style="width:9px;height:14px;background:#05140f;border-radius:3px"></div><div style="width:9px;height:14px;background:#05140f;border-radius:3px"></div></div><div><div style="font-size:12px;font-weight:700">表情語音</div><div style="font-size:8px">HOME・語音助理</div></div></div>
+   <div style="position:absolute;left:8px;right:18px;top:116px;height:34px;border:1.4px solid #2c353e;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 8px;color:#6b7783"><span style="font-size:12px;color:#ff9f1c">📡</span><span style="font-size:10px">掌上 RF</span></div>
+   <div style="position:absolute;right:5px;top:58px;display:flex;flex-direction:column;gap:5px"><div style="width:5px;height:5px;border-radius:50%;background:#4cf0e8"></div><div style="width:4px;height:4px;border-radius:50%;background:#3a434c"></div><div style="width:4px;height:4px;border-radius:50%;background:#3a434c"></div><div style="width:4px;height:4px;border-radius:50%;background:#3a434c"></div><div style="width:4px;height:4px;border-radius:50%;background:#3a434c"></div></div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>橫式・一頁三個</b><br>中間選中、上下預覽、右側頁數點</div>
+ </div>
+</div>
+
+<h2>5. 功能模式畫面</h2>
+<div class="row" style="gap:14px">
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:4px;top:4px;font-size:9px;color:#57cc99">IR 遙控器</div><div style="position:absolute;left:8px;right:8px;top:22px;display:flex;flex-direction:column;gap:4px"><div style="height:16px;background:#1a2a22;border:1px solid #57cc99;border-radius:3px"></div><div style="height:16px;background:#57cc99;border-radius:3px"></div><div style="height:16px;background:#1a2a22;border:1px solid #57cc99;border-radius:3px"></div></div></div><div class="cap"><b>紅外線 (M1.5)</b><br>S3 本體・現在可做</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:4px;top:4px;font-size:9px;color:#ff9f1c">RF 433.92</div><div style="position:absolute;left:5px;right:5px;top:24px;height:44px;display:flex;align-items:flex-end;gap:2px"><div style="flex:1;background:#ff9f1c;height:30%"></div><div style="flex:1;background:#ff9f1c;height:55%"></div><div style="flex:1;background:#ff9f1c;height:80%"></div><div style="flex:1;background:#ff9f1c;height:45%"></div><div style="flex:1;background:#ff9f1c;height:20%"></div></div><div style="position:absolute;bottom:4px;left:4px;font-size:8px;color:#8899a6">RSSI -95</div></div><div class="cap"><b>掌上 RF (M3·RF軌)</b><br>等新 RF 版</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:4px;top:4px;font-size:9px;color:#57cc99">AIR MOUSE</div><div style="position:absolute;left:50%;top:52%;width:38px;height:38px;border:2px solid #57cc99;border-radius:50%;transform:translate(-50%,-50%)"></div><div style="position:absolute;left:58%;top:48%;width:7px;height:7px;background:#e63946;border-radius:50%"></div></div><div class="cap"><b>空中滑鼠 (M4)</b><br>語音暫停</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:4px;top:4px;font-size:9px;color:#e63946">HID・語音控制</div><div style="position:absolute;left:8px;right:8px;top:26px;height:30px;border:1px solid #e63946;border-radius:3px"></div><div style="position:absolute;left:0;right:0;bottom:0;background:#e63946;text-align:center;font-size:9px;padding:3px">A = 急停</div></div><div class="cap"><b>HID 外掛 (M2)</b><br>語音驅動・A 硬體急停</div></div>
+ <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:4px;top:4px;font-size:9px;color:#b388eb">LAB・自有設備</div><div style="position:absolute;left:8px;right:8px;top:24px;font-size:8px;line-height:1.7"><div>▸ WiFi scan</div><div>▸ BLE scan</div><div style="color:#5a6672">▸ deauth（自有）</div></div><div style="position:absolute;left:0;right:0;bottom:0;background:#3a2a4a;text-align:center;font-size:8px;padding:3px">⚠ 僅限自有設備</div></div><div class="cap"><b>Wi-Fi/BLE 實驗室</b><br>S3 本體・現在可做・最後選修</div></div>
+</div>
+
+<h2>6. 待辦 / 選修（規劃內功能完成後再評估）</h2>
+<table><thead><tr><th>項目</th><th>為何先擱置</th></tr></thead><tbody>
+<tr><td>FM 收音機</td><td>CC1101 收不到 88–108 MHz；需外接 TEA5767 I2C 模組，佔用唯一 Grove 孔</td></tr>
+<tr><td>航空/航管監聽</td><td>民航 118–137 MHz AM、軍機 UHF AM；需 RTL-SDR，不在本專案硬體範圍</td></tr>
+<tr><td>警用無線電</td><td>台灣已換 P25 數位加密，技術無法解；且截收違法 — 永久排除</td></tr>
+</tbody></table>
+
+<footer>StickS3 極客口袋終端・介面規格書。搭配 docs/StickS3 執行計劃 使用。此頁為設計規格，非最終韌體畫面。</footer>
+</div></body></html>
