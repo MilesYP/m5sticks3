@@ -42,8 +42,9 @@ export class VoiceSession {
         break;
 
       case "stop": {
-        // B1 模擬管線（尚未接 OpenAI）
+        // B1 模擬管線（尚未接 OpenAI）：加間隔讓 thinking/speaking 看得見
         this.send(ws, { t: "state", v: "thinking" });
+        await this.sleep(1000);
 
         const turn = {
           ts: Date.now(),
@@ -54,6 +55,7 @@ export class VoiceSession {
 
         this.send(ws, { t: "text", role: "assistant", s: turn.assistant });
         this.send(ws, { t: "state", v: "speaking" });
+        await this.sleep(1500);
         this.send(ws, { t: "state", v: "idle" });
         break;
       }
@@ -84,6 +86,10 @@ export class VoiceSession {
   }
 
   // ── 工具 ──
+  sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
   send(ws, obj) {
     try {
       ws.send(JSON.stringify(obj));
