@@ -8,6 +8,7 @@
 //  全程不用長 delay()；急停第一段在 ISR + 最高優先 task，不依賴本迴圈。
 // ─────────────────────────────────────────────────────────────────────────
 #include <M5Unified.h>
+#include <string.h>
 
 #include "config.h"
 #include "input_hal.h"
@@ -16,6 +17,14 @@
 #include "net_hub.h"
 #include "ui_expression.h"
 #include "ui_status.h"
+
+// 中控回的狀態 → 切表情（B2b）
+static void onHubState(const char* v) {
+  if      (strcmp(v, "listening") == 0) ui_expression::setMood(Mood::Listening);
+  else if (strcmp(v, "thinking")  == 0) ui_expression::setMood(Mood::Thinking);
+  else if (strcmp(v, "speaking")  == 0) ui_expression::setMood(Mood::Speaking);
+  else                                  ui_expression::setMood(Mood::Idle);
+}
 
 // Desktop 模式畫表情，其餘模式（含 Safe 的 KILLED 畫面）畫狀態畫面。
 static void renderActive(bool force) {
@@ -35,6 +44,7 @@ void setup() {
   ui_status::begin();        // 設定螢幕方向並建立狀態畫布
   ui_expression::begin();    // 需在 ui_status::begin 之後
   net_hub::begin();          // 連 Wi-Fi + 中控（B2a）
+  net_hub::onState(onHubState);  // 中控狀態 → 表情（B2b）
   ui_status::printReport();
 }
 
@@ -66,16 +76,23 @@ void loop() {
       break;
 
     case InputEvent::BtnA_Press:
-      // 測試用（M1-A 切片 2）：Desktop 按 A 循環切換情緒；切片 3 接上 IMU 後移除
+      // Desktop：長按 A = 對中控「開始講話」（B2b；B3 才串真音訊）
       if (mode_manager::current() == Mode::Desktop) {
-        ui_expression::debugNextMood();
-        Serial.printf("[face] mood -> %s\n", ui_expression::moodName());
+        if (net_hub::linkUp()) net_hub::sendStart();
+        else Serial.println("[voice] 中控未連線");
         break;
       }
       // 模式 2 的 A 急停已由硬體中斷處理；其他模式的主動作留給後續里程碑
       if (mode_manager::current() != Mode::Safe && !killswitch::armedByBtnA()) {
         Serial.printf("[input] A pressed in %s (no action yet)\n",
                       mode_manager::currentName());
+      }
+      break;
+
+    case InputEvent::BtnA_Release:
+      // Desktop：放開 A = 「結束講話」
+      if (mode_manager::current() == Mode::Desktop && net_hub::linkUp()) {
+        net_hub::sendStop();
       }
       break;
 

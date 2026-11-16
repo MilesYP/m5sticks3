@@ -85,8 +85,9 @@ InputEvent poll() {
                                                          : InputEvent::BtnB_Click;
   }
 
-  // ── A：模式內主動作 ──
+  // ── A：模式內主動作（Desktop 長按＝講話，按下/放開各一事件）──
   if (M5.BtnA.wasPressed()) return InputEvent::BtnA_Press;
+  if (M5.BtnA.wasReleased()) return InputEvent::BtnA_Release;
 
   return InputEvent::None;
 }

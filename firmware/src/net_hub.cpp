@@ -11,6 +11,7 @@ namespace {
 
 WebSocketsClient s_ws;
 bool s_link = false;
+bool s_ws_started = false;
 uint32_t s_last_ping = 0;
 net_hub::StateCb s_state_cb = nullptr;
 
@@ -53,19 +54,24 @@ void begin() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.printf("[wifi] connecting to \"%s\" ...\n", WIFI_SSID);
-
-  s_ws.beginSSL(HUB_HOST, HUB_PORT, HUB_PATH);   // wss://HUB_HOST:443/ws
-  s_ws.onEvent(onWsEvent);
-  s_ws.setReconnectInterval(5000);               // 斷線每 5 秒重連
+  // WebSocket 等 Wi-Fi 拿到 IP 後才開（見 loop），避免開頭 DNS 失敗
 }
 
 void loop() {
   static bool wifi_logged = false;
-  if (WiFi.status() == WL_CONNECTED && !wifi_logged) {
-    wifi_logged = true;
-    Serial.printf("[wifi] connected, IP %s\n", WiFi.localIP().toString().c_str());
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifi_logged) {
+      wifi_logged = true;
+      Serial.printf("[wifi] connected, IP %s\n", WiFi.localIP().toString().c_str());
+    }
+    if (!s_ws_started) {
+      s_ws.beginSSL(HUB_HOST, HUB_PORT, HUB_PATH);  // wss://HUB_HOST:443/ws
+      s_ws.onEvent(onWsEvent);
+      s_ws.setReconnectInterval(5000);              // 斷線每 5 秒重連
+      s_ws_started = true;
+    }
   }
-  s_ws.loop();
+  if (s_ws_started) s_ws.loop();
 
   const uint32_t now = millis();
   if (s_link && now - s_last_ping > 20000) {     // 每 20 秒 ping 一次保活

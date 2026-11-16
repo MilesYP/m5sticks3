@@ -13,6 +13,7 @@ enum class GroveDevice : uint8_t { None, CardKB, Scroll };
 enum class InputEvent : uint8_t {
   None,
   BtnA_Press,    // A 按下瞬間（模式 2 的急停另走硬體中斷，見 killswitch）
+  BtnA_Release,  // A 放開瞬間（Desktop 的「結束講話」用）
   BtnB_Click,    // B 短按放開（< 1 秒）：切下一模式／從 SAFE 恢復
   BtnB_Hold1s,   // B 按住 1～3 秒後放開：重印狀態報告
   BtnB_Hold3s,   // B 按住滿 3 秒（立即觸發）：全域急停備援
