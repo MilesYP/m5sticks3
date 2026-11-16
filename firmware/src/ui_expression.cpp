@@ -51,17 +51,22 @@ void render() {
   const int H = s_cv.height();
   const int cx = W / 2;
   const int cy = (int)(H * 0.42f);
-  const int ew = 26;                 // 眼寬
-  const int gap = 24;                // 中心到各眼中心的距離
-  int eh = 34 + (int)(sinf(now / 1100.0f) * 7.0f);  // 呼吸：眼高起伏（幅度加大，±7）
-  if (s_blinking) eh = 5;                            // 眨眼：壓扁
-  const int r = ew / 2 - 1;
+  const int ew = 32;            // 眼寬（放大）
+  const int eh_base = 46;       // 眼高（放大）
+  const int gap = 28;           // 中心到各眼中心的距離
+  const int r = 11;             // 圓角
+
+  // 呼吸：整組眼睛「上下平移」（像胸口起伏），形狀不變；眨眼才壓扁
+  const int breathe = (int)(sinf(now / 318.0f) * 9.0f);   // 約 2 秒一個來回、上下 ±9px
+  int eh = eh_base;
+  if (s_blinking) eh = 5;
+  const int ey = cy - eh / 2 + breathe;
   const uint16_t col = s_cv.color565(76, 240, 232);  // 待機青（固定色）
 
   // ── 繪製 ──
   s_cv.fillScreen(TFT_BLACK);
-  s_cv.fillSmoothRoundRect(cx - gap - ew / 2, cy - eh / 2, ew, eh, r, col);  // 左眼
-  s_cv.fillSmoothRoundRect(cx + gap - ew / 2, cy - eh / 2, ew, eh, r, col);  // 右眼
+  s_cv.fillSmoothRoundRect(cx - gap - ew / 2, ey, ew, eh, r, col);  // 左眼
+  s_cv.fillSmoothRoundRect(cx + gap - ew / 2, ey, ew, eh, r, col);  // 右眼
   s_cv.pushSprite(0, 0);
 }
 
