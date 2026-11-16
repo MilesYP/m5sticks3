@@ -18,7 +18,7 @@
 
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**M0 實機驗收通過（2026-11-16）** → 進行 M1-A 離線表情（kickoff：`docs/KICKOFF_M1A.md`）；UI 與雲端架構見 `docs/StickS3 介面規格.html`
-- **進行中**：M1-A 離線表情 — 切片 1（Idle 呼吸＋眨眼）**完成**，進切片 2（六種情緒與眼型）
+- **進行中**：M1-A 表情切片 1、2 完成（九種表情定案）→ 切片 3（IMU 互動）、切片 4（直橫版面）待做；並行啟動 M1-B（語音＋Cloudflare 中控）
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **⚠ 硬體狀態（給所有 Session）**：RF Pack S3 的 **CC1101 接收故障，已決定向 PINGEQUA 申請換貨**（信已備妥，退換期約 2026-11-26 前）。nRF24、StickS3 本體正常。**開發照常（含 M3 程式，不必避開 RF）；新 RF Pack 到貨並通過驗收（v5＋v6）後，才燒錄含 RF 功能的韌體做收發實測。** M0、M1、M4 只用 StickS3 本體，隨時可燒錄。
 - **待辦**：
@@ -29,6 +29,12 @@
 ---
 
 ## 紀錄
+
+### 2026-11-16｜M1-A 切片 2：九種表情定案｜Cowork（VS Code 驗收）
+- 做了什麼：`ui_expression` 擴充為 9 種表情，固定配色、平滑過渡：Idle(青) / Listening(綠·漣漪) / Thinking(藍·上看游移＋三點) / Speaking(白·嘴巴隨音量) / Happy(黃·笑眼) / Angry(紅·八字眉) / Scared(紫·發抖冒汗) / Sleepy(灰藍·半閉) / Asleep(暗灰藍·閉眼飄Z)。眼睛放大（32×46）、呼吸改上下平移（±9px、約 2 秒）。Desktop 按 A 循環切換（測試用，切片 3 接 IMU 後移除）。`setSpeakLevel()` 預留給 M1-B 接喇叭音量。
+- 驗收結果：**通過**（實機逐一確認 9 種表情、配色、過渡）。
+- 下一步：Listening/Speaking 的真實觸發要等 M1-B（麥克風/喇叭）；先做 M1-B 架構。切片 3、4（IMU 互動、直橫版面）稍後補。
+- 並行：M1-B 架構規格見 `docs/M1B-架構.md`；介面規格 HTML 的九表情與對話狀態更新，交由另一 session 處理。
 
 ### 2026-11-16｜M1-A 切片 1：離線 Idle 表情｜Cowork（VS Code 燒錄驗收）
 - 做了什麼：新增 `firmware/src/ui_expression.{h,cpp}`（PSRAM sprite 畫兩個青色圓角眼睛、呼吸起伏＋隨機眨眼）；`main.cpp` 加 `renderActive()`，Desktop 模式畫表情、其餘模式維持 `ui_status`。
