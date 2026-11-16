@@ -14,6 +14,7 @@
 #include "input_hal.h"
 #include "killswitch.h"
 #include "mode_manager.h"
+#include "audio_io.h"
 #include "net_hub.h"
 #include "ui_expression.h"
 #include "ui_status.h"
@@ -45,6 +46,7 @@ void setup() {
   ui_expression::begin();    // 需在 ui_status::begin 之後
   net_hub::begin();          // 連 Wi-Fi + 中控（B2a）
   net_hub::onState(onHubState);  // 中控狀態 → 表情（B2b）
+  audio_io::begin();             // 音訊緩衝（B3b-1）
   ui_status::printReport();
 }
 
@@ -78,8 +80,9 @@ void loop() {
     case InputEvent::BtnA_Press:
       // Desktop：長按 A = 對中控「開始講話」（B2b；B3 才串真音訊）
       if (mode_manager::current() == Mode::Desktop) {
-        if (net_hub::linkUp()) net_hub::sendStart();
-        else Serial.println("[voice] 中控未連線");
+        // B3b-1：本機回放測試 — 按住 A 錄音（B3b-2 會改回串給中控）
+        audio_io::startRecording();
+        ui_expression::setMood(Mood::Listening);
         break;
       }
       // 模式 2 的 A 急停已由硬體中斷處理；其他模式的主動作留給後續里程碑
@@ -90,14 +93,22 @@ void loop() {
       break;
 
     case InputEvent::BtnA_Release:
-      // Desktop：放開 A = 「結束講話」
-      if (mode_manager::current() == Mode::Desktop && net_hub::linkUp()) {
-        net_hub::sendStop();
+      // Desktop：放開 A = 停止錄音並把剛錄的播出來（B3b-1）
+      if (mode_manager::current() == Mode::Desktop) {
+        audio_io::stopRecordingAndPlay();
+        ui_expression::setMood(Mood::Speaking);
       }
       break;
 
     case InputEvent::None:
       break;
+  }
+
+  // 錄音餵資料；放音結束就回待機（B3b-1）
+  audio_io::feedRecording();
+  if (mode_manager::current() == Mode::Desktop &&
+      ui_expression::mood() == Mood::Speaking && !audio_io::isPlaying()) {
+    ui_expression::setMood(Mood::Idle);
   }
 
   // (3) 重畫
