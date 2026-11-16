@@ -13,6 +13,7 @@
 #include "input_hal.h"
 #include "killswitch.h"
 #include "mode_manager.h"
+#include "net_hub.h"
 #include "ui_expression.h"
 #include "ui_status.h"
 
@@ -33,10 +34,13 @@ void setup() {
   mode_manager::begin(Mode::Desktop);
   ui_status::begin();        // 設定螢幕方向並建立狀態畫布
   ui_expression::begin();    // 需在 ui_status::begin 之後
+  net_hub::begin();          // 連 Wi-Fi + 中控（B2a）
   ui_status::printReport();
 }
 
 void loop() {
+  net_hub::loop();   // 驅動 Wi-Fi / WebSocket（非阻塞）
+
   // (1) 急停第二段
   if (killswitch::isTriggered() && mode_manager::current() != Mode::Safe) {
     mode_manager::emergencyStop();
