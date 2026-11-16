@@ -6,12 +6,13 @@ namespace {
 
 constexpr uint32_t SAMPLE_RATE = 16000;
 constexpr size_t   CAP_SAMPLES = SAMPLE_RATE * 6;   // 最長 6 秒
-constexpr size_t   CHUNK       = 1600;              // 每塊 0.1 秒
+constexpr uint8_t  SPK_VOLUME  = 220;               // 喇叭音量 0~255（放大回放）
 
 int16_t* s_buf = nullptr;
 bool     s_ready = false;
 bool     s_recording = false;
-size_t   s_len = 0;        // 已完成的取樣數
+uint32_t s_t0 = 0;        // 開始錄音時刻（用經過時間推算取樣數，避免分塊掉音）
+size_t   s_len = 0;
 
 }  // namespace
 
@@ -25,31 +26,33 @@ void begin() {
 
 void startRecording() {
   if (!s_ready) return;
-  M5.Speaker.end();          // 先關喇叭，釋放 ES8311
-  M5.Mic.begin();            // 切到麥克風
+  if (M5.Speaker.isEnabled()) M5.Speaker.end();   // 釋放 ES8311（沒開就不動作，避免 I2S 錯誤）
+  M5.Mic.begin();
   s_len = 0;
   s_recording = true;
-  M5.Mic.record(s_buf, CHUNK, SAMPLE_RATE);   // 第一塊
+  s_t0 = millis();
+  // 一次連續錄滿整個緩衝（DMA 背景填，不分塊 → 無空檔、音質連續）
+  M5.Mic.record(s_buf, CAP_SAMPLES, SAMPLE_RATE);
   Serial.println("[audio] 開始錄音");
 }
 
 void feedRecording() {
-  if (!s_recording || !s_ready) return;
-  if (M5.Mic.isRecording()) return;           // 這塊還在錄
-  s_len += CHUNK;                             // 這塊完成
-  if (s_len + CHUNK > CAP_SAMPLES) return;    // 滿了，停止再排新塊（等放開播放）
-  M5.Mic.record(s_buf + s_len, CHUNK, SAMPLE_RATE);
+  // 連續錄音模式下不需每圈動作（保留介面）
 }
 
 void stopRecordingAndPlay() {
   if (!s_recording || !s_ready) return;
   s_recording = false;
-  while (M5.Mic.isRecording()) { delay(1); }   // 等最後一塊錄完
-  s_len += CHUNK;
+
+  // 用按住時間推算實際錄到的取樣數（連續錄音，時間 × 取樣率）
+  uint32_t held_ms = millis() - s_t0;
+  s_len = (size_t)((uint64_t)held_ms * SAMPLE_RATE / 1000);
   if (s_len > CAP_SAMPLES) s_len = CAP_SAMPLES;
-  M5.Mic.end();              // 關麥克風
-  M5.Speaker.begin();        // 切到喇叭
-  Serial.printf("[audio] 錄到 %u 取樣，開始播放\n", (unsigned)s_len);
+
+  M5.Mic.end();
+  M5.Speaker.begin();
+  M5.Speaker.setVolume(SPK_VOLUME);
+  Serial.printf("[audio] 錄到約 %u 取樣（%lu ms），開始播放\n", (unsigned)s_len, (unsigned long)held_ms);
   if (s_len > 0) M5.Speaker.playRaw(s_buf, s_len, SAMPLE_RATE);
 }
 
