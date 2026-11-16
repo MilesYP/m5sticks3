@@ -1,0 +1,14 @@
+# StickS3 中控 — Cloudflare Worker + Durable Object
+name = "sticks3-hub"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# 裝置的 WebSocket 連線都交給這個 Durable Object（有狀態、可存對話、支援休眠）
+[[durable_objects.bindings]]
+name = "VOICE"
+class_name = "VoiceSession"
+
+# 免費方案的 Durable Object 需用 SQLite 後端
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["VoiceSession"]
