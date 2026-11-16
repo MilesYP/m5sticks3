@@ -18,7 +18,7 @@
 
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**M0 實機驗收通過（2026-11-16）** → 進行 M1-A 離線表情（kickoff：`docs/KICKOFF_M1A.md`）；UI 與雲端架構見 `docs/StickS3 介面規格.html`
-- **進行中**：M1-A 表情切片 1、2 完成（九種表情定案）→ 切片 3（IMU 互動）、切片 4（直橫版面）待做；並行啟動 M1-B（語音＋Cloudflare 中控）
+- **進行中**：M1-B / B3b（即時語音）；B3b-1 本機回放已出聲、剛修連續錄音＋音量待驗，接著 B3b-2 串音訊給中控、B3c 接 GPT-Live
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **⚠ 硬體狀態（給所有 Session）**：RF Pack S3 的 **CC1101 接收故障，已決定向 PINGEQUA 申請換貨**（信已備妥，退換期約 2026-11-26 前）。nRF24、StickS3 本體正常。**開發照常（含 M3 程式，不必避開 RF）；新 RF Pack 到貨並通過驗收（v5＋v6）後，才燒錄含 RF 功能的韌體做收發實測。** M0、M1、M4 只用 StickS3 本體，隨時可燒錄。
 - **待辦**：
@@ -29,6 +29,16 @@
 ---
 
 ## 紀錄
+
+### 2026-11-16｜M1-B 進度：中控上線、B3a 真語音文字通、B3b-1 回放出聲｜Cowork
+- **B1 中控骨架**：`cloud/` Cloudflare Worker + Durable Object，已部署：**https://sticks3-hub.yenpang.workers.dev**（`/ws` WebSocket、`/test` 測試頁）。WebSocket 協定、存對話、ping/pong 全通。
+- **B2a/B2b**：裝置連 Wi-Fi + 中控 WS；長按 A → start/stop；中控 state → 切 Listening/Thinking/Speaking 表情。實機通過。Wi-Fi/中控位址在 `firmware/src/secrets.h`（git 忽略）。
+- **B3a**：中控收到 stop 真的呼叫 OpenAI（`gpt-4o-mini`，文字）回覆，`/test` 頁驗證真回覆。**OpenAI 走 pay-as-you-go，已儲值 US$10**（Plus 方案沒有免費 API 額度，只有 Pro 才有）。key 以 `wrangler secret put OPENAI_API_KEY` 存在 Worker（不在 repo）。
+- **B3b-1**：`audio_io` 本機回放（按住 A 錄音→放開播放）。已出聲，但原本分塊錄音有空檔→小聲/破/偏快；**已改連續錄音＋喇叭音量 220，待實機再驗**（commit d075d81）。
+- **表情**：M1-A 切片 1、2 完成，9 種表情（含 Listening/Thinking/Speaking）定案、固定配色。切片 3（IMU 互動）、切片 4（直橫版面）尚未做。
+- **架構文件**：`docs/M1B-架構.md`（切片 B1~B6）、`docs/StickS3 介面規格.html`。
+- **待辦**：B3b-1 音質再驗 → B3b-2 音訊串中控 → B3c 接 GPT-Live 即時語音 → B4 對話列文字 → B5 新聞快報。另 M1-A 切片 3/4、M3 等新 RF 版。
+- **未 push**：本機有多個 commit 未 push（Miles 自行 `git push`）。
 
 ### 2026-11-16｜M1-A 切片 2：九種表情定案｜Cowork（VS Code 驗收）
 - 做了什麼：`ui_expression` 擴充為 9 種表情，固定配色、平滑過渡：Idle(青) / Listening(綠·漣漪) / Thinking(藍·上看游移＋三點) / Speaking(白·嘴巴隨音量) / Happy(黃·笑眼) / Angry(紅·八字眉) / Scared(紫·發抖冒汗) / Sleepy(灰藍·半閉) / Asleep(暗灰藍·閉眼飄Z)。眼睛放大（32×46）、呼吸改上下平移（±9px、約 2 秒）。Desktop 按 A 循環切換（測試用，切片 3 接 IMU 後移除）。`setSpeakLevel()` 預留給 M1-B 接喇叭音量。
