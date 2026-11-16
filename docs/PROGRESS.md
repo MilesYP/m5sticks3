@@ -17,8 +17,8 @@
 > ```
 
 ## 目前狀態（每次更新時順手改這一段）
-- **階段**：M0 待實機驗收；UI 與雲端架構 2026-11-15 定案，見 `docs/StickS3 介面規格.html`
-- **進行中**：M0 實機驗收（燒錄 `firmware/`）→ 隨即 M1-A 表情（kickoff 見 `docs/KICKOFF_M1A.md`）
+- **階段**：**M0 實機驗收通過（2026-11-16）** → 進行 M1-A 離線表情（kickoff：`docs/KICKOFF_M1A.md`）；UI 與雲端架構見 `docs/StickS3 介面規格.html`
+- **進行中**：M1-A 離線表情（切片 1 Idle 呼吸眨眼起）
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **⚠ 硬體狀態（給所有 Session）**：RF Pack S3 的 **CC1101 接收故障，已決定向 PINGEQUA 申請換貨**（信已備妥，退換期約 2026-11-26 前）。nRF24、StickS3 本體正常。**開發照常（含 M3 程式，不必避開 RF）；新 RF Pack 到貨並通過驗收（v5＋v6）後，才燒錄含 RF 功能的韌體做收發實測。** M0、M1、M4 只用 StickS3 本體，隨時可燒錄。
 - **待辦**：
@@ -29,6 +29,13 @@
 ---
 
 ## 紀錄
+
+### 2026-11-16｜M0 實機驗收通過｜（VS Code 燒錄）
+- 做了什麼：在 Mac 用 VS Code（PlatformIO）燒錄 `firmware/` M0 骨架、實機驗收。
+- 驗收結果：**通過** — 開機顯示 Desktop；B 短按循環四模式、序列埠印 exit→enter；HidAgent 按 A 即急停（紅底 KILLED）、B 恢復；AirMouse 按 A 不停、B 長按 3 秒才停；A/B 交錯連打不當機。
+- 待補：Grove 配件偵測（插 CardKB 0x5F／Scroll 0x40）因配件尚未到貨，待到貨補測；目前無配件顯示 None 正常。
+- 工具：Miles 用 VS Code 操作（非終端機），後續說明以 VS Code 按鈕為準。
+- 下一步：M1-A 切片 1（離線 Idle 呼吸＋眨眼），貼 `docs/KICKOFF_M1A.md` 進 Claude Code CLI 執行。
 
 ### 2026-11-15｜介面規格定稿、M1-A kickoff｜Cowork
 - 做了什麼：`docs/StickS3 介面規格.html` 收尾（語音對話列：直式 ≤5 行、橫式對話欄寬＝直式對話列高、同比例；資訊頁補橫式；選單直式整頁 5 項／橫式一頁三個）。新增 `docs/KICKOFF_M1A.md`（M1-A 離線表情的 CLI 啟動 prompt，四個切片）。已 commit（未 push）。
