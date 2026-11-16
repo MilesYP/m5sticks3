@@ -62,6 +62,12 @@ void loop() {
       break;
 
     case InputEvent::BtnA_Press:
+      // 測試用（M1-A 切片 2）：Desktop 按 A 循環切換情緒；切片 3 接上 IMU 後移除
+      if (mode_manager::current() == Mode::Desktop) {
+        ui_expression::debugNextMood();
+        Serial.printf("[face] mood -> %s\n", ui_expression::moodName());
+        break;
+      }
       // 模式 2 的 A 急停已由硬體中斷處理；其他模式的主動作留給後續里程碑
       if (mode_manager::current() != Mode::Safe && !killswitch::armedByBtnA()) {
         Serial.printf("[input] A pressed in %s (no action yet)\n",
