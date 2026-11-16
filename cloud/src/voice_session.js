@@ -42,20 +42,25 @@ export class VoiceSession {
         break;
 
       case "stop": {
-        // B1 模擬管線（尚未接 OpenAI）：加間隔讓 thinking/speaking 看得見
+        // B3a：真的呼叫 OpenAI（文字），確認 key / 額度 / 模型可用
         this.send(ws, { t: "state", v: "thinking" });
-        await this.sleep(1000);
 
-        const turn = {
-          ts: Date.now(),
-          user: "(模擬音訊)",
-          assistant: "收到，這是 B1 中控的模擬回覆。",
-        };
+        let reply;
+        try {
+          reply = await this.askOpenAI(
+            "使用者按住按鈕說了一句話（B3a 階段還沒串真實音訊）。" +
+            "請用繁體中文、親切口語、一到兩句話回應，像個桌上語音小助理。"
+          );
+        } catch (e) {
+          reply = "OpenAI 呼叫失敗：" + e.message;
+        }
+
+        const turn = { ts: Date.now(), user: "(語音 B3a)", assistant: reply };
         await this.appendTurn(turn);
 
-        this.send(ws, { t: "text", role: "assistant", s: turn.assistant });
+        this.send(ws, { t: "text", role: "assistant", s: reply });
         this.send(ws, { t: "state", v: "speaking" });
-        await this.sleep(1500);
+        await this.sleep(1200);
         this.send(ws, { t: "state", v: "idle" });
         break;
       }
@@ -86,6 +91,33 @@ export class VoiceSession {
   }
 
   // ── 工具 ──
+  async askOpenAI(userText) {
+    if (!this.env.OPENAI_API_KEY) {
+      throw new Error("沒有設定 OPENAI_API_KEY（wrangler secret put）");
+    }
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + this.env.OPENAI_API_KEY,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini", // B3a 測試用便宜模型；B3b 改 GPT-Live 語音
+        messages: [
+          { role: "system", content: "你是 StickS3 桌寵『小S』，用繁體中文、簡短親切口語回應。" },
+          { role: "user", content: userText },
+        ],
+      }),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error("HTTP " + r.status + " " + t.slice(0, 300));
+    }
+    const data = await r.json();
+    const msg = data.choices && data.choices[0] && data.choices[0].message;
+    return (msg && msg.content && msg.content.trim()) || "(OpenAI 回了空內容)";
+  }
+
   sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
   }
