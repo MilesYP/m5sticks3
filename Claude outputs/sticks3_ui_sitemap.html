@@ -1,0 +1,127 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StickS3 介面 Sitemap</title>
+<style>
+:root{--bg:#f3f5f7;--surf:#fff;--ink:#15202a;--mut:#5a6672;--line:#d7dde3;--ac:#0e7c86;--acs:#d8eef0;--amb:#b26a00}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1218;--surf:#161e26;--ink:#e6ecf2;--mut:#93a1af;--line:#28333d;--ac:#49c3cc;--acs:#113037;--amb:#eaa94a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;padding:24px 16px 72px}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:26px;font-weight:900;margin:0 0 4px}
+h2{font-size:19px;font-weight:900;margin:34px 0 4px;padding-top:14px;border-top:2px solid var(--line)}
+.lede{color:var(--mut);max-width:70ch;margin:0 0 8px}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.flow{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;margin:14px 0}
+.col{display:flex;flex-direction:column;gap:10px;align-items:center}
+.arrow{display:flex;align-items:center;color:var(--mut);font-size:12px;font-weight:700;align-self:center;text-align:center;min-width:56px}
+.arrow b{color:var(--ac)}
+.node{background:var(--surf);border:1px solid var(--line);border-radius:12px;padding:10px;width:150px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.node.key{border:2px solid var(--ac)}
+.node .ttl{font-size:13px;font-weight:900;text-align:center}
+.node .cap{font-size:11px;color:var(--mut);text-align:center;line-height:1.4}
+/* device screen */
+.scr{background:#05070a;border-radius:4px;box-shadow:0 0 0 5px #3f444a;position:relative;overflow:hidden;font-family:"JetBrains Mono",ui-monospace,monospace;color:#fff}
+.p{width:112px;height:200px}.l{width:200px;height:112px}
+.eyes{position:absolute;left:0;right:0;display:flex;justify-content:center;gap:14px}
+.eye{width:22px;height:30px;border-radius:9px;background:#4cf0e8}
+.lbl{position:absolute;font-size:8px;color:#5a6672}
+.bar{position:absolute;left:0;right:0;bottom:0;padding:4px 5px;font-size:8px;line-height:1.35;color:#fff}
+.tag{display:inline-block;font-size:9px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--acs);color:var(--ac)}
+.leg{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;color:var(--mut);margin:6px 0 2px}
+.leg span{display:inline-flex;align-items:center;gap:5px}
+.dot{width:9px;height:9px;border-radius:50%}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:10px}
+.cell{background:var(--surf);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.note{background:var(--acs);border-radius:10px;padding:10px 14px;font-size:13px;margin:12px 0}
+.k{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--mut)}
+footer{margin-top:40px;font-size:12px;color:var(--mut)}
+</style></head>
+<body><div class="wrap">
+<h1>StickS3 介面 Sitemap</h1>
+<p class="lede">極客口袋終端的畫面架構與導覽。語音是常駐背景服務（長按 A 或喚醒詞），會以對話列浮出覆蓋在任何畫面上，不佔用模式。空中滑鼠與 HID 啟動時語音暫停。更新於 2026-11-14。</p>
+<div class="leg">
+<span><i class="dot" style="background:#0e7c86"></i>主要畫面</span>
+<span><i class="dot" style="background:#b26a00"></i>語音覆蓋</span>
+<span><i class="dot" style="background:#5a6672"></i>功能模式</span>
+<span><span class="k">A</span> 短按翻頁 / 長按說話</span>
+<span><span class="k">B</span> 開選單 / 下一項 / 長按 3 秒急停</span>
+</div>
+
+<h2>1. 主導覽流程</h2>
+<p class="lede">開機進入表情首頁。A 短按在「表情 ↔ 資訊頁」間切換；B 叫出選單選功能。語音可從任何畫面長按 A 叫出。</p>
+<div class="flow">
+ <div class="col"><div class="node"><div class="ttl">開機</div><div class="scr p"><div class="lbl" style="left:4px;top:4px">BOOT</div><div class="eyes" style="top:78px"><div class="eye" style="height:6px"></div><div class="eye" style="height:6px"></div></div></div><div class="cap">I2C 掃描配件<br>載入狀態機</div></div></div>
+ <div class="arrow">→</div>
+ <div class="col"><div class="node key"><span class="tag">首頁</span><div class="ttl">表情首頁（待機）</div><div class="scr p"><div class="lbl" style="left:4px;top:4px">小S</div><div class="lbl" style="right:4px;top:4px">78%</div><div class="eyes" style="top:74px"><div class="eye"></div><div class="eye"></div></div><div class="bar" style="color:#4a555f;text-align:center">長按 A 跟我說話</div></div><div class="cap">眼睛呼吸、眨眼<br>無對話列</div></div></div>
+ <div class="arrow"><span>A 短按<br>↔</span></div>
+ <div class="col"><div class="node"><span class="tag">資訊</span><div class="ttl">資訊頁</div><div class="scr p"><div class="lbl" style="left:4px;top:4px">08:46</div><div style="position:absolute;top:30px;left:4px;right:4px;height:40px;border:1px solid #4cc9f0;border-radius:3px"></div><div style="position:absolute;top:76px;left:4px;right:4px;height:30px;border:1px solid #b388eb;border-radius:3px"></div><div style="position:absolute;top:110px;left:4px;right:4px;height:30px;border:1px solid #57cc99;border-radius:3px"></div><div class="bar" style="background:#e63946">快訊 3</div></div><div class="cap">A 返回表情<br>直/橫自動切換</div></div></div>
+</div>
+<div class="flow">
+ <div class="col"><div class="node key"><span class="tag">首頁</span><div class="ttl">表情首頁</div><div class="cap mono">按 B ↓</div></div></div>
+ <div class="arrow"><span>B</span></div>
+ <div class="col"><div class="node"><span class="tag" style="background:#eee;color:#555">選單</span><div class="ttl">功能選單（一頁三個）</div><div class="scr p"><div class="lbl" style="left:4px;top:3px">MENU 2/5</div><div style="position:absolute;left:8px;right:16px;top:28px;height:20px;border:1px solid #2c353e;border-radius:4px"></div><div style="position:absolute;left:8px;right:16px;top:52px;height:34px;background:#ff9f1c;border-radius:5px"></div><div style="position:absolute;left:8px;right:16px;top:90px;height:20px;border:1px solid #2c353e;border-radius:4px"></div><div style="position:absolute;right:5px;top:40px;display:flex;flex-direction:column;gap:3px">●●●●●</div></div><div class="cap">B 下一項・A 進入<br>點點=第幾項</div></div></div>
+ <div class="arrow">→</div>
+ <div class="col" style="gap:8px">
+  <div class="node" style="width:150px;flex-direction:row;gap:8px;justify-content:flex-start"><div class="dot" style="background:#4cf0e8"></div><div style="font-size:12px"><b>表情語音</b><br><span style="color:var(--mut)">回首頁</span></div></div>
+  <div class="node" style="width:150px;flex-direction:row;gap:8px;justify-content:flex-start"><div class="dot" style="background:#ff9f1c"></div><div style="font-size:12px"><b>掌上 RF (M3)</b><br><span style="color:var(--mut)">等新 RF 版</span></div></div>
+  <div class="node" style="width:150px;flex-direction:row;gap:8px;justify-content:flex-start"><div class="dot" style="background:#57cc99"></div><div style="font-size:12px"><b>空中滑鼠 (M4)</b><br><span style="color:var(--mut)">語音暫停</span></div></div>
+  <div class="node" style="width:150px;flex-direction:row;gap:8px;justify-content:flex-start"><div class="dot" style="background:#e63946"></div><div style="font-size:12px"><b>HID 外掛 (M2)</b><br><span style="color:var(--mut)">語音驅動・A 急停</span></div></div>
+  <div class="node" style="width:150px;flex-direction:row;gap:8px;justify-content:flex-start"><div class="dot" style="background:#b388eb"></div><div style="font-size:12px"><b>設定</b><br><span style="color:var(--mut)">Wi-Fi/音量/喚醒詞</span></div></div>
+ </div>
+</div>
+
+<h2>2. 語音：常駐覆蓋層</h2>
+<p class="lede">語音不是一個模式，是隨時可叫出的服務。長按 A 或喚醒詞 → 對話列從靠藍色按鈕那側浮出，講完收起。下面是同一個表情首頁的「無語音 / 有語音」對照。</p>
+<div class="flow">
+ <div class="col"><div class="node"><div class="ttl">無語音</div><div class="scr p"><div class="lbl" style="left:4px;top:4px">小S</div><div class="eyes" style="top:80px"><div class="eye"></div><div class="eye"></div></div><div class="bar" style="color:#3a4550;text-align:center">長按 A 跟我說話</div></div><div class="cap">底部只有淡提示</div></div></div>
+ <div class="arrow"><span>長按 A<br>喚醒詞<br><b>→</b></span></div>
+ <div class="col"><div class="node key"><span class="tag" style="background:#f6e6cf;color:#8a5a00">語音</span><div class="ttl">語音啟動</div><div class="scr p"><div class="lbl" style="left:4px;top:4px">LISTENING</div><div class="eyes" style="top:50px"><div class="eye" style="background:#4cc9f0"></div><div class="eye" style="background:#4cc9f0"></div></div><div class="bar" style="background:#0d2730;border-top:1px solid #1d6f8c;height:92px"><div style="color:#4cc9f0">小S</div>明天台北下午降雨機率七成，記得帶傘；九點有會議提醒。<div style="color:#8a9aa6;margin-top:3px">放開 A 結束</div></div></div><div class="cap">對話列浮出<br>3~5 行、往下滾</div></div></div>
+ <div class="arrow">→</div>
+ <div class="col"><div class="node"><div class="ttl">橫拿時</div><div class="scr l"><div class="eyes" style="top:34px;right:60px;left:auto;width:120px"><div class="eye"></div><div class="eye"></div></div><div style="position:absolute;right:0;top:0;bottom:0;width:78px;background:#0d2730;border-left:1px solid #1d6f8c;padding:4px;font-size:8px;line-height:1.4"><span style="color:#4cc9f0">小S</span><br>要帶傘，降雨 70%，九點有會議。</div></div><div class="cap">對話列移到側邊<br>文字仍由左至右換行</div></div></div>
+</div>
+<div class="note">語音可覆蓋在<b>表情首頁、資訊頁、選單</b>上。唯一例外：<b>空中滑鼠</b>與 <b>HID</b> 佔用藍牙／USB，啟動語音前會先暫停它們。</div>
+
+<h2>3. 表情狀態（M1-A）</h2>
+<p class="lede">RoboEyes 風格。放著不動會想睡→睡著；搖晃、拍打、聲音會觸發反應。顏色與眼型區分情緒。</p>
+<div class="grid">
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">待機</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="eyes" style="top:80px"><div class="eye"></div><div class="eye"></div></div></div><div class="cap">青色・呼吸眨眼</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">開心</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="eyes" style="top:80px"><div class="eye" style="background:#ffd166;height:20px;border-radius:11px 11px 2px 2px"></div><div class="eye" style="background:#ffd166;height:20px;border-radius:11px 11px 2px 2px"></div></div></div><div class="cap">黃色・下弧（拍打）</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">生氣</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="eyes" style="top:80px"><div class="eye" style="background:#ff6b6b;clip-path:polygon(0 35%,100% 0,100% 100%,0 100%)"></div><div class="eye" style="background:#ff6b6b;clip-path:polygon(0 0,100% 35%,100% 100%,0 100%)"></div></div></div><div class="cap">紅色・八字眉</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">驚嚇</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="eyes" style="top:84px;gap:10px"><div class="eye" style="background:#b388eb;width:18px;height:24px"></div><div class="eye" style="background:#b388eb;width:18px;height:24px"></div></div><div class="lbl" style="right:24px;top:80px;color:#4cc9f0">💧</div></div><div class="cap">紫色・發抖冒汗（搖晃）</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">想睡</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="eyes" style="top:92px"><div class="eye" style="background:#7fb8b4;height:14px;clip-path:polygon(0 0,100% 0,0 100%)"></div><div class="eye" style="background:#7fb8b4;height:14px;clip-path:polygon(0 0,100% 0,100% 100%)"></div></div></div><div class="cap">6 秒無互動</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">睡著</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="eyes" style="top:96px"><div class="eye" style="height:3px;background:#3d6b69"></div><div class="eye" style="height:3px;background:#3d6b69"></div></div><div class="lbl" style="right:28px;top:76px;color:#7fb8b4">z</div></div><div class="cap">11 秒・冒 Z（聲音/拍打喚醒）</div></div>
+</div>
+<table><thead><tr><th>觸發</th><th>反應</th></tr></thead><tbody>
+<tr><td>搖晃</td><td>驚嚇</td></tr>
+<tr><td>拍打（清醒）</td><td>隨機 開心 / 生氣</td></tr>
+<tr><td>拍打（睡覺）</td><td>生氣（被吵醒）</td></tr>
+<tr><td>聲音（睡覺）</td><td>驚嚇 或 生氣</td></tr>
+<tr><td>傾斜</td><td>眼睛看向傾斜方向</td></tr>
+<tr><td>長按 A / 喚醒詞</td><td>進入語音對話</td></tr>
+</tbody></table>
+
+<h2>4. 功能模式畫面</h2>
+<div class="grid">
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">掌上 RF (M3)</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="lbl" style="left:4px;top:4px;color:#ff9f1c">RF 433.92</div><div style="position:absolute;left:5px;right:5px;top:24px;height:70px;display:flex;align-items:flex-end;gap:2px;padding:0 2px">
+   <div style="flex:1;background:#ff9f1c;height:30%"></div><div style="flex:1;background:#ff9f1c;height:55%"></div><div style="flex:1;background:#ff9f1c;height:80%"></div><div style="flex:1;background:#ff9f1c;height:45%"></div><div style="flex:1;background:#ff9f1c;height:20%"></div></div><div class="bar" style="color:#8899a6">RSSI -95 dBm・學習/重放</div></div><div class="cap">等新 RF 版<br>433 學習・掃描</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">紅外線 (M1.5)</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="lbl" style="left:4px;top:4px;color:#57cc99">IR 遙控器</div><div style="position:absolute;left:8px;right:8px;top:26px;bottom:24px;display:flex;flex-direction:column;gap:4px"><div style="background:#1a2a22;border:1px solid #57cc99;border-radius:3px;height:20px"></div><div style="background:#57cc99;border-radius:3px;height:20px"></div><div style="background:#1a2a22;border:1px solid #57cc99;border-radius:3px;height:20px"></div></div></div><div class="cap">S3 本體・現在可做<br>電視/冷氣 學習重放</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">空中滑鼠 (M4)</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="lbl" style="left:4px;top:4px;color:#57cc99">AIR MOUSE</div><div style="position:absolute;left:50%;top:50%;width:40px;height:40px;border:2px solid #57cc99;border-radius:50%;transform:translate(-50%,-50%)"></div><div style="position:absolute;left:58%;top:46%;width:8px;height:8px;background:#e63946;border-radius:50%"></div><div class="bar" style="color:#8899a6">BLE 滑鼠・A=左鍵</div></div><div class="cap">語音暫停<br>IMU→游標</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">HID 外掛 (M2)</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="lbl" style="left:4px;top:4px;color:#e63946">HID・語音控制</div><div style="position:absolute;left:8px;right:8px;top:30px;height:36px;border:1px solid #e63946;border-radius:3px"></div><div class="bar" style="background:#e63946;text-align:center">A = 急停</div></div><div class="cap">語音驅動操作電腦<br>A 鍵硬體急停</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">Wi-Fi/BLE 實驗室</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="lbl" style="left:4px;top:4px;color:#b388eb">LAB・自有設備</div><div style="position:absolute;left:8px;right:8px;top:26px;bottom:24px;display:flex;flex-direction:column;gap:3px;font-size:8px;padding:2px"><span>▸ WiFi scan</span><span>▸ BLE scan</span><span style="color:#5a6672">▸ deauth (自有)</span></div><div class="bar" style="background:#3a2a4a">⚠ 僅限自有設備</div></div><div class="cap">S3 本體・現在可做<br>最後、選修</div></div>
+ <div class="cell"><div class="ttl" style="font-size:13px;font-weight:900">設定</div><div class="scr p" style="box-shadow:0 0 0 4px #3f444a"><div class="lbl" style="left:4px;top:4px">SETTINGS</div><div style="position:absolute;left:8px;right:8px;top:26px;bottom:8px;display:flex;flex-direction:column;gap:5px;font-size:8px;padding:2px"><span>Wi-Fi ▸</span><span>音量 ▸</span><span>亮度 ▸</span><span>喚醒詞 ▸</span><span>方向鎖 ▸</span></div></div><div class="cap">Wi-Fi/音量/喚醒詞</div></div>
+</div>
+
+<h2>5. 方向：直式 / 橫式</h2>
+<p class="lede">IMU 偵測機身方向自動切換。文字框永遠固定在靠藍色按鈕（A 鍵）那一側，裡面文字一律由左至右、自動換行、往下滾動。橫拿時按鈕在左或在右都支援（版面左右鏡像）。</p>
+<div class="flow">
+ <div class="col"><div class="node"><div class="ttl">直式</div><div class="scr p"><div class="eyes" style="top:70px"><div class="eye"></div><div class="eye"></div></div><div class="bar" style="background:#132029;height:48px">文字框在底部</div></div></div></div>
+ <div class="arrow">↔</div>
+ <div class="col"><div class="node"><div class="ttl">橫式・A 鍵在右</div><div class="scr l"><div class="eyes" style="top:36px;left:40px;right:auto;width:110px"><div class="eye"></div><div class="eye"></div></div><div style="position:absolute;right:0;top:0;bottom:0;width:70px;background:#132029;border-left:1px solid #28333d;font-size:8px;padding:3px">文字框在右側</div></div></div></div>
+ <div class="arrow">↔</div>
+ <div class="col"><div class="node"><div class="ttl">橫式・A 鍵在左</div><div class="scr l"><div class="eyes" style="top:36px;right:40px;left:auto;width:110px"><div class="eye"></div><div class="eye"></div></div><div style="position:absolute;left:0;top:0;bottom:0;width:70px;background:#132029;border-right:1px solid #28333d;font-size:8px;padding:3px">文字框在左側</div></div></div></div>
+</div>
+
+<footer>StickS3 極客口袋終端・UI 架構草案。此頁為設計規格，非最終韌體畫面。對話內容、數值皆為示意。</footer>
+</div></body></html>

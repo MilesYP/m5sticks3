@@ -22,12 +22,12 @@ WebSocket 位址＝把它改成 `wss://…workers.dev/ws`。
 npx wrangler dev           # 本機跑，印出 http://localhost:8787
 ```
 
-## 測試 B1（不用板子）
-1. 瀏覽器打開 `cloud/test-client.html`。
-2. 貼上 `wss://…workers.dev/ws` → 連線。
-3. 按「長按 A(start)」→ 應收到 `{"t":"state","v":"listening"}`。
-4. 按「放開 A(stop)」→ 應依序收到 thinking → 一句模擬回覆文字 → speaking → idle。
-5. 按「看對話紀錄」→ 回傳剛存的那筆。
+## 測試 B1（不用板子、用網址）
+部署後直接開： `https://sticks3-hub.<你的子網域>.workers.dev/test`
+1. 按「連線」→ log 顯示「已連線」。
+2. 按「長按 A(start)」→ 收到 `state=listening`。
+3. 按「放開 A(stop)」→ 依序 thinking → 一句模擬回覆 → speaking → idle。
+4. 按「看對話紀錄」→ 回傳剛存那筆。
 
 ## B3 才需要（先不用）
 ```bash
