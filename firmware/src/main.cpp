@@ -105,7 +105,7 @@ void loop() {
   }
 
   // 錄音餵資料；放音結束就回待機（B3b-1）
-  audio_io::feedRecording();
+  audio_io::loop();
   if (mode_manager::current() == Mode::Desktop &&
       ui_expression::mood() == Mood::Speaking && !audio_io::isPlaying()) {
     ui_expression::setMood(Mood::Idle);

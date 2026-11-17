@@ -17,7 +17,7 @@
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
-| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 骨架已編譯，待實機驗收 |
+| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3b-1 完成（進度見 `docs/PROGRESS.md`） |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
 
@@ -88,6 +88,16 @@
    - **絕對不要用函式庫的 read-modify-write 類函式改位元欄位**（`setModulation`／`setPktFormat`／`setRxBW`／`setCCMode` 內部都會先 `Split_*()` 讀回再寫回）：讀錯就會把垃圾寫進晶片。要改這些就自己算出完整位元組再整顆寫入並驗證。
    - **不要做 burst 式連續讀取**。每 2 ms 讀一次 RSSI 可連續數分鐘無事；但高強度連續交易（約 900 筆的壓力測試）結束後，接下來的讀取會卡住約 2 秒（＝ `checkMISO()` 逾時 1 秒 × 2 次）才自行恢復；**兩輪零間隔連跑則會完全鎖死、不自行恢復，要重置板子**。高強度存取之間至少留 2 秒。
 
+### 鐵則六：音訊（ES8311）規則（2026-11-18 B3b-1 實測得出）
+1. **麥克風與喇叭不能同時開**：兩者共用 MCLK/BCLK/WS（G18/G17/G15），M5Unified 分別用 `I2S_NUM_1`（麥克風）與 `I2S_NUM_0`（喇叭）。走對講機式：待機停在麥克風，只有播放時切喇叭，播完切回。
+2. **麥克風增益要在每次 `M5.Mic.begin()` 之後覆寫**：M5Unified 0.3.0 對 StickS3 的 ES8311 設定是「模擬 PGA 最小（`0x14`=`0x10`）＋數位增益最大（`0x17`=`0xFF`，約 +32dB）」，訊號在晶片內就夾波，調 M5Unified 的 `magnification` 無效。改成 `0x14`=`0x17`（模擬 +21dB）、`0x17`=`0xBF`（數位 0dB）；`begin()` 會重寫，所以每次都要補寫。`magnification` 用 8。
+3. **喇叭的板子預設是 `sample_rate`=22050、`magnification`=1**：取樣率要設成和音訊相同（16000），避免非整數倍重取樣的雜訊；乘數設 4。`config()` 要在 `Speaker.end()` 之後、`begin()` 之前改才生效（`begin()` 已啟動時會直接 return）。
+4. **不要自己通斷喇叭功率放大器**：`Speaker.begin()`／`end()` 會透過 M5PM1（`0x6E` 暫存器 `0x11` bit3）開關放大器，通斷本身就有爆音；M5Unified 的防爆音機制只在內建 DAC 時生效，ES8311 不走那段。自己再加一輪通斷實測**更響**。只用 DAC 音量（ES8311 `0x32`，`0xBF`=0dB／`0x00`=靜音）在切換前後靜音。
+5. **A 鍵緊貼麥克風**：按下的機械聲在開始錄音後約 40～50ms 撞滿幅，播出來就是「噠」。錄音頭尾各切 60ms（`TRIM_START_MS`／`TRIM_END_MS`）。放開的聲音實測沒撞滿幅。
+6. **錄音要「隊列未滿就預排下一塊」**（`M5.Mic.isRecording() < 2` 就 `record()`），塊與塊才連續；等前一塊錄完才排會有空檔。`ps_malloc` 不清零，緩衝要先 `memset`，長度以實際按住時間計算。
+7. **ES8311 上電後約 1 秒內擷取可能全為零**（M5Unified 註解）→ 開機就 `Mic.begin()` 暖機，待機保持麥克風開著。
+8. **音訊問題先量測再改**：印滿幅樣本數與位置、暫存器讀回值。11-17 連兩次照原始碼推理就改，兩次都沒中。版本標記只印序列埠時，開機那刻監看未連上會丟 → 印在每次錄音的那一行。
+
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
 2. **跨裝置 HID 外掛**：參考 `esp32-iphone-agent`。S3 當免越獄 USB 複合鍵鼠，iOS（配 AssistiveTouch）或 PC/macOS 自適應；視覺大模型截圖定座標→回傳 HID 指令。含實體急停。
@@ -147,7 +157,7 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
 - **授權注意**：該 repo 的 `airplay/` 是 GPL-3.0，含它的韌體要連帶 GPL。若借用該段程式，sketch 要標註。
 
 ## 6. 建置順序（不要一次做四個模式）
-0. ⚠ **硬體驗收**：`selftest/`（StickS3 本體）通過；RF Pack 的 nRF24 與 CC1101 SPI 通過，但 **CC1101 接收故障（2026-11-13 確認，已向賣家申請換貨）**。**開發照常進行，含 M3 的程式也照寫、照編譯；但新 RF Pack 到貨並通過驗收（v5 SPI ＋ v6 RSSI，見 `docs/PROGRESS.md`）前，不把含 RF 功能的韌體燒進 RF Pack 做收發實測**（2026-11-13 調整）。M1-A/M1-B/M1.5/M4/M2 與 M3 的 S3 軌只用 S3 本體，可隨時燒錄。
+0. **硬體驗收**：`selftest/`（StickS3 本體）通過；RF Pack 的 nRF24 通過；CC1101 **接收正常**（2026-11-17 `rssi-test/` 掃頻確認，11-13 的「接收故障」判定撤回），但 SPI 單筆讀取約 0.5% 會錯，讀寫一律依鐵則五第 7 點防錯。換貨未定（已請 PINGEQUA 用樣品對照）。各里程碑都可照常開發與燒錄。
 1. **M0 骨架**（2026-11-13 完成、編譯通過，待實機驗收）：狀態機、Grove 偵測、急停、狀態畫面。
 2. **M1-A 表情**：RoboEyes 風圓角眼＋情緒互動（搖晃／拍打／聲音），直橫雙版面。畫面見 `docs/StickS3 介面規格.html`。
 3. **開發順序（2026-11-15 定案）**：M1-A → M1-B（語音＋Cloudflare 中控，常駐、上下分區不蓋表情） → M1.5（紅外線萬能遙控器，S3 本體） → M4（空中滑鼠） → M2（HID，語音驅動） → M3（無線電工具箱：**S3 軌** Wi-Fi/BLE 可現在做、**RF 軌** 433/nRF 等新板）。警用無線電（P25 加密）永久排除；FM 收音機、航空監聽列待辦。

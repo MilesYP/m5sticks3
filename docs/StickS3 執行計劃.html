@@ -139,6 +139,26 @@ html{scroll-behavior:smooth}
 .maptbl th{font-size:11.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
 .tblwrap{overflow-x:auto}
 
+/* ── 2026-11-17 新增：切片清單 ── */
+.slices{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:12.5px}
+.slices li{display:flex;gap:7px;align-items:flex-start;color:var(--muted)}
+.slices .sc{font-family:var(--f-mono);font-weight:700;color:var(--ink);flex:none;min-width:3.8em}
+.slices li.ok{opacity:.72}
+.slices li.ok .sc{color:var(--ok)}
+.slices li.cur{color:var(--ink);font-weight:600}
+.slices li.cur .sc{color:var(--accent)}
+.sltbl{width:100%;border-collapse:collapse;font-size:13px}
+.sltbl th,.sltbl td{border-bottom:1px solid var(--line);padding:6px 7px;text-align:left;vertical-align:top}
+.sltbl th{font-size:11.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.sltbl td.c{font-family:var(--f-mono);font-weight:700;white-space:nowrap}
+.sltbl td.s{white-space:nowrap;font-size:12.5px}
+.sltbl tr.ok td{color:var(--muted)}
+.sltbl tr.ok td.c{color:var(--ok)}
+.sltbl tr.cur td{background:var(--accent-soft)}
+.sltbl tr.cur td.c{color:var(--accent)}
+.grp{font-size:14px;font-weight:900;margin:14px 0 4px}
+.grp span{font-family:var(--f-mono);font-size:12px;color:var(--muted);font-weight:700;margin-left:8px}
+
 /* 模擬器 */
 .sim{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
 @media (min-width:760px){.sim{grid-template-columns:auto minmax(0,1fr)}}
@@ -205,58 +225,102 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
 
 <!-- ═══════════ 2026-11 新增：目前進度 ═══════════ -->
 <section class="sec" id="now">
-  <span class="eyebrow">目前進度 · 更新於 2026-11-13</span>
+  <span class="eyebrow">目前進度 · 更新於 2026-11-18</span>
   <h2>韌體路線圖：做到哪、接下來做什麼</h2>
-  <p class="lede2">下面這條線是正式韌體 <code>firmware/</code> 的里程碑（M0～M4），依 <code>CLAUDE.md</code> 第 6 節的建置順序排列；右邊是 RF Pack 換貨的支線，它只會卡住「M3 的燒錄實測」，不卡開發。</p>
+  <p class="lede2">下面這條線是正式韌體 <code>firmware/</code> 的里程碑，依 <code>CLAUDE.md</code> 第 6 節的建置順序排列；右邊是 RF Pack 的狀態：接收已驗證正常，SPI 需防錯，不卡任何里程碑。每個里程碑底下是實際的切片，完整清單見<a href="#slices">下一節</a>。</p>
   <div class="legend">
     <span><i class="dot st-done"></i>完成</span>
     <span><i class="dot st-doing"></i>進行中</span>
     <span><i class="dot st-next"></i>下一步</span>
     <span><i class="dot st-todo"></i>排隊中</span>
-    <span><i class="dot st-gate"></i>可開發，燒錄要等新 RF Pack</span>
   </div>
 
-  <div class="notice" style="margin:10px 0 0"><b>2026-11-15 更新</b>：UI 與架構定案 — 雲端中控（Cloudflare＋GPT-Live）、語音常駐、直橫雙版面、紅外線獨立成 M1.5、M3 分 S3 軌／RF 軌。畫面細節見 <a href="StickS3 介面規格.html">StickS3 介面規格</a>。</div>
+  <div class="notice" style="margin:10px 0 0"><b>2026-11-18 更新</b>：M1-B 完成 B3b-1（本機錄放音音質定案：噠聲來自 A 鍵機械聲，頭尾各切 60ms）；下一片是 <b>B3.5 連線 token 驗證</b>。RF Pack 重新判定：<b>CC1101 接收正常</b>（11-17 <code>rssi-test/</code> 掃到 315／333 MHz），先前「收訊故障」撤回；但 SPI 單筆讀取約 0.5% 會錯，韌體須依 <code>CLAUDE.md</code> 鐵則五第 7 點防錯，換貨未定。畫面細節見 <a href="StickS3 介面規格.html">介面規格</a>，語音架構見 <code>docs/M1B-架構.md</code>。</div>
   <div class="road">
     <ol class="tl">
       <li><i class="pin st-done"></i>
         <div class="ttl"><span class="code">H</span><b>硬體驗收</b><span class="pill st-done">完成 11-12</span></div>
-        <p>StickS3 本體自檢通過；RF Pack 的 nRF24、CC1101 SPI 讀寫通過。11-13 確認 <b>CC1101 收訊故障</b> → 申請換貨。</p></li>
+        <p>StickS3 本體自檢通過；RF Pack 的 nRF24、CC1101 SPI 讀寫通過。11-13 一度判定 CC1101 收訊故障，<b>11-17 以 <code>rssi-test/</code> 確認接收正常</b>，判定撤回；SPI 讀取需防錯。</p></li>
+      <li><i class="pin st-done"></i>
+        <div class="ttl"><span class="code">M0</span><b>韌體骨架</b><span class="pill st-done">完成 11-16</span></div>
+        <p>狀態機、Grove 偵測、急停、狀態畫面。實機驗收通過：四模式循環、A 鍵急停、B 長按急停備援都正常。<a href="#m0">→ 看 M0 長怎樣</a></p>
+        <p style="color:var(--amber)">待補：插 CardKB／Scroll 的 Grove 偵測實測（配件未到貨）。</p></li>
       <li class="is-doing"><i class="pin st-doing"></i>
-        <div class="ttl"><span class="code">M0</span><b>韌體骨架</b><span class="pill st-doing">待實機驗收</span></div>
-        <p>狀態機、Grove 偵測、急停、狀態畫面都寫好並編譯通過。下一步燒進板子照驗收清單測一遍。<a href="#m0">→ 看 M0 長怎樣</a></p></li>
+        <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-doing">2／4 片</span></div>
+        <p>圓角眼睛＋情緒，固定配色、平滑過渡。九種表情已定案，剩 IMU 互動與直橫雙版面。</p>
+        <ul class="slices">
+          <li class="ok"><span class="sc">A1</span>離線 Idle 臉：呼吸＋眨眼</li>
+          <li class="ok"><span class="sc">A2</span>九種表情定案、固定配色</li>
+          <li><span class="sc">A3</span>IMU 互動：搖晃／拍打／睡著</li>
+          <li><span class="sc">A4</span>直橫雙版面</li>
+        </ul></li>
+      <li class="is-doing"><i class="pin st-doing"></i>
+        <div class="ttl"><span class="code">M1-B</span><b>語音對話（常駐）</b><span class="pill st-doing">5／11 片</span></div>
+        <p>GPT-Live 語音＋Cloudflare 中控（存對話、工具呼叫）。中控與裝置連線已通，OpenAI 文字回覆已驗證，本機錄放音已定案，下一步先加連線驗證，再把音訊搬上雲端。</p>
+        <ul class="slices">
+          <li class="ok"><span class="sc">B1</span>中控骨架（Worker＋DO、<code>/test</code>）</li>
+          <li class="ok"><span class="sc">B2a</span>裝置連 Wi-Fi 與中控 WS</li>
+          <li class="ok"><span class="sc">B2b</span>按鍵驅動＋表情連動</li>
+          <li class="ok"><span class="sc">B3a</span>中控呼叫 OpenAI 回文字</li>
+          <li class="ok"><span class="sc">B3b-1</span>本機錄放音・音質定案</li>
+          <li class="cur"><span class="sc">B3.5</span>連線 token 驗證 ← 下一片</li>
+          <li><span class="sc">B3b-2</span>音訊串上中控、原樣回傳</li>
+          <li><span class="sc">B3c</span>接 GPT-Live 即時語音</li>
+          <li><span class="sc">B4</span>對話列文字＋嘴巴連動音量</li>
+          <li><span class="sc">B5</span>新聞快報（Workers AI Cron）</li>
+          <li><span class="sc">B6</span>喚醒詞＋工具呼叫</li>
+        </ul></li>
       <li><i class="pin st-next"></i>
-        <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-next">下一步</span></div>
-        <p>圓角眼睛＋情緒：待機呼吸眨眼、開心、生氣、驚嚇、想睡睡著；搖晃／拍打／聲音觸發。直橫雙版面。細節見 <a href="StickS3 介面規格.html">介面規格</a>。</p></li>
+        <div class="ttl"><span class="code">M1.5</span><b>紅外線萬能遙控器</b><span class="pill st-next">3 片・S3 可做</span></div>
+        <p>S3 本體內建紅外線。腳位 Bruce 標示 TX G46／RX G42，<b>尚未實機驗證</b>，第一片就是驗腳位。不依賴 RF 版。</p>
+        <ul class="slices">
+          <li><span class="sc">IR1</span>驗腳位＋接收遙控器碼、印協定</li>
+          <li><span class="sc">IR2</span>學習、命名、存 NVS</li>
+          <li><span class="sc">IR3</span>選單重放（冷氣長碼另處理）</li>
+        </ul></li>
       <li><i class="pin st-todo"></i>
-        <div class="ttl"><span class="code">M1-B</span><b>語音對話（常駐）</b><span class="pill st-todo">排隊</span></div>
-        <p>GPT-Live 語音＋Cloudflare 中控（存對話、工具呼叫）；長按 A／喚醒詞叫出，上下分區不蓋表情，講完收起。</p></li>
+        <div class="ttl"><span class="code">M4</span><b>空中體感滑鼠</b><span class="pill st-todo">3 片</span></div>
+        <p>BMI270 姿態 → 低通濾波 → BLE HID 滑鼠。先在螢幕上畫游標驗證解算，確定手感再接藍牙。</p>
+        <ul class="slices">
+          <li><span class="sc">M4-1</span>姿態解算＋濾波，螢幕畫游標</li>
+          <li><span class="sc">M4-2</span>NimBLE BLE HID 滑鼠</li>
+          <li><span class="sc">M4-3</span>按鍵整合＋語音暫停</li>
+        </ul></li>
       <li><i class="pin st-todo"></i>
-        <div class="ttl"><span class="code">M1.5</span><b>紅外線萬能遙控器</b><span class="pill st-todo">排隊・S3 可做</span></div>
-        <p>S3 本體內建紅外線（TX G46／RX G42）。學習電視／冷氣固定碼、存 NVS、重放。不依賴 RF 版。</p></li>
+        <div class="ttl"><span class="code">M2</span><b>HID 外掛（語音驅動）</b><span class="pill st-todo">4 片・最後做</span></div>
+        <p>語音指揮後端模型操作電腦：截圖→視覺模型→座標→S3 當 USB 鍵鼠執行。先做 PC／macOS。急停是安全關鍵。</p>
+        <ul class="slices">
+          <li><span class="sc">M2-1</span>TinyUSB 複合鍵鼠（序列埠改走 UART）</li>
+          <li><span class="sc">M2-2</span>急停整合＋輸出閘門驗證</li>
+          <li><span class="sc">M2-3</span>電腦端代理：截圖→視覺模型→座標</li>
+          <li><span class="sc">M2-4</span>接中控工具呼叫，語音驅動</li>
+        </ul></li>
       <li><i class="pin st-todo"></i>
-        <div class="ttl"><span class="code">M4</span><b>空中體感滑鼠</b><span class="pill st-todo">排隊</span></div>
-        <p>BMI270 姿態 → 低通濾波 → BLE HID 滑鼠；A＝左鍵。啟動時語音暫停。</p></li>
-      <li><i class="pin st-todo"></i>
-        <div class="ttl"><span class="code">M2</span><b>HID 外掛（語音驅動）</b><span class="pill st-todo">最後做</span></div>
-        <p>語音指揮後端模型操作電腦：截圖→視覺模型→座標→S3 當 USB 鍵鼠執行。先做 PC／macOS。A 鍵硬體急停。</p></li>
-      <li><i class="pin st-gate"></i>
-        <div class="ttl"><span class="code">M3</span><b>無線電工具箱</b><span class="pill st-gate">S3 軌可做・RF 軌等新板</span></div>
-        <p>把 Bruce 的功能移植成友善介面。<b>S3 軌</b>（Wi-Fi／BLE 掃描與實驗，限自有設備）用 S3 本體，可與 M4／M2 並行；<b>RF 軌</b>（433MHz 學習重放、RSSI 掃描、nRF24）走 CC1101，等新 RF 版驗收。</p></li>
+        <div class="ttl"><span class="code">M3</span><b>無線電工具箱</b><span class="pill st-todo">S3 軌 3 片・RF 軌 5 片</span></div>
+        <p><b>S3 軌</b>（Wi-Fi／BLE 掃描與實驗，限自有設備）用 S3 本體，可與 M4／M2 並行；<b>RF 軌</b>走 CC1101，接收已驗證可用，讀寫層必須照鐵則五第 7 點防錯（多數決＋寫入驗證）。</p>
+        <ul class="slices">
+          <li><span class="sc">S3-1</span>Wi-Fi 掃描（可做）</li>
+          <li><span class="sc">S3-2</span>BLE 掃描（可做）</li>
+          <li><span class="sc">S3-3</span>自有設備實驗模組（可做）</li>
+          <li class="ok"><span class="sc">RF-0</span>接收驗收（rssi-test）</li>
+          <li><span class="sc">RF-1</span>RSSI 掃描＋蓋革式嗶聲</li>
+          <li><span class="sc">RF-2</span>固定碼學習、存 NVS</li>
+          <li><span class="sc">RF-3</span>重放發射（315／433.92）</li>
+          <li><span class="sc">RF-4</span>nRF24 2.4GHz 掃描</li>
+        </ul></li>
     </ol>
 
-    <aside class="lane" aria-label="RF Pack 換貨支線">
-      <h3>RF Pack S3 換貨支線</h3>
+    <aside class="lane" aria-label="RF Pack 狀態">
+      <h3>RF Pack S3 狀態</h3>
       <ol>
-        <li>11-13 確認故障、決定換貨（不退款）</li>
-        <li class="now">寄信給 PINGEQUA ← 目前在這</li>
-        <li>賣家回覆／RMA 編號</li>
-        <li>寄回舊板</li>
-        <li>收到新板</li>
-        <li>重跑驗收：<b>v5 SPI</b> ＋ <b>v6 RSSI</b>（有天線／拔天線／按遙控器）</li>
+        <li>11-13 Bruce 實測 RSSI 不變，判定收訊故障、申請換貨</li>
+        <li>11-14～15 與 PINGEQUA 往返、Bruce v1.17 重測</li>
+        <li>11-17 自寫 <code>rssi-test/</code> 掃頻：315.00 MHz −16 dBm、333.00 MHz −18 dBm → <b>接收正常</b>，故障判定撤回（手邊遙控器不在 433.92 MHz）</li>
+        <li>同日量出 SPI 單筆讀取約 0.5% 錯、錯誤成叢；高強度連續存取後會卡約 2 秒</li>
+        <li class="now">已請 PINGEQUA 用樣品對照、保留換貨選項 ← 目前在這</li>
       </ol>
-      <div class="gatebox"><b>合流點</b>：v5＋v6 都通過 → 才把含 RF 功能的韌體燒進「StickS3＋新 RF Pack」做 M3 實測。</div>
-      <small>退換期限約 <b>2026-11-26</b>。等待期間開發照常，含 M3 的程式也照寫；M1-A／M1-B／M1.5／M4／M2 與 M3 的 S3 軌只用 S3 本體，可隨時燒錄。正常背景 RSSI 應約 -95～-105 dBm，且拔天線會變。</small>
+      <div class="gatebox"><b>開發規則</b>：RF 軌照常開發與燒錄，但 CC1101 讀寫必須照 <code>CLAUDE.md</code> 鐵則五第 7 點——多數決（至少 3 筆）＋ <code>VERSION</code>=<code>0x14</code> 語意檢查、寫入一律驗證重寫、高強度存取之間留間隔。</div>
+      <small>退換期可能在 <b>2026-11-20</b> 前。詳細數據見 <code>docs/cc1101-spi-reliability.md</code>。</small>
     </aside>
   </div>
 
@@ -265,16 +329,100 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
     <thead><tr><th>關卡</th><th>對應里程碑</th><th>狀態</th></tr></thead>
     <tbody>
       <tr><td>0 開箱與環境</td><td>硬體驗收</td><td>✅ Bruce 已刷、PlatformIO 可編譯燒錄</td></tr>
-      <tr><td>1 Hello StickS3</td><td><code>selftest/</code>、M0</td><td>✅ 自檢通過；M0 待燒錄</td></tr>
-      <tr><td>2 IMU 感測器</td><td>M4 空中滑鼠</td><td>⏳ 排隊</td></tr>
-      <tr><td>3 Scroll Unit／I2C</td><td>M0 Grove 偵測</td><td>🟡 M0 會掃描 0x40，待插配件實測</td></tr>
-      <tr><td>4 紅外線</td><td><code>M1.5</code> 紅外線遙控器</td><td>🟢 已排入・S3 可做</td></tr>
-      <tr><td>5 CardKB＋狀態機</td><td>M0 狀態機、M1 靜音輸入</td><td>🟡 狀態機已寫好</td></tr>
-      <tr><td>6 RF Pack／SPI</td><td>M3</td><td>🟣 SPI 已驗證；收訊等新板</td></tr>
-      <tr><td>7 統一遙控器</td><td>M3＋NVS</td><td>⏳ 排隊</td></tr>
-      <tr><td>8 連網與語音</td><td>M1-B</td><td>⏳ 排隊</td></tr>
+      <tr><td>1 Hello StickS3</td><td><code>selftest/</code>、M0</td><td>✅ 自檢與 M0 實機驗收都通過</td></tr>
+      <tr><td>2 IMU 感測器</td><td>M1-A 切片 A3、M4</td><td>⏳ 下一批要做</td></tr>
+      <tr><td>3 Scroll Unit／I2C</td><td>M0 Grove 偵測</td><td>🟡 程式會掃 0x40，配件未到貨</td></tr>
+      <tr><td>4 紅外線</td><td>M1.5（IR1～IR3）</td><td>🟠 已排入・腳位待驗</td></tr>
+      <tr><td>5 CardKB＋狀態機</td><td>M0 狀態機、M1-B 靜音輸入</td><td>🟡 狀態機已驗收，CardKB 未到貨</td></tr>
+      <tr><td>6 RF Pack／SPI</td><td>M3 RF 軌（RF-0～RF-4）</td><td>🟢 接收已驗證；SPI 需防錯</td></tr>
+      <tr><td>7 統一遙控器</td><td>M1.5＋M3＋NVS</td><td>⏳ 排隊</td></tr>
+      <tr><td>8 連網與語音</td><td>M1-B（B1～B6）</td><td>🔵 進行中，5／11 片完成</td></tr>
     </tbody>
   </table></div>
+</section>
+
+<!-- ═══════════ 2026-11-17 新增：切片總表 ═══════════ -->
+<section class="sec" id="slices">
+  <span class="eyebrow">切片拆分 · 一片一驗收</span>
+  <h2>所有切片：誰做完了、下一片是什麼</h2>
+  <p class="lede2">規則不變：<b>先說要改哪些檔＋計畫 → 同意 → 寫 → Build／Upload（雲端用 <code>wrangler deploy</code>）→ 實機或 <code>/test</code> 驗收 → <code>git commit</code> → 下一片</b>。一次只動一片，驗收過才往下，變因才控制得住。</p>
+
+  <div class="grp">M1-A 表情<span>4 片・2 完成</span></div>
+  <div class="tblwrap"><table class="sltbl">
+    <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr class="ok"><td class="c">A1</td><td>離線 Idle 臉：PSRAM sprite 畫圓角青色眼睛，上下呼吸（±9px／約 2 秒）＋隨機眨眼</td><td>開機即見表情，不連網</td><td class="s">✅ 11-16</td></tr>
+      <tr class="ok"><td class="c">A2</td><td>九種表情：Idle／Listening／Thinking／Speaking／Happy／Angry／Scared／Sleepy／Asleep，固定配色、眼型與過渡</td><td>實機逐一確認九種</td><td class="s">✅ 11-16</td></tr>
+      <tr><td class="c">A3</td><td>IMU 互動：搖晃→驚嚇、拍打→生氣、靜置久→想睡→睡著；取代目前按 A 循環切表情的測試用法</td><td>搖、拍、放著不動各觸發一次</td><td class="s">⏳</td></tr>
+      <tr><td class="c">A4</td><td>直橫雙版面：文字條物理位置固定在藍鍵側，只有文字方向跟著轉；橫式支援兩個傾斜方向</td><td>轉動裝置，文字始終可讀</td><td class="s">⏳</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grp">M1-B 語音對話<span>11 片・5 完成</span></div>
+  <div class="tblwrap"><table class="sltbl">
+    <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr class="ok"><td class="c">B1</td><td>中控骨架：Cloudflare Worker＋Durable Object，WebSocket 協定、存對話、<code>/test</code> 測試頁</td><td><code>/test</code> 頁連線、收發、看紀錄</td><td class="s">✅ 11-16</td></tr>
+      <tr class="ok"><td class="c">B2a</td><td>裝置連 Wi-Fi、連中控 WebSocket、每 20 秒 keepalive ping</td><td>序列埠印連線成功與 IP</td><td class="s">✅ 11-16</td></tr>
+      <tr class="ok"><td class="c">B2b</td><td>長按 A 送 <code>start</code>／放開送 <code>stop</code>；中控回的 state 驅動表情切換</td><td>實機按鍵，表情跟著變</td><td class="s">✅ 11-16</td></tr>
+      <tr class="ok"><td class="c">B3a</td><td>中控收到 <code>stop</code> 後真的呼叫 OpenAI 回文字，驗證 key／額度／模型可用</td><td><code>/test</code> 頁看到真回覆</td><td class="s">✅ 11-16</td></tr>
+      <tr class="ok"><td class="c">B3b-1</td><td>本機麥克風→喇叭回放，音質定案：分塊預排錄音（無空檔）、緩衝清零、ES8311 麥克風增益改「模擬 +21dB／數位 0dB」、喇叭取樣率 22050→16000 與乘數 1→4、DAC 靜音時序、正規化、淡入淡出。<b>噠聲主因是 A 鍵機械聲被錄進去</b>（滿幅固定在按下後約 40～50ms）→ 頭尾各切 60ms。錄音上限 6 秒，B3b-2 改串流後消失</td><td>按住 A 講話放開，聲音夠大、不破、無噠聲</td><td class="s">✅ 11-18</td></tr>
+      <tr class="cur"><td class="c">B3.5</td><td>連線 token 驗證（排在 B3b-2 之前）：裝置帶 token、中控比對不符就拒絕。中控網址在公開 repo，不加這層任何人都能連上花 API 額度</td><td>改錯 token 會被拒、正確可連</td><td class="s">⏳ 下一片</td></tr>
+      <tr><td class="c">B3b-2</td><td>裝置錄到的音訊以 WebSocket 二進位幀串給中控，中控原封不動回傳讓裝置播放（純傳輸測試，先不接 OpenAI）。先做「放開後整段上傳」，通過再改邊錄邊傳</td><td>說一句 → 從雲端繞一圈 → 放出來</td><td class="s">⏳</td></tr>
+      <tr><td class="c">B3c</td><td>中控接 OpenAI 即時語音（<code>gpt-live-1</code>，<code>wss://api.openai.com/v1/realtime</code>）。雙向串流，thinking／speaking 由真實節奏驅動，Speaking 嘴巴連 <code>setSpeakLevel()</code>。<b>實作前先查官方文件確認音訊格式</b>——官方範例是 24kHz PCM16，裝置目前 16kHz，重取樣放中控或裝置要先定案</td><td>對它說一句話，它用語音回答</td><td class="s">⏳</td></tr>
+      <tr><td class="c">B4</td><td>對話列文字：直式 ≤5 行、橫式側欄（欄寬＝直式對話列高）；Speaking 嘴巴連動喇叭音量</td><td>講完畫面出現逐字文字</td><td class="s">⏳</td></tr>
+      <tr><td class="c">B5</td><td>新聞快報：Workers AI Cron 定時抓新聞→摘要→TTS 推播（走免費額度）</td><td>到點自己開口念快報</td><td class="s">⏳</td></tr>
+      <tr><td class="c">B6</td><td>喚醒詞（板上輕量偵測「嘿小S」才連線，選配）＋工具呼叫接 M1.5／M3（「幫我開電視」）</td><td>不按鍵也能叫醒；語音能發射訊號</td><td class="s">⏳</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grp">M1.5 紅外線萬能遙控器<span>3 片・S3 本體可做</span></div>
+  <div class="tblwrap"><table class="sltbl">
+    <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr><td class="c">IR1</td><td>腳位實機驗證（Bruce 標示 TX G46／RX G42，<b>未驗證、不可當定論</b>）＋接收電視遙控器碼，螢幕顯示協定與數值</td><td>按遙控器，螢幕印出 NEC 等協定與碼</td><td class="s">⏳</td></tr>
+      <tr><td class="c">IR2</td><td>學習、命名、存 NVS（<code>Preferences</code>），重開機不消失</td><td>存三組碼，重開機還在</td><td class="s">⏳</td></tr>
+      <tr><td class="c">IR3</td><td>選單重放：選已存的鍵發射。冷氣這類長碼（整組狀態一次送）另外處理</td><td>按下去，電視／冷氣真的動</td><td class="s">⏳</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grp">M4 空中體感滑鼠<span>3 片</span></div>
+  <div class="tblwrap"><table class="sltbl">
+    <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr><td class="c">M4-1</td><td>BMI270 姿態解算（Pitch／Yaw→游標）＋低通濾波，先在螢幕上畫游標，不碰藍牙</td><td>手腕轉動，螢幕游標跟著走且不抖</td><td class="s">⏳</td></tr>
+      <tr><td class="c">M4-2</td><td>NimBLE-Arduino 實作 BLE HID 滑鼠（比 Bluedroid 省記憶體），電腦認到裝置</td><td>電腦藍牙清單看到它，游標能動</td><td class="s">⏳</td></tr>
+      <tr><td class="c">M4-3</td><td>按鍵整合：A＝左鍵、Scroll 滾動＝捲動、Scroll 按壓＝右鍵；進入本模式時語音暫停（鐵則二）</td><td>能真的用它點擊與捲動</td><td class="s">⏳</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grp">M2 跨裝置 HID 外掛<span>4 片・最後做</span></div>
+  <div class="tblwrap"><table class="sltbl">
+    <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr><td class="c">M2-1</td><td>TinyUSB 複合鍵鼠：電腦認到 USB 鍵盤滑鼠、能打字移動游標。<b>開了原生 USB HID 後序列埠要改走第二路 CDC 或 UART</b></td><td>在記事本打出一行字</td><td class="s">⏳</td></tr>
+      <tr><td class="c">M2-2</td><td>急停整合：A 鍵硬體中斷＋<code>killswitch::outputAllowed()</code> 閘門，送出任何封包前先查閘門</td><td>連續送字時拍 A，立刻停且斷線</td><td class="s">⏳</td></tr>
+      <tr><td class="c">M2-3</td><td>電腦端代理：由電腦自己截圖送視覺模型、回傳座標與動作給 S3（避開參考專案那套 GPL 的 AirPlay 路線）</td><td>說「點左上角的視窗」就點到</td><td class="s">⏳</td></tr>
+      <tr><td class="c">M2-4</td><td>語音驅動：接 M1-B 中控的工具呼叫，語音直接指揮電腦操作</td><td>對它說一句話，電腦照做</td><td class="s">⏳</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="grp">M3 無線電工具箱<span>S3 軌 3 片・RF 軌 5 片（RF-0 已完成）</span></div>
+  <div class="tblwrap"><table class="sltbl">
+    <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr><td class="c">S3-1</td><td>Wi-Fi 掃描：列出周邊 AP、頻道、訊號強度（只被動掃描）</td><td>掃到自家 Wi-Fi 並顯示強度</td><td class="s">⏳ 可做</td></tr>
+      <tr><td class="c">S3-2</td><td>BLE 掃描：列出周邊裝置與 RSSI</td><td>掃到自己的手機／耳機</td><td class="s">⏳ 可做</td></tr>
+      <tr><td class="c">S3-3</td><td>自有設備實驗模組（學習用途，<b>僅限自己的設備</b>，不做干擾）</td><td>在自有裝置上驗證</td><td class="s">⏳ 可做</td></tr>
+      <tr class="ok"><td class="c">RF-0</td><td>接收驗收：<code>rssi-test/</code> 掃頻確認 CC1101 收得到（315.00 MHz −16 dBm、333.00 MHz −18 dBm）；同時量出 SPI 讀取約 0.5% 錯的特性並定出防錯規則（鐵則五第 7 點）</td><td>按遙控器，掃頻看得到訊號</td><td class="s">✅ 11-17</td></tr>
+      <tr><td class="c">RF-1</td><td>RSSI 掃描：柱狀／瀑布圖顯示，靠近訊號源時喇叭發蓋革式嗶聲</td><td>按自家遙控器，圖上看得到</td><td class="s">⏳ 可做</td></tr>
+      <tr><td class="c">RF-2</td><td>固定碼學習：PT2262／SC2260／EV1527 解碼，存 NVS 並命名</td><td>學到自家插座的碼</td><td class="s">⏳ 可做</td></tr>
+      <tr><td class="c">RF-3</td><td>重放發射：315MHz 與 433.92MHz 雙頻（台灣遙控器常見這兩個）。<b>滾動碼不支援也不嘗試</b></td><td>重放後自家插座真的動</td><td class="s">⏳ 可做</td></tr>
+      <tr><td class="c">RF-4</td><td>nRF24 2.4GHz 掃描</td><td>掃到 2.4GHz 頻段活動</td><td class="s">⏳ 可做</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="notice" style="margin:16px 0 0"><b>安全與法律</b>：RF 與 HID 只用於自己的設備。433MHz 被動接收合法；主動發射僅限自有、低功率。滾動碼（新式車庫／車鑰）不支援也不嘗試，不實作任何干擾功能。警用無線電（P25 加密）永久排除。</div>
 </section>
 
 <!-- ═══════════ 2026-11 新增：M0 圖解 ═══════════ -->
@@ -567,7 +715,7 @@ decode_results r;
         <div><dt>程式觀念</dt><dd class="tags"><span class="tag">SPI 匯流排</span><span class="tag">調變 OOK/ASK</span><span class="tag">固定碼 vs 滾動碼</span><span class="tag">頻率</span></dd></div>
         <div><dt>時間</dt><dd>約 3 晚</dd></div>
       </dl>
-      <div class="notice"><b>2026-11-13 硬體狀態</b>：這塊 RF Pack 的 CC1101 收訊故障，已申請換貨。SPI 讀寫已驗證正常，這一關的程式可以照常寫、照常編譯；<b>新板到貨並通過 v5 SPI＋v6 RSSI 驗收後</b>，再燒錄實測收發。</div>
+      <div class="notice"><b>2026-11-17 硬體狀態</b>：CC1101 <b>接收正常</b>（<code>rssi-test/</code> 掃到 315／333 MHz，11-13 的「收訊故障」判定撤回）。但 SPI 單筆讀取約 0.5% 會錯，這一關的程式照常寫、照常燒錄，讀寫一律照 <code>CLAUDE.md</code> 鐵則五第 7 點防錯（多數決＋寫入驗證）。換貨未定。</div>
       <div class="do"><h4>動手做</h4><ol>
         <li>先用 Bruce 的 Sub-GHz 功能擷取一個 433MHz 裝置（你自己的無線插座／門鈴），看它的頻率與波形。</li>
         <li>進階：在自己的程式裡用 SPI 驅動 CC1101，接收 OOK 訊號，理解「SPI 和 I2C 的差別」。</li>

@@ -2,19 +2,25 @@
 //  audio_io：麥克風錄音 / 喇叭放音（M1-B / B3b-1 回放測試）
 //
 //  ES8311 同一時間只能麥克風或喇叭其一（對講機式剛好規避）：
-//  錄音前切到麥克風、放音前切到喇叭。B3b-1 先做本機回放，驗證收放音硬體。
+//  待機與錄音時停在麥克風，只有放音時才切到喇叭，播完立刻切回。
+//  （codec 上電後約一秒內擷取值可能全為零，所以開機就讓它先暖機。）
 //  緩衝放 PSRAM。16kHz、單聲道、PCM16。
 // ─────────────────────────────────────────────────────────────────────────
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 
 namespace audio_io {
 
-void begin();                  // 配置 PSRAM 緩衝（開機呼叫一次）
-void startRecording();         // 切到麥克風、開始錄
-void feedRecording();          // 每圈呼叫：把下一塊錄進緩衝（錄音中才動作）
-void stopRecordingAndPlay();   // 停止錄音、切到喇叭、把剛錄的播出來
+void begin();                  // 配置 PSRAM 緩衝、讓 ES8311 上電暖機（開機呼叫一次）
+void loop();                   // 每圈呼叫：預排錄音區塊、放音結束後切回麥克風
+void startRecording();         // 開始錄（麥克風已開著，只是重設緩衝與計數）
+void stopRecordingAndPlay();   // 停止錄音、正規化音量、切到喇叭播出來
 bool isPlaying();              // 喇叭是否還在放
 uint32_t recordedSamples();    // 這次錄到幾個取樣（除錯用）
+
+// ── 診斷用（B3b-1 判斷音質問題的來源）──
+float lastPeak();              // 上次錄音的原始峰值，0～1（太小＝麥克風收不到）
+float headPeak();              // 開頭 0.5 秒的峰值，0～1（遠小於 lastPeak ＝ codec 暖機吃掉開頭）
 
 }  // namespace audio_io
