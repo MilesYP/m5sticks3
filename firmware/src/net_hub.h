@@ -28,6 +28,10 @@ bool sendBinary(const uint8_t* data, size_t len);        // 送一個二進位�
 void onBinary(BinCb cb);
 void onAudioEnd(AudioEndCb cb);
 
+// ── B3b-2 量測：網路處理花多久（每個階段開始時 reset，結束時印）──
+void perfReset();
+const char* perfLine();   // 例："ws.loop 平均 0.4／最長 3120 ms（812 次）｜送幀 …｜收幀 …"
+
 // ── B3.6 Wi-Fi 干擾量測（序列埠指令切換，見 diag_cmd）──
 void setWifiEnabled(bool on);        // 整個 Wi-Fi 關／開（量測基準；開回來會自動重連中控）
 void setPowerSave(bool on);          // 手動：Wi-Fi 省電（modem sleep）開／關；之後自動切換暫停，直到 setPowerSaveAuto()

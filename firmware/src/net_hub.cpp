@@ -21,12 +21,29 @@ WebSocketsClient s_ws;
 bool s_link = false;
 bool s_ws_started = false;
 uint32_t s_last_ping = 0;
+uint32_t s_ping_sent = 0;     // B3b-2：送出 ping 的時刻，收到 pong 時算往返時間（RTT）
 net_hub::StateCb s_state_cb = nullptr;
 net_hub::BinCb s_bin_cb = nullptr;
 net_hub::AudioEndCb s_end_cb = nullptr;
 
+// B3b-2 量測：累計耗時（微秒）
+struct Perf { uint32_t n = 0; uint64_t sum = 0; uint32_t max = 0;
+  void add(uint32_t us) { ++n; sum += us; if (us > max) max = us; } };
+Perf s_p_loop, s_p_send;
+uint32_t s_bins_this_call = 0, s_bins_total = 0, s_bins_max_per_call = 0;
+
 // 極簡解析中控訊息裡的 "v":"xxx"（避免引入 JSON 函式庫）
 void handleText(const uint8_t* payload, size_t len) {
+  // B3b-2：pong → 印往返時間
+  if (strstr((const char*)payload, "\"t\":\"pong\"")) {
+    if (s_ping_sent) {
+      Serial.printf("[hub] <- pong（RTT %lu ms）\n", (unsigned long)(millis() - s_ping_sent));
+      s_ping_sent = 0;
+    } else {
+      Serial.println("[hub] <- pong");
+    }
+    return;
+  }
   // B3b-2：{"t":"audio_end","n":<bytes>}
   if (strstr((const char*)payload, "\"t\":\"audio_end\"")) {
     const char* n = strstr((const char*)payload, "\"n\":");
@@ -59,10 +76,12 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       }
       break;
     case WStype_TEXT:
-      Serial.printf("[hub] <- %.*s\n", (int)length, (const char*)payload);
+      if (!strstr((const char*)payload, "\"t\":\"pong\""))   // pong 由 handleText 連同 RTT 一起印
+        Serial.printf("[hub] <- %.*s\n", (int)length, (const char*)payload);
       handleText(payload, length);
       break;
     case WStype_BIN:
+      ++s_bins_this_call; ++s_bins_total;
       if (s_bin_cb) s_bin_cb(payload, length);   // 音訊幀很多，不逐幀印
       break;
     default:
@@ -96,11 +115,22 @@ void loop() {
       s_ws_started = true;
     }
   }
-  if (s_ws_started) s_ws.loop();
+  // B3b-2：Wi-Fi 沒連上就不跑 WebSocket（否則它每 5 秒重連，DNS 查詢可能卡住主迴圈好幾秒）。
+  // Wi-Fi 掉線時 WebSocket 自己不會馬上發現 → 這裡直接視為中斷，Wi-Fi 回來後 loop 會偵測並重連。
+  if (s_ws_started && WiFi.status() != WL_CONNECTED) {
+    if (s_link) { s_link = false; Serial.println("[hub] Wi-Fi 未連線，WS 視為中斷（Wi-Fi 回來後自動重連）"); }
+  } else if (s_ws_started) {
+    s_bins_this_call = 0;
+    const uint32_t t0 = micros();
+    s_ws.loop();
+    s_p_loop.add(micros() - t0);
+    if (s_bins_this_call > s_bins_max_per_call) s_bins_max_per_call = s_bins_this_call;
+  }
 
   const uint32_t now = millis();
   if (s_link && now - s_last_ping > 20000) {     // 每 20 秒 ping 一次保活
     s_last_ping = now;
+    s_ping_sent = millis();
     s_ws.sendTXT("{\"t\":\"ping\"}");
   }
 }
@@ -113,7 +143,26 @@ void onState(StateCb cb) { s_state_cb = cb; }
 
 bool sendBinary(const uint8_t* data, size_t len) {
   if (!s_link) return false;
-  return s_ws.sendBIN(data, len);
+  const uint32_t t0 = micros();
+  const bool ok = s_ws.sendBIN(data, len);
+  s_p_send.add(micros() - t0);
+  return ok;
+}
+
+void perfReset() {
+  s_p_loop = Perf(); s_p_send = Perf();
+  s_bins_total = 0; s_bins_max_per_call = 0;
+}
+
+const char* perfLine() {
+  static char buf[160];
+  auto avg = [](const Perf& p) { return p.n ? (float)(p.sum / p.n) / 1000.0f : 0.0f; };
+  snprintf(buf, sizeof(buf),
+           "ws.loop 平均 %.1f／最長 %lu ms（%lu 次）｜送幀 平均 %.1f／最長 %lu ms（%lu 次）｜收幀 %lu（單次 loop 最多 %lu）",
+           avg(s_p_loop), (unsigned long)(s_p_loop.max / 1000), (unsigned long)s_p_loop.n,
+           avg(s_p_send), (unsigned long)(s_p_send.max / 1000), (unsigned long)s_p_send.n,
+           (unsigned long)s_bins_total, (unsigned long)s_bins_max_per_call);
+  return buf;
 }
 void onBinary(BinCb cb) { s_bin_cb = cb; }
 void onAudioEnd(AudioEndCb cb) { s_end_cb = cb; }
@@ -169,8 +218,9 @@ void setTxPowerDbm(int dbm) {
 
 void pingNow() {
   if (!s_link) { Serial.println("[diag] 中控未連線，沒送 ping"); return; }
+  s_ping_sent = millis();
   s_ws.sendTXT("{\"t\":\"ping\"}");
-  Serial.println("[diag] 已送 ping");
+  Serial.println("[diag] 已送 ping（等 pong 算 RTT）");
 }
 
 const char* configLabel() {

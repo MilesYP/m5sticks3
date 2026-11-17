@@ -14,7 +14,9 @@ enum class St : uint8_t { Idle, Recording, Uploading, Waiting, Playing };
 
 constexpr size_t   FRAME_BYTES      = 3200;   // 100ms：16kHz × 2 bytes × 0.1s
 constexpr int      FRAMES_PER_LOOP  = 2;      // 每圈最多送幾塊，避免主迴圈被 TLS 寫入卡住
-constexpr uint32_t WAIT_TIMEOUT_MS  = 8000;   // 送出 stop 後等 audio_end 的上限
+// 送出 stop 後「多久沒收到任何回傳資料」就放棄。B3b-2 v13 實測固定 8 秒會誤判：
+// 6 秒錄音在熱點上要下載約 7.8 秒；改成看有沒有進展。
+constexpr uint32_t WAIT_IDLE_MS     = 5000;
 
 St       s_st = St::Idle;
 int16_t* s_up = nullptr;      // 要上傳的音訊（audio_io 的錄音緩衝）
@@ -25,7 +27,23 @@ size_t   s_rx_bytes = 0;
 uint32_t s_rx_crc = 0;
 bool     s_rx_overflow = false;
 uint32_t s_t_release = 0;     // 放開 A 的時刻（算來回時間）
-uint32_t s_t_wait = 0;        // 送出 stop 的時刻（算逾時）
+uint32_t s_t_wait = 0;        // 送出 stop 或最後一次收到回傳資料的時刻（算逾時）
+
+// ── B3b-2 量測：主迴圈每圈多久（相鄰兩次 voice_turn::loop 的間隔）──
+uint32_t s_last_loop_us = 0, s_lp_n = 0, s_lp_max = 0, s_phase_t0 = 0;
+uint64_t s_lp_sum = 0;
+void perfReset() {
+  s_lp_n = 0; s_lp_sum = 0; s_lp_max = 0; s_phase_t0 = millis();
+  net_hub::perfReset();
+}
+// 印這個階段的量測，然後歸零給下一個階段
+void perfPrint(const char* phase) {
+  Serial.printf("[perf] %s %lu ms｜主迴圈 平均 %.1f／最長 %lu ms（%lu 圈）｜%s\n", phase,
+                (unsigned long)(millis() - s_phase_t0),
+                s_lp_n ? (float)(s_lp_sum / s_lp_n) / 1000.0f : 0.0f,
+                (unsigned long)(s_lp_max / 1000), (unsigned long)s_lp_n, net_hub::perfLine());
+  perfReset();
+}
 
 // CRC32（IEEE，與 zlib 相同）。逐位元算法：192KB 約十幾 ms，只在一輪結束時算一次。
 uint32_t crc32Update(uint32_t crc, const uint8_t* p, size_t n) {
@@ -65,10 +83,12 @@ void onBin(const uint8_t* data, size_t len) {
   if (!rx || s_rx_bytes + len > audio_io::rxCapacityBytes()) { s_rx_overflow = true; return; }
   memcpy((uint8_t*)rx + s_rx_bytes, data, len);
   s_rx_bytes += len;
+  s_t_wait = millis();   // 有進展就重新計時
 }
 
 void onEnd(uint32_t n) {
   if (s_st != St::Waiting) return;
+  perfPrint("等待回傳");
   s_rx_crc = crc32Update(0, (const uint8_t*)audio_io::rxBuffer(), s_rx_bytes);
   const bool same = !s_rx_overflow && s_rx_bytes == s_up_bytes && s_rx_crc == s_up_crc;
   Serial.printf("[voice] 上傳 %u bytes CRC %08lX｜收回 %u bytes CRC %08lX（中控報 %lu）｜%s｜來回 %lu ms\n",
@@ -101,6 +121,7 @@ void onPress() {
   else Serial.println("[voice] 中控未連線（放開後會改本機回放）");
   s_rx_bytes = 0; s_rx_overflow = false;
   s_st = St::Recording;
+  perfReset();
 }
 
 void onRelease() {
@@ -108,6 +129,7 @@ void onRelease() {
   int16_t* p = nullptr;
   const size_t n = audio_io::stopRecording(&p);
   s_t_release = millis();
+  perfPrint("錄音");
   if (n == 0 || p == nullptr) {             // 按太短
     if (net_hub::linkUp()) net_hub::sendStop();   // 讓中控也結束這輪（會回 audio_end n=0）
     toIdle();
@@ -123,6 +145,14 @@ void onRelease() {
 }
 
 void loop() {
+  {
+    const uint32_t now = micros();
+    if (s_last_loop_us != 0) {
+      const uint32_t d = now - s_last_loop_us;
+      ++s_lp_n; s_lp_sum += d; if (d > s_lp_max) s_lp_max = d;
+    }
+    s_last_loop_us = now;
+  }
   // 中途離開 Desktop（切模式、急停）→ 中止這一輪
   if (s_st != St::Idle && mode_manager::current() != Mode::Desktop) {
     if (s_st == St::Recording) audio_io::stopRecording(nullptr);
@@ -150,6 +180,7 @@ void loop() {
         Serial.printf("[voice] 上傳完成 %u bytes（%u 塊），%lu ms\n", (unsigned)s_up_bytes,
                       (unsigned)((s_up_bytes + FRAME_BYTES - 1) / FRAME_BYTES),
                       (unsigned long)(millis() - s_t_release));
+        perfPrint("上傳");
         s_t_wait = millis();
         s_st = St::Waiting;
       }
@@ -157,9 +188,9 @@ void loop() {
     }
     case St::Waiting:
       if (!net_hub::linkUp()) { fallbackLocal("等待回傳時斷線"); break; }
-      if (millis() - s_t_wait > WAIT_TIMEOUT_MS) {
-        Serial.printf("[voice] 等 %lu ms 沒收到 audio_end（已收 %u bytes），放棄這一輪\n",
-                      (unsigned long)WAIT_TIMEOUT_MS, (unsigned)s_rx_bytes);
+      if (millis() - s_t_wait > WAIT_IDLE_MS) {
+        Serial.printf("[voice] %lu ms 沒有新的回傳資料（已收 %u／%u bytes），放棄這一輪\n",
+                      (unsigned long)WAIT_IDLE_MS, (unsigned)s_rx_bytes, (unsigned)s_up_bytes);
         toIdle();
       }
       break;

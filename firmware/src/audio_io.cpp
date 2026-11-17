@@ -6,7 +6,7 @@
 #include <algorithm>
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "12-b3b2"
+#define AUDIO_BUILD_TAG "14-b3b2rtt"
 
 namespace {
 
@@ -405,6 +405,15 @@ size_t stopRecording(int16_t** out) {
   size_t end = (size_t)((uint64_t)held_ms * SAMPLE_RATE / 1000);
   if (end > s_queued) end = s_queued;
   M5.Mic.end();
+  // B3b-2 量測：按住的時間比實際排進去的錄音長很多 → 主迴圈中途被卡住、錄音停了
+  {
+    const uint32_t queued_ms = (uint32_t)(s_queued * 1000 / SAMPLE_RATE);
+    if (s_queued + CHUNK <= CAP_SAMPLES && held_ms > queued_ms + 250) {
+      Serial.printf("[audio] 錄音缺 %lu ms（按住 %lu ms、只錄到 %lu ms）→ 主迴圈被卡住\n",
+                    (unsigned long)(held_ms - queued_ms), (unsigned long)held_ms,
+                    (unsigned long)queued_ms);
+    }
+  }
 
   printClipPositions(s_buf, end);   // 診斷：切之前的滿幅位置
 
