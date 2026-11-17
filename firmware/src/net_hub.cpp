@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
+#include <stdio.h>
 #include <WebSocketsClient.h>
 #include <string.h>
 
@@ -96,5 +98,75 @@ bool linkUp() { return s_link; }
 void sendStart() { if (s_link) s_ws.sendTXT("{\"t\":\"start\"}"); }
 void sendStop()  { if (s_link) s_ws.sendTXT("{\"t\":\"stop\"}"); }
 void onState(StateCb cb) { s_state_cb = cb; }
+
+// ── B3.6 Wi-Fi 干擾量測 ───────────────────────────────────────────────────
+void setWifiEnabled(bool on) {
+  if (on) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);   // WebSocket 由函式庫每 5 秒自動重連
+    Serial.println("[diag] Wi-Fi → 開（等 [hub] WS connected）");
+  } else {
+    s_ws.disconnect();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    Serial.println("[diag] Wi-Fi → 關");
+  }
+}
+
+// 手動切換（diag 的 s0/s1）期間不讓自動切換蓋掉，量測才準
+bool s_ps_manual = false;
+
+void setPowerSave(bool on) {
+  s_ps_manual = true;
+  WiFi.setSleep(on);   // on → WIFI_PS_MIN_MODEM（預設）；off → WIFI_PS_NONE
+  Serial.printf("[diag] Wi-Fi 省電 → %s（手動，自動切換暫停；輸入 sa 恢復）\n", on ? "開" : "關");
+}
+
+void setPowerSaveAuto() {
+  s_ps_manual = false;
+  WiFi.setSleep(true);
+  Serial.println("[diag] Wi-Fi 省電 → 自動（錄放音期間關、平常開）");
+}
+
+void voiceActive(bool active) {
+  if (s_ps_manual) return;
+  if (WiFi.getSleep() == !active) return;   // 已經是要的狀態，不重複設定
+  WiFi.setSleep(!active);
+  Serial.printf("[wifi] 省電 → %s（%s）\n", active ? "關" : "開",
+                active ? "錄放音中，避免滋滋聲" : "錄放音結束");
+}
+
+void setTxPowerDbm(int dbm) {
+  wifi_power_t p;
+  if      (dbm >= 18) p = WIFI_POWER_19_5dBm;
+  else if (dbm >= 14) p = WIFI_POWER_15dBm;
+  else if (dbm >= 10) p = WIFI_POWER_11dBm;
+  else if (dbm >= 7)  p = WIFI_POWER_8_5dBm;
+  else if (dbm >= 4)  p = WIFI_POWER_5dBm;
+  else                p = WIFI_POWER_2dBm;
+  bool ok = WiFi.setTxPower(p);
+  Serial.printf("[diag] 發射功率設定%s → %s\n", ok ? "" : "失敗", configLabel());
+}
+
+void pingNow() {
+  if (!s_link) { Serial.println("[diag] 中控未連線，沒送 ping"); return; }
+  s_ws.sendTXT("{\"t\":\"ping\"}");
+  Serial.println("[diag] 已送 ping");
+}
+
+const char* configLabel() {
+  static char buf[64];
+  const char* link = s_link ? "WS" : (WiFi.status() == WL_CONNECTED ? "up" : "down");
+  wifi_ps_type_t ps = WIFI_PS_NONE;
+  int8_t q = 0;   // 單位 0.25 dBm
+  const bool ps_ok = (esp_wifi_get_ps(&ps) == ESP_OK);
+  const bool tx_ok = (esp_wifi_get_max_tx_power(&q) == ESP_OK);
+  char tx[12];
+  if (tx_ok) snprintf(tx, sizeof(tx), "%.1fdBm", q / 4.0f);
+  else       snprintf(tx, sizeof(tx), "?");
+  snprintf(buf, sizeof(buf), "wifi=%s ps=%s tx=%s", link,
+           !ps_ok ? "?" : (ps == WIFI_PS_NONE ? "off" : "on"), tx);
+  return buf;
+}
 
 }  // namespace net_hub

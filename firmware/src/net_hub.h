@@ -20,4 +20,14 @@ void sendStart();
 void sendStop();
 void onState(StateCb cb);
 
+// ── B3.6 Wi-Fi 干擾量測（序列埠指令切換，見 diag_cmd）──
+void setWifiEnabled(bool on);        // 整個 Wi-Fi 關／開（量測基準；開回來會自動重連中控）
+void setPowerSave(bool on);          // 手動：Wi-Fi 省電（modem sleep）開／關；之後自動切換暫停，直到 setPowerSaveAuto()
+void setPowerSaveAuto();            // 恢復自動切換（並先回到省電開）
+// B3.6 定案：省電模式開著時錄音有滋滋聲 → 錄放音期間關省電，結束再開（方案 B）
+void voiceActive(bool active);       // true＝開始錄音（關省電）；false＝播完／離開（開回省電）
+void setTxPowerDbm(int dbm);         // 發射功率，取最接近的檔位：20/15/11/8/5/2
+void pingNow();                      // 立刻送一次 ping（看發射封包是否對應雜訊）
+const char* configLabel();           // 例："wifi=WS ps=on tx=19.5dBm"（讀回實際值，不含機密）
+
 }  // namespace net_hub

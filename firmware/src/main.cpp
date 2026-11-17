@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "diag_cmd.h"
 #include "input_hal.h"
 #include "killswitch.h"
 #include "mode_manager.h"
@@ -47,11 +48,14 @@ void setup() {
   net_hub::begin();          // 連 Wi-Fi + 中控（B2a）
   net_hub::onState(onHubState);  // 中控狀態 → 表情（B2b）
   audio_io::begin();             // 音訊緩衝（B3b-1）
+  audio_io::setDiagLabel(net_hub::configLabel);  // 錄音那一行附 Wi-Fi 設定（B3.6）
+  diag_cmd::begin();             // 序列埠診斷指令（B3.6）
   ui_status::printReport();
 }
 
 void loop() {
   net_hub::loop();   // 驅動 Wi-Fi / WebSocket（非阻塞）
+  diag_cmd::loop();  // 序列埠診斷指令（B3.6，非阻塞）
 
   // (1) 急停第二段
   if (killswitch::isTriggered() && mode_manager::current() != Mode::Safe) {
@@ -81,6 +85,7 @@ void loop() {
       // Desktop：長按 A = 對中控「開始講話」（B2b；B3 才串真音訊）
       if (mode_manager::current() == Mode::Desktop) {
         // B3b-1：本機回放測試 — 按住 A 錄音（B3b-2 會改回串給中控）
+        net_hub::voiceActive(true);    // B3.6：錄放音期間關 Wi-Fi 省電，否則有滋滋聲
         audio_io::startRecording();
         ui_expression::setMood(Mood::Listening);
         break;
@@ -109,7 +114,10 @@ void loop() {
   if (mode_manager::current() == Mode::Desktop &&
       ui_expression::mood() == Mood::Speaking && !audio_io::isPlaying()) {
     ui_expression::setMood(Mood::Idle);
+    net_hub::voiceActive(false);   // B3.6：播完（或按太短沒播）→ 開回省電
   }
+  // 錄放音中途離開 Desktop（切模式、急停）也要開回省電；狀態沒變時不會重複設定
+  if (mode_manager::current() != Mode::Desktop) net_hub::voiceActive(false);
 
   // (3) 重畫
   renderActive(false);

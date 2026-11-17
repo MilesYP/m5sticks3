@@ -2,9 +2,11 @@
 
 #include <M5Unified.h>
 #include <string.h>
+#include <math.h>
+#include <algorithm>
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "8-trim60"
+#define AUDIO_BUILD_TAG "11-b36fix"
 
 namespace {
 
@@ -23,6 +25,9 @@ constexpr uint8_t MIC_MAGNIFICATION = 8;
 constexpr uint8_t ES8311_REG_PGA = 0x14;  // 模擬 PGA；0x10=最小，0x17=+21dB
 constexpr uint8_t ES8311_REG_ADC = 0x17;  // 數位增益；0xBF=0dB，每階 0.5dB
 constexpr uint8_t PGA_21DB  = 0x17;
+constexpr uint8_t PGA_MIN   = 0x10;   // 0dB
+constexpr uint8_t PGA_MAX   = 0x1A;   // +30dB（esp-adf 的 es8311 驅動用 0x1A 當最大 PGA）
+uint8_t s_pga = PGA_21DB;             // B3.6：可由序列埠改，量測 PGA 對雜訊的影響
 constexpr uint8_t ADC_0DB   = 0xBF;
 // 一階 IIR 低通（M5Unified 的 noise_filter_level）：
 // v = 本次 × (256-L)/256 + 前次 × L/256。L=64 的 -3dB 截止約 4.3kHz。
@@ -111,7 +116,7 @@ void micOn() {
   M5.Mic.begin();
   // begin() 的 callback 剛把增益寫成「模擬最小＋數位最大」，在這裡改掉：
   // 改用模擬 +21dB、數位 0dB，訊號才不會進 ESP32 前就夾波。
-  bool w1 = M5.In_I2C.writeRegister8(ES8311_ADDR, ES8311_REG_PGA, PGA_21DB, I2C_FREQ);
+  bool w1 = M5.In_I2C.writeRegister8(ES8311_ADDR, ES8311_REG_PGA, s_pga, I2C_FREQ);
   bool w2 = M5.In_I2C.writeRegister8(ES8311_ADDR, ES8311_REG_ADC, ADC_0DB,  I2C_FREQ);
   // 診斷：讀回確認寫入有沒有生效（0x14 應為 0x17、0x17 應為 0xBF）
   uint8_t r14 = 0xEE, r17 = 0xEE;
@@ -225,6 +230,110 @@ void applyFades(int16_t* buf, size_t len) {
   }
 }
 
+// ── B3.6 Wi-Fi 干擾量測（v10：脈衝偵測）──────────────────────────────────
+// 量的是「正規化之前」的原始資料，才能在不同設定之間比較。
+// v9 的教訓：滋滋聲是短促脈衝，平均音量（RMS）被麥克風本身的穩定底噪蓋過，
+// 四組只差 1～3dB 分不出來；10ms 自相關又永遠落在搜尋下限（相鄰格本來就像）。
+// v10 改成直接找脈衝：
+//   1. 一階差分 d[n] = x[n] - x[n-1]（簡易高通，壓掉低頻、凸顯「喀」一下的突變）
+//   2. 每 2ms 一格算差分 RMS，取全段中位數當「平常」
+//   3. 某格 > 中位數 × PULSE_K 就算脈衝格；連續的脈衝格合併成一次事件
+//   4. 印每秒幾次、相鄰事件間隔的中位數、間隔落在 90～115ms 的比例
+//      （省電模式的 beacon 間隔 102.4ms；若是它造成的，比例應明顯偏高）
+//   5. 週期：2ms 包絡的自相關，在 40～300ms 找「真正的峰」（比左右鄰居都高），
+//      找不到就印 0
+// 斷流：錄音中麥克風隊列見底的次數（> 0 代表主迴圈被卡住、錄音有空檔）。
+uint32_t s_starved = 0;
+audio_io::LabelFn s_label_fn = nullptr;
+
+constexpr size_t PF      = SAMPLE_RATE / 500;          // 2ms = 32 取樣
+constexpr size_t PF_MAX  = CAP_SAMPLES / PF;           // 最多 3000 格
+constexpr float  PULSE_K = 3.0f;                       // 比平常大 3 倍（約 +9.5dB）才算脈衝
+float s_env[PF_MAX];    // 每格差分 RMS
+float s_tmp[PF_MAX];    // 算中位數用的副本
+
+float toDbfs(double rms) { return rms < 1e-9 ? -120.0f : (float)(20.0 * log10(rms / 32768.0)); }
+
+float medianOf(float* v, size_t n) {
+  std::nth_element(v, v + n / 2, v + n);
+  return v[n / 2];
+}
+
+struct NoiseStats {
+  float total_db = -120.0f;   // 整段 RMS
+  float hp_db    = -120.0f;   // 差分（高頻）中位數，代表平常的嘶嘶底噪
+  float per_sec  = 0.0f;      // 每秒脈衝事件數
+  int   gap_ms   = 0;         // 相鄰事件間隔中位數
+  int   near100  = 0;         // 間隔落在 90～115ms 的比例（%）
+  int   period_ms = 0;        // 自相關真峰的位置；0＝沒有
+  float period_r  = 0.0f;
+};
+
+NoiseStats analyze(const int16_t* buf, size_t len) {
+  NoiseStats st;
+  if (len < PF * 50) return st;
+  double total = 0;
+  for (size_t i = 0; i < len; ++i) total += (double)buf[i] * buf[i];
+  st.total_db = toDbfs(sqrt(total / len));
+
+  const size_t nf = len / PF;
+  for (size_t f = 0; f < nf; ++f) {
+    double e = 0;
+    for (size_t i = f * PF; i < (f + 1) * PF; ++i) {
+      const int32_t d = (i == 0) ? 0 : (int32_t)buf[i] - (int32_t)buf[i - 1];
+      e += (double)d * d;
+    }
+    s_env[f] = (float)sqrt(e / PF);
+    s_tmp[f] = s_env[f];
+  }
+  const float med = medianOf(s_tmp, nf);
+  st.hp_db = toDbfs(med);
+
+  // 脈衝事件：連續超過門檻的格算一次，記起點
+  static uint16_t starts[PF_MAX];
+  size_t ne = 0;
+  bool in = false;
+  const float th = med * PULSE_K;
+  for (size_t f = 0; f < nf; ++f) {
+    const bool hot = s_env[f] > th;
+    if (hot && !in && ne < PF_MAX) starts[ne++] = (uint16_t)f;
+    in = hot;
+  }
+  st.per_sec = ne * (float)SAMPLE_RATE / (float)len;
+  if (ne >= 3) {
+    size_t ng = 0, hit = 0;
+    for (size_t k = 1; k < ne; ++k) {
+      const float g = (starts[k] - starts[k - 1]) * 2.0f;   // ms
+      s_tmp[ng++] = g;
+      if (g >= 90.0f && g <= 115.0f) ++hit;
+    }
+    st.gap_ms  = (int)medianOf(s_tmp, ng);
+    st.near100 = (int)(hit * 100 / ng);
+  }
+
+  // 週期：2ms 包絡去平均後的自相關，40～300ms 找真峰
+  double mean = 0;
+  for (size_t f = 0; f < nf; ++f) mean += s_env[f];
+  mean /= nf;
+  double var = 0;
+  for (size_t f = 0; f < nf; ++f) { s_tmp[f] = s_env[f] - (float)mean; var += (double)s_tmp[f] * s_tmp[f]; }
+  if (var <= 0) return st;
+  constexpr size_t L0 = 20, L1 = 150;   // 40ms～300ms（每格 2ms）
+  float r[L1 + 2];
+  for (size_t lag = L0 - 1; lag <= L1 + 1 && lag < nf / 2; ++lag) {
+    double acc = 0;
+    for (size_t f = 0; f + lag < nf; ++f) acc += (double)s_tmp[f] * s_tmp[f + lag];
+    r[lag] = (float)(acc / var * nf / (nf - lag));
+  }
+  for (size_t lag = L0; lag <= L1 && lag + 1 < nf / 2; ++lag) {
+    if (r[lag] > r[lag - 1] && r[lag] >= r[lag + 1] && r[lag] > st.period_r) {
+      st.period_r = r[lag];
+      st.period_ms = (int)(lag * 2);
+    }
+  }
+  return st;
+}
+
 }  // namespace
 
 namespace audio_io {
@@ -252,6 +361,7 @@ void startRecording() {
   memset(s_buf, 0, CAP_SAMPLES * sizeof(int16_t));
   s_queued = 0;
   s_len = 0;
+  s_starved = 0;
   s_recording = true;
   s_t0 = millis();
   loop();   // 立刻排頭兩塊
@@ -264,6 +374,9 @@ void loop() {
   // 錄音中：隊列未滿就預排下一塊。保持兩塊在飛，塊與塊之間才不會有空檔
   //（M5Unified 保證「前一塊完成時已排隊的請求」是連續的）。
   if (s_recording) {
+    if (s_queued > 0 && s_queued + CHUNK <= CAP_SAMPLES && M5.Mic.isRecording() == 0) {
+      ++s_starved;   // 隊列見底：上一圈到這一圈之間錄音停過
+    }
     while (M5.Mic.isRecording() < 2 && s_queued + CHUNK <= CAP_SAMPLES) {
       if (!M5.Mic.record(s_buf + s_queued, CHUNK, SAMPLE_RATE)) break;
       s_queued += CHUNK;
@@ -306,6 +419,14 @@ void stopRecordingAndPlay() {
   Serial.printf("[audio v%s] 按住 %u ms，切頭尾後 %u ms，峰值 %.3f，滿幅 %u 個\n",
                 AUDIO_BUILD_TAG, (unsigned)held_ms,
                 (unsigned)(s_len * 1000 / SAMPLE_RATE), s_peak, (unsigned)s_clip_n);
+  {
+    const NoiseStats st = analyze(p, s_len);
+    Serial.printf("[audio v%s] 脈衝 %.1f 次/秒｜間隔中位 %d ms｜約100ms %d%%｜週期峰 %d ms (r=%.2f)｜"
+                  "整段 %.1f dBFS｜高頻底噪 %.1f dBFS｜斷流 %u｜%s pga=0x%02X\n",
+                  AUDIO_BUILD_TAG, st.per_sec, st.gap_ms, st.near100, st.period_ms, st.period_r,
+                  st.total_db, st.hp_db, (unsigned)s_starved,
+                  s_label_fn ? s_label_fn() : "", s_pga);
+  }
 
   normalize(p, s_len, peak);
   applyFades(p, s_len);
@@ -319,5 +440,17 @@ bool isPlaying() { return M5.Speaker.isPlaying(); }
 uint32_t recordedSamples() { return (uint32_t)s_len; }
 float lastPeak() { return s_peak; }
 float headPeak() { return s_head_peak; }
+
+void setPga(uint8_t reg14) {
+  if (reg14 < PGA_MIN) reg14 = PGA_MIN;
+  if (reg14 > PGA_MAX) reg14 = PGA_MAX;
+  s_pga = reg14;
+  if (M5.Mic.isRunning()) {
+    M5.In_I2C.writeRegister8(ES8311_ADDR, ES8311_REG_PGA, s_pga, I2C_FREQ);
+  }
+  Serial.printf("[diag] PGA → 0x%02X（+%d dB）\n", s_pga, (s_pga - PGA_MIN) * 3);
+}
+uint8_t pga() { return s_pga; }
+void setDiagLabel(LabelFn fn) { s_label_fn = fn; }
 
 }  // namespace audio_io

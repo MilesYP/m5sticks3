@@ -22,5 +22,10 @@ uint32_t recordedSamples();    // 這次錄到幾個取樣（除錯用）
 // ── 診斷用（B3b-1 判斷音質問題的來源）──
 float lastPeak();              // 上次錄音的原始峰值，0～1（太小＝麥克風收不到）
 float headPeak();              // 開頭 0.5 秒的峰值，0～1（遠小於 lastPeak ＝ codec 暖機吃掉開頭）
+// ── B3.6 Wi-Fi 干擾量測 ──
+void setPga(uint8_t reg14);    // ES8311 0x14 類比 PGA（0x10=0dB … 0x17=+21dB，每階 3dB），立即生效
+uint8_t pga();
+typedef const char* (*LabelFn)();
+void setDiagLabel(LabelFn fn); // 每次錄音那一行附上的設定標籤（例：Wi-Fi 省電／發射功率）
 
 }  // namespace audio_io
