@@ -7,6 +7,11 @@
 
 #include "secrets.h"
 
+// B3.5：中控要求連線帶 token（?t=HUB_TOKEN），沒有就連不上 → 編譯時直接擋下
+#ifndef HUB_TOKEN
+#error "secrets.h 缺少 HUB_TOKEN：照 secrets.h.example 加一行 #define HUB_TOKEN \"...\"（值與 wrangler secret 的 HUB_TOKEN 相同）"
+#endif
+
 namespace {
 
 WebSocketsClient s_ws;
@@ -35,7 +40,12 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       break;
     case WStype_DISCONNECTED:
       s_link = false;
-      Serial.println("[hub] WS disconnected");
+      // payload 是斷線原因；token 錯誤時為 "WebSocket handshake failed - HTTP 401"
+      if (length > 0) {
+        Serial.printf("[hub] WS disconnected: %.*s\n", (int)length, (const char*)payload);
+      } else {
+        Serial.println("[hub] WS disconnected");
+      }
       break;
     case WStype_TEXT:
       Serial.printf("[hub] <- %.*s\n", (int)length, (const char*)payload);
@@ -65,7 +75,8 @@ void loop() {
       Serial.printf("[wifi] connected, IP %s\n", WiFi.localIP().toString().c_str());
     }
     if (!s_ws_started) {
-      s_ws.beginSSL(HUB_HOST, HUB_PORT, HUB_PATH);  // wss://HUB_HOST:443/ws
+      // wss://HUB_HOST:443/ws?t=<token>（B3.5）。token 是 hex，不需網址編碼；不要把這個網址印出來
+      s_ws.beginSSL(HUB_HOST, HUB_PORT, HUB_PATH "?t=" HUB_TOKEN);
       s_ws.onEvent(onWsEvent);
       s_ws.setReconnectInterval(5000);              // 斷線每 5 秒重連
       s_ws_started = true;

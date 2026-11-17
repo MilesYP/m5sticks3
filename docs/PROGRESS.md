@@ -17,8 +17,8 @@
 > ```
 
 ## 目前狀態（每次更新時順手改這一段）
-- **階段**：**M1-B 語音對話進行中**（M0、M1-A 切片 1–2、B1～B3b-1 完成）；全部里程碑的切片清單見 `docs/StickS3 執行計劃.md`「切片拆分」
-- **進行中**：下一片 **B3.5 連線 token 驗證**（裝置帶 token、中控不符就拒絕；接手 prompt：`docs/KICKOFF_B35.md`），接著 B3b-2 音訊串中控（方案 A：放開後整段上傳、中控原樣回傳），再 B3c 接 GPT-Live（實作前先查官方音訊格式，官方範例 24kHz、裝置 16kHz）
+- **階段**：**M1-B 語音對話進行中**（M0、M1-A 切片 1–2、B1～B3.5 完成）；全部里程碑的切片清單見 `docs/StickS3 執行計劃.md`「切片拆分」
+- **進行中**：下一片 **B3.6 Wi-Fi 滋滋聲**（Wi-Fi 連上後錄音有電波雜音，見 `CLAUDE.md` 鐵則六第 9 點；先量測再改），接著 B3b-2 音訊串中控（方案 A：放開後整段上傳、中控原樣回傳），再 B3c 接 GPT-Live（實作前先查官方音訊格式，官方範例 24kHz、裝置 16kHz）
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -30,6 +30,15 @@
   - 插 CardKB／Scroll 確認 Grove 偵測
 
 ---
+
+### 2026-11-18｜M1-B / B3.5 連線 token 驗證｜Claude Code（Cowork 橋接）
+- 做了什麼：中控 `/ws` 要求 `?t=<HUB_TOKEN>`，SHA-256＋`crypto.subtle.timingSafeEqual` 固定時間比對，不符回 401、未設定回 503，皆不進 DO（`cloud/src/worker.js`）；/test 頁加 token 輸入框、「記住在這個瀏覽器」（localStorage）、清除鈕。裝置 `net_hub.cpp` 連線網址加 token、斷線印原因、`secrets.h` 缺 `HUB_TOKEN` 會 `#error`。`cloud/README.md` 加產生／更換 token 的一行指令；`docs/M1B-架構.md`、`CLAUDE.md` 第 8 節補規則。
+- 設計決議（Miles 選定）：**token 放 query（方案 A）**，裝置與 /test 頁同一套、好維護；代價是 `wrangler tail` 會印出含 token 的網址 → 貼 tail 輸出前要遮掉。header＋subprotocol（方案 C）不採用。裝置 `beginSSL` 不驗中控憑證（函式庫 `setInsecure()`），只連家用 Wi-Fi 與自己的熱點，接受此風險。
+- 驗收結果：**通過**。/test 頁不填、填錯被拒，填對可連、記住正常；裝置用正確 token 連上（`[hub] WS connected`、持續收到 pong）；Miles 刻意換錯 token 可見被拒原因。
+- 遇到的坑：(1) 第一版 token 設定步驟要 Miles 在步驟間靠剪貼簿傳 token，他複製下一步指令時把剪貼簿蓋掉，中控與 secrets.h 都存到指令文字 → 改成一行指令（token 只存在 shell 變數，直接 pipe 給 `wrangler secret put` 並寫進 secrets.h），規則已寫入 `CLAUDE.md`。(2) iPhone 熱點連不上時要開「最大化相容性」（ESP32 只支援 2.4GHz）並停在熱點設定頁。
+- 新發現：(1) **按 A 不送 start/stop 給中控是預期行為**——B3b-1 把 A 改成本機錄放音（`main.cpp` 註解：B3b-2 改回串給中控），表情由本機切換。KICKOFF_B35 的驗收項「按 A 照常切表情（經中控）」不適用。(2) **Wi-Fi 連上後錄音有電波滋滋聲**，未連上時沒有（數據見 `CLAUDE.md` 鐵則六第 9 點）→ 新增切片 B3.6，排在 B3b-2 之前。
+- 下一步：B3.6 Wi-Fi 滋滋聲（先量測）→ B3b-2（方案 A）→ B3c。
+- 待辦／未決：日後若要上不可信網路，改 `beginSslWithCA` 驗證 Cloudflare 根憑證。
 
 ### 2026-11-18｜M1-B / B3b-1 本機錄放音音質定案＋執行計劃改版｜Claude Code（Cowork 橋接）
 - 做了什麼：`firmware/src/audio_io.*` 重寫——分塊預排錄音（無空檔）、緩衝清零、ES8311 麥克風增益改「模擬 +21dB／數位 0dB」、喇叭取樣率 22050→16000 與乘數 1→4、DAC 靜音時序、正規化、淡入淡出、頭尾各切 60ms 按鍵聲；序列埠每次錄音印版本標記（`AUDIO_BUILD_TAG`）與滿幅診斷。`main.cpp` 的 `feedRecording()` 改名 `loop()`。`docs/StickS3 執行計劃.{md,html}` 改版：所有里程碑拆切片（M1-A 4、M1-B 11、M1.5 3、M4 3、M2 4、M3 8），RF Pack 狀態改為「接收正常、SPI 需防錯」。

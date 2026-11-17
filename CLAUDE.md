@@ -17,7 +17,7 @@
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
-| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3b-1 完成（進度見 `docs/PROGRESS.md`） |
+| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3.5 完成（進度見 `docs/PROGRESS.md`） |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
 
@@ -97,6 +97,7 @@
 6. **錄音要「隊列未滿就預排下一塊」**（`M5.Mic.isRecording() < 2` 就 `record()`），塊與塊才連續；等前一塊錄完才排會有空檔。`ps_malloc` 不清零，緩衝要先 `memset`，長度以實際按住時間計算。
 7. **ES8311 上電後約 1 秒內擷取可能全為零**（M5Unified 註解）→ 開機就 `Mic.begin()` 暖機，待機保持麥克風開著。
 8. **音訊問題先量測再改**：印滿幅樣本數與位置、暫存器讀回值。11-17 連兩次照原始碼推理就改，兩次都沒中。版本標記只印序列埠時，開機那刻監看未連上會丟 → 印在每次錄音的那一行。
+9. **Wi-Fi 連上後錄音有電波滋滋聲**（2026-11-18 同次開機對照：Wi-Fi 未連上時峰值 0.197 無雜音；連上中控後峰值 0.262 有雜音；兩次正規化增益僅 ×3～×4，排除「小聲被放大」）。B3b-1 驗收時沒連 Wi-Fi 所以沒發現。原因未定（推測 Wi-Fi 省電模式週期喚醒造成電源抖動），由 B3.6 量測定案；B3b-2 錄音時必須開 Wi-Fi，不能用「錄音時關 Wi-Fi」解決。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
@@ -177,6 +178,8 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
 - 433MHz 被動接收合法；主動發射僅限自有、低功率。滾動碼（新式車庫/車鑰）不支援也不嘗試。不實作任何干擾（jamming）功能。
 - 模式 2 的急停是安全關鍵，任何改動都要保持它最高優先、可立即生效。
 - 本 repo 公開：不得提交密碼、API key、Wi-Fi 帳密；這類設定放 NVS 或未追蹤的本機檔（加入 `.gitignore`）。
+- **中控連線 token（B3.5）**：裝置連 `/ws?t=<HUB_TOKEN>`。token 只存在 `wrangler secret`（中控）與 `firmware/src/secrets.h`（裝置），**絕不印出、不進 repo、不叫 Miles 貼給你**；要確認 secrets.h 只做格式檢查（長度、字元種類），不讀值。產生／更換用 `cloud/README.md` 的一行指令（token 不經剪貼簿在步驟間傳遞——曾因 Miles 複製下一步指令而蓋掉剪貼簿裡的 token）。
+- **`wrangler tail` 的輸出含完整網址（含 token）**：Miles 貼 tail 輸出給你或別人前要遮掉 `?t=` 後面；你若看到未遮的 token，提醒他重跑指令換一組。
 
 ## 9. 和 Miles 協作的方式
 - 動工前先給簡短計畫與要改的檔案，取得同意再寫（Miles 說「開始實作」才動手；說「先討論」就停在需求與計畫）。

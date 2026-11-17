@@ -44,6 +44,7 @@ flowchart TD
 - 只有「講話那一下」才開中控↔OpenAI 的語音連線，講完就關 → 省 $0.05/分。
 
 ## 4. 裝置 ↔ 中控 WebSocket 協定（草案）
+連線：`wss://<中控>/ws?t=<HUB_TOKEN>`（B3.5）。token 不符時中控在升級成 WebSocket 之前回 401，不進 Durable Object。
 裝置送：
 - `{"t":"start"}`：長按 A 按下 → 中控開 OpenAI 連線，裝置進 Listening。
 - 二進位音訊幀：PCM16，單聲道（取樣率待確認，見第 9 節）。
@@ -74,7 +75,9 @@ flowchart TD
 ## 8. 安全
 - OpenAI / 其他金鑰 → `wrangler secret`，只在 Worker，絕不進 repo 或裝置。
 - Wi-Fi 帳密、中控 URL → 裝置 NVS（不進 repo）。
-- 裝置↔中控可加一組 token 驗證，避免別人連你的中控。
+- 裝置↔中控 token 驗證（B3.5 已實作）：`/ws?t=<HUB_TOKEN>`，中控以 SHA-256＋`crypto.subtle.timingSafeEqual` 固定時間比對，不符回 401、未設定回 503。token 存 `wrangler secret`（中控）與 `firmware/src/secrets.h`（裝置），設定指令見 `cloud/README.md`。
+  - 選 query 而非 header（2026-11-18 Miles 決定）：裝置與 /test 頁同一套做法、好維護；代價是 token 會出現在 `wrangler tail` 的網址裡 → 貼 tail 輸出前要遮掉。
+  - 裝置目前 `beginSSL` 不驗中控憑證（函式庫內部 `setInsecure()`）。只連家用 Wi-Fi 與自己的熱點，風險可接受；日後若要上不可信網路，改 `beginSslWithCA` 驗證 Cloudflare 根憑證。
 
 ## 9. 待確認 / 風險（實作前要查或驗）
 1. **ES8311 同時收放**：CLAUDE.md 記錄現函式庫下喇叭/麥克風同一時間只能一個 → 對講機式剛好規避；若要「邊說邊打斷」需較底層同時收放＋回音消除，列後期。
