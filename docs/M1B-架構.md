@@ -55,6 +55,12 @@ flowchart TD
 - `{"t":"text","role":"user|assistant","s":"…"}` → 對話列顯示文字（直式 ≤5 行）。
 - `{"t":"tool","name":"rf_send","args":{…}}` → 工具呼叫（M3/IR 接上後執行）。
 
+**B3b-2 實作現況（純傳輸測試，尚未接 OpenAI）**：
+- 裝置按下 A 送 `start`；放開後把錄音（已切頭尾按鍵聲、修突波，**未正規化**）切成 3200 bytes（100ms）的二進位幀依序上傳，每圈最多 2 幀，送完再送 `stop`。
+- 中控收到 `start` 清空該連線的暫存；二進位幀依序暫存（每輪上限 256KB，超過回 `{"t":"error"}` 並丟棄）；收到 `stop` → `state=thinking` → 原樣照順序回傳 → `{"t":"audio_end","n":<bytes>}` → `state=idle`。
+- 裝置收到 `audio_end` 後比對上傳／收回的 bytes 與 CRC32，再正規化＋淡入淡出播放。等 `audio_end` 逾時 8 秒放棄；中控未連線／上傳失敗／中途斷線 → 退回本機回放。
+- 表情由裝置本機決定（Listening → Thinking → Speaking → Idle），中控的 `state` 目前只印序列埠；B3c 依真實節奏再定。
+
 ## 5. 表情狀態對應（已在 M1-A 備好）
 | 中控 state | 表情 | 觸發點 |
 | :-- | :-- | :-- |

@@ -6,7 +6,7 @@
 #include <algorithm>
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "11-b36fix"
+#define AUDIO_BUILD_TAG "12-b3b2"
 
 namespace {
 
@@ -27,7 +27,10 @@ constexpr uint8_t ES8311_REG_ADC = 0x17;  // 數位增益；0xBF=0dB，每階 0.
 constexpr uint8_t PGA_21DB  = 0x17;
 constexpr uint8_t PGA_MIN   = 0x10;   // 0dB
 constexpr uint8_t PGA_MAX   = 0x1A;   // +30dB（esp-adf 的 es8311 驅動用 0x1A 當最大 PGA）
-uint8_t s_pga = PGA_21DB;             // B3.6：可由序列埠改，量測 PGA 對雜訊的影響
+// B3b-2：預設改 0x15（+15dB，以每階 3dB 推算）。B3.6 實聽：背景嘶聲比 0x17 明顯少；
+// 人聲變小由正規化補回。序列埠 g17 可切回舊值對照。
+constexpr uint8_t PGA_DEFAULT = 0x15;
+uint8_t s_pga = PGA_DEFAULT;          // 可由序列埠改（diag_cmd 的 g 指令）
 constexpr uint8_t ADC_0DB   = 0xBF;
 // 一階 IIR 低通（M5Unified 的 noise_filter_level）：
 // v = 本次 × (256-L)/256 + 前次 × L/256。L=64 的 -3dB 截止約 4.3kHz。
@@ -62,6 +65,7 @@ constexpr size_t  FADE_IN       = SAMPLE_RATE / 200;  // 5ms
 constexpr size_t  FADE_OUT      = SAMPLE_RATE / 100;  // 10ms
 
 int16_t* s_buf = nullptr;
+int16_t* s_rx  = nullptr;   // B3b-2：中控回傳的音訊
 bool     s_ready = false;
 bool     s_recording = false;
 bool     s_playing = false;
@@ -340,7 +344,8 @@ namespace audio_io {
 
 void begin() {
   s_buf = (int16_t*)ps_malloc(CAP_SAMPLES * sizeof(int16_t));
-  s_ready = (s_buf != nullptr);
+  s_rx  = (int16_t*)ps_malloc(CAP_SAMPLES * sizeof(int16_t));
+  s_ready = (s_buf != nullptr && s_rx != nullptr);
   if (!s_ready) {
     Serial.println("[audio] PSRAM 緩衝配置失敗");
     return;
@@ -390,8 +395,9 @@ void loop() {
   }
 }
 
-void stopRecordingAndPlay() {
-  if (!s_recording || !s_ready) return;
+size_t stopRecording(int16_t** out) {
+  if (out) *out = nullptr;
+  if (!s_recording || !s_ready) return 0;
   s_recording = false;
 
   // 實際長度用「按住多久」算；佇列可能比實際多排最多兩塊（那段是清零的靜音）
@@ -406,16 +412,16 @@ void stopRecordingAndPlay() {
   const size_t cut = TRIM_END_MS * SAMPLE_RATE / 1000;
   const size_t b = (end > cut) ? end - cut : 0;
   if (b <= a + FADE_IN + FADE_OUT) {         // 按太短，切完不剩
-    Serial.printf("[audio] 太短（%u ms），不播\n", (unsigned)held_ms);
+    Serial.printf("[audio] 太短（%u ms），不送不播\n", (unsigned)held_ms);
     s_len = 0;
     micOn();
-    return;
+    return 0;
   }
   int16_t* p = s_buf + a;
   s_len = b - a;
 
   despike(p, s_len);
-  const int32_t peak = scanPeak(p, s_len);
+  scanPeak(p, s_len);
   Serial.printf("[audio v%s] 按住 %u ms，切頭尾後 %u ms，峰值 %.3f，滿幅 %u 個\n",
                 AUDIO_BUILD_TAG, (unsigned)held_ms,
                 (unsigned)(s_len * 1000 / SAMPLE_RATE), s_peak, (unsigned)s_clip_n);
@@ -428,13 +434,29 @@ void stopRecordingAndPlay() {
                   s_label_fn ? s_label_fn() : "", s_pga);
   }
 
-  normalize(p, s_len, peak);
-  applyFades(p, s_len);
-
-  speakerOn();
-  M5.Speaker.playRaw(p, s_len, SAMPLE_RATE);
-  s_playing = true;
+  micOn();   // 等上傳／回傳的空檔先回麥克風待機，播放時再切喇叭
+  if (out) *out = p;
+  return s_len;
 }
+
+bool playBuffer(int16_t* buf, size_t samples) {
+  if (!s_ready || buf == nullptr || samples < FADE_IN + FADE_OUT + 1) return false;
+  if (M5.Mic.isRunning()) M5.Mic.end();     // ES8311 同時只能麥克風或喇叭其一
+  int32_t peak = 0;
+  for (size_t i = 0; i < samples; ++i) {
+    int32_t v = buf[i] < 0 ? -(int32_t)buf[i] : (int32_t)buf[i];
+    if (v > peak) peak = v;
+  }
+  normalize(buf, samples, peak);
+  applyFades(buf, samples);
+  speakerOn();
+  M5.Speaker.playRaw(buf, samples, SAMPLE_RATE);
+  s_playing = true;
+  return true;
+}
+
+int16_t* rxBuffer() { return s_rx; }
+size_t rxCapacityBytes() { return s_rx ? CAP_SAMPLES * sizeof(int16_t) : 0; }
 
 bool isPlaying() { return M5.Speaker.isPlaying(); }
 uint32_t recordedSamples() { return (uint32_t)s_len; }

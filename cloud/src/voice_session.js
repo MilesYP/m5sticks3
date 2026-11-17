@@ -5,11 +5,24 @@
 //   - 收到 start → 回 state=listening。
 //   - 收到 stop  → 模擬一輪：thinking → 存一筆對話 → 回覆文字 → speaking → idle。
 //   - 二進位音訊幀：B1 先忽略（B3 接 OpenAI 時才處理）。
+//
+// B3b-2（純傳輸測試，先不接 OpenAI）：
+//   - start → 清空這條連線的音訊暫存，回 state=listening。
+//   - 二進位幀 → 依序暫存（每輪上限 MAX_AUDIO_BYTES，超過就丟掉這輪並回 error）。
+//   - stop  → state=thinking → 把暫存的幀「原封不動」照順序傳回
+//             → {"t":"audio_end","n":<bytes>} → state=idle。
+//   B3a 的「stop 就呼叫 OpenAI 文字」已撤下；askOpenAI() 保留給 B3c。
+
+// 每輪最多收多少音訊：16kHz × 2 bytes × 6 秒 = 192000，留一點餘裕
+const MAX_AUDIO_BYTES = 256 * 1024;
 export class VoiceSession {
   constructor(state, env) {
     this.state = state;
     this.env = env;
     this.storage = state.storage;
+    // 每條連線一份音訊暫存。只在「一輪對話」這幾秒內存在；
+    // DO 在一連串訊息之間不會休眠，暫存放記憶體即可（不寫 storage）。
+    this.audio = new WeakMap();   // ws → { chunks: ArrayBuffer[], bytes, overflow }
   }
 
   async fetch(request) {
@@ -26,7 +39,18 @@ export class VoiceSession {
   // ── 休眠 WebSocket 事件處理 ──
   async webSocketMessage(ws, message) {
     if (typeof message !== "string") {
-      // B1：忽略二進位音訊（B3 OpenAI 接上後才轉送）
+      // B3b-2：二進位音訊幀 → 暫存，等 stop 再原樣傳回
+      let buf = this.audio.get(ws);
+      if (!buf) { buf = { chunks: [], bytes: 0, overflow: false }; this.audio.set(ws, buf); }
+      if (buf.overflow) return;
+      const n = message.byteLength;
+      if (buf.bytes + n > MAX_AUDIO_BYTES) {
+        buf.overflow = true;
+        buf.chunks = [];
+        return this.send(ws, { t: "error", s: "audio too large (max " + MAX_AUDIO_BYTES + " bytes)" });
+      }
+      buf.chunks.push(message);
+      buf.bytes += n;
       return;
     }
     let msg;
@@ -38,29 +62,22 @@ export class VoiceSession {
 
     switch (msg.t) {
       case "start":
+        this.audio.set(ws, { chunks: [], bytes: 0, overflow: false });
         this.send(ws, { t: "state", v: "listening" });
         break;
 
       case "stop": {
-        // B3a：真的呼叫 OpenAI（文字），確認 key / 額度 / 模型可用
+        // B3b-2：純傳輸測試——收到的音訊原封不動傳回
         this.send(ws, { t: "state", v: "thinking" });
-
-        let reply;
-        try {
-          reply = await this.askOpenAI(
-            "使用者按住按鈕說了一句話（B3a 階段還沒串真實音訊）。" +
-            "請用繁體中文、親切口語、一到兩句話回應，像個桌上語音小助理。"
-          );
-        } catch (e) {
-          reply = "OpenAI 呼叫失敗：" + e.message;
+        const buf = this.audio.get(ws) || { chunks: [], bytes: 0, overflow: false };
+        this.audio.delete(ws);
+        let sent = 0;
+        if (!buf.overflow) {
+          for (const c of buf.chunks) {
+            try { ws.send(c); sent += c.byteLength; } catch { break; }
+          }
         }
-
-        const turn = { ts: Date.now(), user: "(語音 B3a)", assistant: reply };
-        await this.appendTurn(turn);
-
-        this.send(ws, { t: "text", role: "assistant", s: reply });
-        this.send(ws, { t: "state", v: "speaking" });
-        await this.sleep(1200);
+        this.send(ws, { t: "audio_end", n: sent });
         this.send(ws, { t: "state", v: "idle" });
         break;
       }

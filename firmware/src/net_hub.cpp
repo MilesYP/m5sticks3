@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <WebSocketsClient.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "secrets.h"
 
@@ -21,9 +22,17 @@ bool s_link = false;
 bool s_ws_started = false;
 uint32_t s_last_ping = 0;
 net_hub::StateCb s_state_cb = nullptr;
+net_hub::BinCb s_bin_cb = nullptr;
+net_hub::AudioEndCb s_end_cb = nullptr;
 
 // 極簡解析中控訊息裡的 "v":"xxx"（避免引入 JSON 函式庫）
 void handleText(const uint8_t* payload, size_t len) {
+  // B3b-2：{"t":"audio_end","n":<bytes>}
+  if (strstr((const char*)payload, "\"t\":\"audio_end\"")) {
+    const char* n = strstr((const char*)payload, "\"n\":");
+    if (s_end_cb) s_end_cb(n ? (uint32_t)strtoul(n + 4, nullptr, 10) : 0);
+    return;
+  }
   const char* p = strstr((const char*)payload, "\"v\":\"");
   if (!p || !s_state_cb) return;
   p += 5;
@@ -52,6 +61,9 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
     case WStype_TEXT:
       Serial.printf("[hub] <- %.*s\n", (int)length, (const char*)payload);
       handleText(payload, length);
+      break;
+    case WStype_BIN:
+      if (s_bin_cb) s_bin_cb(payload, length);   // 音訊幀很多，不逐幀印
       break;
     default:
       break;
@@ -98,6 +110,13 @@ bool linkUp() { return s_link; }
 void sendStart() { if (s_link) s_ws.sendTXT("{\"t\":\"start\"}"); }
 void sendStop()  { if (s_link) s_ws.sendTXT("{\"t\":\"stop\"}"); }
 void onState(StateCb cb) { s_state_cb = cb; }
+
+bool sendBinary(const uint8_t* data, size_t len) {
+  if (!s_link) return false;
+  return s_ws.sendBIN(data, len);
+}
+void onBinary(BinCb cb) { s_bin_cb = cb; }
+void onAudioEnd(AudioEndCb cb) { s_end_cb = cb; }
 
 // ── B3.6 Wi-Fi 干擾量測 ───────────────────────────────────────────────────
 void setWifiEnabled(bool on) {

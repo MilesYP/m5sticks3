@@ -15,7 +15,12 @@ namespace audio_io {
 void begin();                  // 配置 PSRAM 緩衝、讓 ES8311 上電暖機（開機呼叫一次）
 void loop();                   // 每圈呼叫：預排錄音區塊、放音結束後切回麥克風
 void startRecording();         // 開始錄（麥克風已開著，只是重設緩衝與計數）
-void stopRecordingAndPlay();   // 停止錄音、正規化音量、切到喇叭播出來
+// B3b-2：「停止錄音」與「播放」拆開，中間可以先上傳中控、等回傳
+size_t stopRecording(int16_t** out);  // 停止錄音、切頭尾、修突波、印量測行；回傳取樣數（0＝太短），
+                                      // *out 指向處理後（尚未正規化）的音訊，下次 startRecording 前有效
+bool playBuffer(int16_t* buf, size_t samples);  // 正規化＋淡入淡出後播出（會改寫 buf）
+int16_t* rxBuffer();                  // 收中控回傳音訊用的 PSRAM 緩衝
+size_t rxCapacityBytes();
 bool isPlaying();              // 喇叭是否還在放
 uint32_t recordedSamples();    // 這次錄到幾個取樣（除錯用）
 

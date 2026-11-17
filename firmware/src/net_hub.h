@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 #pragma once
 #include <stddef.h>
+#include <stdint.h>
 
 namespace net_hub {
 
@@ -19,6 +20,13 @@ bool linkUp();          // 中控 WebSocket 是否連上
 void sendStart();
 void sendStop();
 void onState(StateCb cb);
+
+// ── B3b-2 音訊傳輸 ──
+typedef void (*BinCb)(const uint8_t* data, size_t len);   // 收到二進位幀（中控回傳的音訊）
+typedef void (*AudioEndCb)(uint32_t bytes);              // 收到 {"t":"audio_end","n":...}
+bool sendBinary(const uint8_t* data, size_t len);        // 送一個二進位幀；未連線或失敗回 false
+void onBinary(BinCb cb);
+void onAudioEnd(AudioEndCb cb);
 
 // ── B3.6 Wi-Fi 干擾量測（序列埠指令切換，見 diag_cmd）──
 void setWifiEnabled(bool on);        // 整個 Wi-Fi 關／開（量測基準；開回來會自動重連中控）
