@@ -1,7 +1,7 @@
 # StickS3 中控（Cloudflare Worker + Durable Object）
 
 M1-B 的雲端中控。裝置用一條常開 WebSocket 連到這裡；中控持 OpenAI 連線、存對話、做工具呼叫。
-架構見 `../docs/M1B-架構.md`。目前進度：B1～B3a 完成（WebSocket 協定、存對話、OpenAI 文字回覆），**B3.5 起 `/ws` 需要 token**。
+架構見 `../docs/M1B-架構.md`。目前進度：B1～B3b-3 完成（WebSocket 協定、存對話、token 驗證、音訊原樣回傳、下載壓縮 μ-law／ADPCM）；**B3.5 起 `/ws` 需要 token**。B3b-2 起 `stop` 不再呼叫 OpenAI（`askOpenAI()` 留給 B3c）。
 
 ## 一次性準備
 ```bash
@@ -37,7 +37,7 @@ npx wrangler dev           # 本機跑，印出 http://localhost:8787
 0. 在密碼框貼上 HUB_TOKEN；勾「記住在這個瀏覽器」下次會自動帶入（只存在這台電腦的這個瀏覽器，「清除」可刪掉）。不填或填錯 → 顯示「連線被拒」。
 1. 按「連線」→ log 顯示「已連線」。
 2. 按「長按 A(start)」→ 收到 `state=listening`。
-3. 按「放開 A(stop)」→ 依序 thinking → 一句模擬回覆 → speaking → idle。
+3. 按「放開 A(stop)」→ 依序 thinking → `{"t":"audio_end","n":0,…}`（/test 頁不送音訊）→ idle。
 4. 按「看對話紀錄」→ 回傳剛存那筆。
 
 ## OpenAI 金鑰（B3a 起已設定）
@@ -47,5 +47,6 @@ npx wrangler secret put OPENAI_API_KEY   # 貼上你的 OpenAI API key；只存�
 
 ## 協定（裝置 ↔ 中控）
 連線：`wss://…workers.dev/ws?t=<HUB_TOKEN>`
-裝置送：`{"t":"start"}` / 二進位音訊 / `{"t":"stop"}` / `{"t":"ping"}` / `{"t":"history"}`
-中控送：`{"t":"state","v":"listening|thinking|speaking|idle"}` / `{"t":"text","role":"assistant","s":"…"}` / `{"t":"pong"}` / `{"t":"history","turns":[…]}`
+裝置送：`{"t":"start","up":"pcm16","down":"mulaw|adpcm|pcm16"}` / 二進位音訊（PCM16 16kHz LE，3200 bytes 一幀）/ `{"t":"stop"}` / `{"t":"ping"}` / `{"t":"history"}`
+中控送：`{"t":"format","up":…,"down":…}`（確認格式，不認得的退回 pcm16）/ `{"t":"state","v":"listening|thinking|speaking|idle"}` / 二進位音訊（依 down 格式，合併成每則 ≤8040 bytes）/ `{"t":"audio_end","n":<bytes>,"fmt":…,"pcm":<原始 bytes>}` / `{"t":"pong"}` / `{"t":"history","turns":[…]}`
+編碼器在 `src/adpcm.js`（IMA ADPCM、μ-law），細節見 `../docs/M1B-架構.md` 第 4 節。

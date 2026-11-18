@@ -36,7 +36,7 @@
 
 【這片之後】
 - B3b-2：裝置音訊以 WebSocket 二進位幀串給中控，中控原封不動回傳讓裝置播放（純傳輸測試）。Miles 已選「方案 A：放開 A 後整段上傳」，通過再改邊錄邊傳。每幀 100ms（1600 樣本、3200 bytes），16kHz PCM16 單聲道。
-- B3c：中控接 OpenAI 即時語音（模型 `gpt-live-1`，`wss://api.openai.com/v1/realtime`）。**實作前先查官方文件確認音訊格式**：官方範例是 24kHz PCM16，裝置是 16kHz，重取樣放中控還是裝置要先定案。
+- B3c：中控接 OpenAI 即時語音（模型 `gpt-live-1`，`wss://api.openai.com/v1/realtime`；**11-19 更正：GPT-Live 端點是 `wss://api.openai.com/v1/live/sessions`，見 `docs/M1B-架構.md` 第 9 節**）。**實作前先查官方文件確認音訊格式**：官方範例是 24kHz PCM16，裝置是 16kHz，重取樣放中控還是裝置要先定案。
 
 【OpenAI / 費用】
 - Miles 是 ChatGPT Plus（不是 Pro），沒有免費 API 額度，走 pay-as-you-go，已儲值 US$10。

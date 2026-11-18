@@ -155,6 +155,12 @@ firmware/src/
   hal_power.*         // Wi-Fi/BLE/ES8311/RF/USB 的開關與低功耗休眠（鐵則二核心）
   input_hal.*         // 開機 I2C 掃描，辨識 CardKB(0x5F)/Scroll(0x40)，統一輸入事件
   killswitch.*        // 正面按鈕急停，最高優先（鐵則三）
+  ui_expression.*     // 模式1：幾何表情（M1-A 已建）
+  net_hub.*           // Wi-Fi＋中控 WebSocket（token、RTT、省電切換、二進位收送、格式協商）（M1-B 已建）
+  audio_io.*          // ES8311 錄放音、PGA、正規化、雜訊量測（M1-B 已建）
+  voice_turn.*        // 一輪語音：錄→上傳→等回傳→解壓→播；表情本機決定（M1-B 已建）
+  adpcm.*             // IMA ADPCM／μ-law 解碼（M1-B B3b-3 已建）
+  diag_cmd.*          // 序列埠診斷指令 w/s/p/g/f/k/?（M1-B B3.6 已建）
   ui_grok.*           // 模式1：M5GFX 幾何表情 + 音量連動 + 跑馬燈
   hid_injector.*      // 模式2：TinyUSB 跨平台鍵鼠 + 急停整合
   rf_transceiver.*    // 模式3：CC1101 學習/存/發 + RSSI 掃描
