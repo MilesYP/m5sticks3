@@ -17,8 +17,8 @@
 > ```
 
 ## 目前狀態（每次更新時順手改這一段）
-- **階段**：**M1-B 語音對話進行中**（M0、M1-A 切片 1–2、B1～B3b-2 完成）；全部里程碑的切片清單見 `docs/StickS3 執行計劃.md`「切片拆分」
-- **進行中**：下一片 **B3b-3 傳輸提速**（熱點 RTT 約 330ms，原始 PCM 跟不上即時；比較音訊壓縮 IMA ADPCM、網路獨立 task、邊錄邊傳，見 `CLAUDE.md` 鐵則七），再 B3c 接 GPT-Live（實作前先查官方音訊格式，官方範例 24kHz、裝置 16kHz）
+- **階段**：**M1-B 語音對話進行中**（M0、M1-A 切片 1–2、B1～B3b-3 完成）；全部里程碑的切片清單見 `docs/StickS3 執行計劃.md`「切片拆分」
+- **進行中**：下一片 **B3b-4 邊收邊播＋斷線處理**（含斷線時畫面提示、表情定格，Miles 11-19 提出）→ B3b-5 上傳邊錄邊傳＋網路背景化 → B3c 接 GPT-Live（端點 `wss://api.openai.com/v1/live/sessions`、PCM 16kHz 不需重取樣）
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -30,6 +30,14 @@
   - 插 CardKB／Scroll 確認 Grove 偵測
 
 ---
+
+### 2026-11-19｜M1-B / B3b-3 下載壓縮定案（μ-law）＋查證 GPT-Live｜Claude Code（Cowork 橋接）
+- 做了什麼：查 OpenAI 官方文件——GPT-Live 端點是 `wss://api.openai.com/v1/live/sessions`（先前寫的 `/v1/realtime` 有誤，已改執行計劃與 `docs/M1B-架構.md`），支援 PCM 16kHz（與裝置相同、不需重取樣），輸入輸出同一格式。切法改為 B3b-3 下載壓縮／B3b-4 邊收邊播／B3b-5 邊錄邊傳（Miles 同意）。中控新增 `cloud/src/adpcm.js`（IMA ADPCM、μ-law 編碼與訊息合併），`start` 帶 `up`／`down` 格式、中控回 `format` 確認；裝置新增 `firmware/src/adpcm.*` 解碼，驗收印 SNR。序列埠 `f0/f1/f2` 切 PCM／ADPCM／μ-law。
+- 設計決議（Miles 選定）：上傳原始 PCM（OpenAI 聽得最清楚）、下載壓縮；加格式欄位當保險；**預設 μ-law**，ADPCM 為弱網備案。
+- 驗收結果：**通過**。三種格式各錄 2 次（5～6 秒）：PCM 等待回傳 6.3～6.6 秒（CRC 一致）、μ-law 約 3.6 秒（SNR 36.6 dB）、ADPCM 約 2.0 秒（SNR 25 dB）。實聽：μ-law 最清楚、ADPCM 較糊、PCM 與 μ-law 聽不出差。
+- 遇到的坑（規則寫入 `CLAUDE.md` 鐵則七第 5～7 點）：(1) 每則 WebSocket 訊息約 67ms 固定成本——804 bytes 的 ADPCM 幀下載只剩 12KB/s，合併成約 8KB 一則後回到 23～26KB/s。(2) 第一次比較時 `f0` 沒生效、PCM 那輪又斷線改本機回放，造成「f0 較快較清楚」的誤判 → 指令要確認有回 `下載格式 → …` 再錄。(3) 開機後第一個序列埠指令常失效 → 解析時略過看不見的字元，並在不認得時印 16 進位以便追查。(4) 熱點 `ssl -80 Connection lost` 變頻繁（閒置約每 40～80 秒、上傳中也有），RTT 偶飆 1～3 秒。
+- 下一步：B3b-4 邊收邊播＋斷線處理（含 Miles 要的斷線畫面提示：斷線標誌、表情定格，恢復後繼續或回起始）→ B3b-5 → B3c。
+- 待辦／未決：連線重置原因未查；開機第一個指令失效是否已修需燒錄確認。
 
 ### 2026-11-18｜M1-B / B3b-2 音訊來回中控（整段上傳）｜Claude Code（Cowork 橋接）
 - 做了什麼：中控 `voice_session.js` 收二進位幀暫存（每輪上限 256KB），`stop` 時原樣回傳＋`{"t":"audio_end","n":...}`；B3a 的 stop→OpenAI 文字撤下（`askOpenAI()` 留給 B3c）。裝置新增 `voice_turn.*`（錄音→3200 bytes 幀上傳，每圈 2 幀→等 audio_end→播放），CRC32 比對上傳／收回；中控未連線、上傳失敗、中途斷線退回本機回放；表情本機決定、中控 state 只印出。`audio_io` 拆成 `stopRecording()`／`playBuffer()`＋PSRAM 收音緩衝；PGA 預設改 `0x15`。量測：每輪印 `[perf]`、ping 回來印 RTT。修正：Wi-Fi 沒連上不跑 WebSocket（避免 DNS 卡主迴圈）、等待逾時改「5 秒沒進展」。

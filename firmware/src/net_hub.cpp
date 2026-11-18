@@ -25,6 +25,26 @@ uint32_t s_ping_sent = 0;     // B3b-2：送出 ping 的時刻，收到 pong 時
 net_hub::StateCb s_state_cb = nullptr;
 net_hub::BinCb s_bin_cb = nullptr;
 net_hub::AudioEndCb s_end_cb = nullptr;
+net_hub::FormatCb s_fmt_cb = nullptr;
+
+// 從 JSON 文字取出 "key":"value" 的 value（極簡，不引 JSON 函式庫）
+bool getStr(const char* json, const char* key, char* out, size_t cap) {
+  char pat[24];
+  snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+  const char* p = strstr(json, pat);
+  if (!p || cap == 0) return false;
+  p += strlen(pat);
+  size_t i = 0;
+  while (*p && *p != '"' && i < cap - 1) out[i++] = *p++;
+  out[i] = '\0';
+  return true;
+}
+uint32_t getNum(const char* json, const char* key) {
+  char pat[24];
+  snprintf(pat, sizeof(pat), "\"%s\":", key);
+  const char* p = strstr(json, pat);
+  return p ? (uint32_t)strtoul(p + strlen(pat), nullptr, 10) : 0;
+}
 
 // B3b-2 量測：累計耗時（微秒）
 struct Perf { uint32_t n = 0; uint64_t sum = 0; uint32_t max = 0;
@@ -45,9 +65,16 @@ void handleText(const uint8_t* payload, size_t len) {
     return;
   }
   // B3b-2：{"t":"audio_end","n":<bytes>}
-  if (strstr((const char*)payload, "\"t\":\"audio_end\"")) {
-    const char* n = strstr((const char*)payload, "\"n\":");
-    if (s_end_cb) s_end_cb(n ? (uint32_t)strtoul(n + 4, nullptr, 10) : 0);
+  const char* js = (const char*)payload;
+  if (strstr(js, "\"t\":\"audio_end\"")) {
+    if (s_end_cb) s_end_cb(getNum(js, "n"), getNum(js, "pcm"));
+    return;
+  }
+  if (strstr(js, "\"t\":\"format\"")) {   // B3b-3：中控確認的音訊格式
+    char up[12] = "", down[12] = "";
+    getStr(js, "up", up, sizeof(up));
+    getStr(js, "down", down, sizeof(down));
+    if (s_fmt_cb) s_fmt_cb(up, down);
     return;
   }
   const char* p = strstr((const char*)payload, "\"v\":\"");
@@ -166,6 +193,13 @@ const char* perfLine() {
 }
 void onBinary(BinCb cb) { s_bin_cb = cb; }
 void onAudioEnd(AudioEndCb cb) { s_end_cb = cb; }
+void onFormat(FormatCb cb) { s_fmt_cb = cb; }
+void sendStartFmt(const char* up, const char* down) {
+  if (!s_link) return;
+  char buf[64];
+  snprintf(buf, sizeof(buf), "{\"t\":\"start\",\"up\":\"%s\",\"down\":\"%s\"}", up, down);
+  s_ws.sendTXT(buf);
+}
 
 // ── B3.6 Wi-Fi 干擾量測 ───────────────────────────────────────────────────
 void setWifiEnabled(bool on) {

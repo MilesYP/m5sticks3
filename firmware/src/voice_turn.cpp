@@ -2,7 +2,9 @@
 
 #include <M5Unified.h>
 #include <string.h>
+#include <math.h>
 
+#include "adpcm.h"
 #include "audio_io.h"
 #include "mode_manager.h"
 #include "net_hub.h"
@@ -23,8 +25,15 @@ int16_t* s_up = nullptr;      // 要上傳的音訊（audio_io 的錄音緩衝�
 size_t   s_up_bytes = 0;
 size_t   s_sent = 0;
 uint32_t s_up_crc = 0;
-size_t   s_rx_bytes = 0;
+size_t   s_rx_bytes = 0;      // 收到的位元組（ADPCM 時是壓縮後的大小）
+size_t   s_rx_samples = 0;    // 解出來的取樣數（寫進 rxBuffer）
 uint32_t s_rx_crc = 0;
+// B3b-3 下載格式：s_want＝要求（序列埠 f0/f1/f2 可切），s_down＝中控回 format 確認的
+enum class Fmt : uint8_t { Pcm16, Adpcm, Mulaw };
+const char* fmtName(Fmt f) { return f == Fmt::Adpcm ? "adpcm" : (f == Fmt::Mulaw ? "mulaw" : "pcm16"); }
+// 預設 μ-law（B3b-3 實聽：μ-law 與原音聽不出差、ADPCM 較糊；下載 16KB/s，熱點約 25KB/s 夠用）
+Fmt      s_want = Fmt::Mulaw;
+Fmt      s_down = Fmt::Pcm16;
 bool     s_rx_overflow = false;
 uint32_t s_t_release = 0;     // 放開 A 的時刻（算來回時間）
 uint32_t s_t_wait = 0;        // 送出 stop 或最後一次收到回傳資料的時刻（算逾時）
@@ -80,24 +89,69 @@ void fallbackLocal(const char* why) {
 void onBin(const uint8_t* data, size_t len) {
   if (s_st != St::Waiting && s_st != St::Uploading) return;   // 不是這一輪的，丟掉
   int16_t* rx = audio_io::rxBuffer();
-  if (!rx || s_rx_bytes + len > audio_io::rxCapacityBytes()) { s_rx_overflow = true; return; }
-  memcpy((uint8_t*)rx + s_rx_bytes, data, len);
+  const size_t cap = audio_io::rxCapacityBytes() / sizeof(int16_t);
+  if (!rx) { s_rx_overflow = true; return; }
+  if (s_down == Fmt::Adpcm) {
+    // B3b-3：一則訊息含多個固定 804 bytes 的幀（最後一幀可能較短），逐幀解壓接在後面
+    for (size_t o = 0; o < len; o += adpcm::FRAME_BYTES) {
+      const size_t fl = (len - o < adpcm::FRAME_BYTES) ? len - o : adpcm::FRAME_BYTES;
+      const size_t n = adpcm::decodeFrame(data + o, fl, rx + s_rx_samples, cap - s_rx_samples);
+      if (n == 0 && fl > adpcm::HEADER_BYTES) s_rx_overflow = true;
+      s_rx_samples += n;
+    }
+  } else if (s_down == Fmt::Mulaw) {
+    for (size_t k = 0; k < len && s_rx_samples < cap; ++k) rx[s_rx_samples++] = adpcm::mulawToPcm(data[k]);
+    if (s_rx_samples >= cap && len) s_rx_overflow = true;
+  } else {
+    if (s_rx_bytes + len > cap * sizeof(int16_t)) { s_rx_overflow = true; return; }
+    memcpy((uint8_t*)rx + s_rx_bytes, data, len);
+    s_rx_samples = (s_rx_bytes + len) / sizeof(int16_t);
+  }
   s_rx_bytes += len;
   s_t_wait = millis();   // 有進展就重新計時
 }
 
-void onEnd(uint32_t n) {
+// 解壓結果對原始錄音的訊噪比（SNR，dB）：越高越接近原音
+float snrDb(const int16_t* ref, const int16_t* got, size_t n) {
+  double sig = 0, err = 0;
+  for (size_t i = 0; i < n; ++i) {
+    const double e = (double)got[i] - ref[i];
+    sig += (double)ref[i] * ref[i];
+    err += e * e;
+  }
+  if (err <= 0) return 99.0f;
+  return (float)(10.0 * log10(sig / err));
+}
+
+void onFormat(const char* up, const char* down) {
+  s_down = strcmp(down, "adpcm") == 0 ? Fmt::Adpcm : (strcmp(down, "mulaw") == 0 ? Fmt::Mulaw : Fmt::Pcm16);
+  Serial.printf("[voice] 中控確認格式：上傳 %s、下載 %s\n", up, down);
+}
+
+void onEnd(uint32_t n, uint32_t pcm_bytes) {
   if (s_st != St::Waiting) return;
   perfPrint("等待回傳");
-  s_rx_crc = crc32Update(0, (const uint8_t*)audio_io::rxBuffer(), s_rx_bytes);
-  const bool same = !s_rx_overflow && s_rx_bytes == s_up_bytes && s_rx_crc == s_up_crc;
-  Serial.printf("[voice] 上傳 %u bytes CRC %08lX｜收回 %u bytes CRC %08lX（中控報 %lu）｜%s｜來回 %lu ms\n",
-                (unsigned)s_up_bytes, (unsigned long)s_up_crc,
-                (unsigned)s_rx_bytes, (unsigned long)s_rx_crc, (unsigned long)n,
-                same ? "一致" : (s_rx_overflow ? "收回超量" : "不一致！"),
-                (unsigned long)(millis() - s_t_release));
-  if (s_rx_bytes == 0) { Serial.println("[voice] 中控沒有回傳音訊"); toIdle(); return; }
-  play(audio_io::rxBuffer(), s_rx_bytes & ~(size_t)1, "中控回傳");
+  const uint32_t rt = millis() - s_t_release;
+  if (s_down != Fmt::Pcm16) {
+    const size_t up_samples = s_up_bytes / sizeof(int16_t);
+    const size_t m = s_rx_samples < up_samples ? s_rx_samples : up_samples;
+    Serial.printf("[voice] 下載 %s %u bytes（中控報 %lu，原始 %lu）→ 解出 %u 取樣（上傳 %u）｜壓縮比 %.2f｜SNR %.1f dB%s｜來回 %lu ms\n",
+                  fmtName(s_down), (unsigned)s_rx_bytes, (unsigned long)n, (unsigned long)pcm_bytes,
+                  (unsigned)s_rx_samples, (unsigned)up_samples,
+                  s_rx_bytes ? (float)s_up_bytes / (float)s_rx_bytes : 0.0f,
+                  m ? snrDb(s_up, audio_io::rxBuffer(), m) : 0.0f,
+                  s_rx_overflow ? "｜收回超量或幀錯誤！" : "", (unsigned long)rt);
+  } else {
+    s_rx_crc = crc32Update(0, (const uint8_t*)audio_io::rxBuffer(), s_rx_bytes);
+    const bool same = !s_rx_overflow && s_rx_bytes == s_up_bytes && s_rx_crc == s_up_crc;
+    Serial.printf("[voice] 下載 PCM：上傳 %u bytes CRC %08lX｜收回 %u bytes CRC %08lX（中控報 %lu）｜%s｜來回 %lu ms\n",
+                  (unsigned)s_up_bytes, (unsigned long)s_up_crc,
+                  (unsigned)s_rx_bytes, (unsigned long)s_rx_crc, (unsigned long)n,
+                  same ? "一致" : (s_rx_overflow ? "收回超量" : "不一致！"), (unsigned long)rt);
+  }
+  if (s_rx_samples == 0) { Serial.println("[voice] 中控沒有回傳音訊"); toIdle(); return; }
+  play(audio_io::rxBuffer(), s_rx_samples * sizeof(int16_t), s_down == Fmt::Adpcm ? "中控回傳（ADPCM 解壓）" :
+       (s_down == Fmt::Mulaw ? "中控回傳（μ-law 解壓）" : "中控回傳（PCM）"));
 }
 
 }  // namespace
@@ -107,9 +161,15 @@ namespace voice_turn {
 void begin() {
   net_hub::onBinary(onBin);
   net_hub::onAudioEnd(onEnd);
+  net_hub::onFormat(onFormat);
 }
 
 bool busy() { return s_st != St::Idle; }
+
+void setDownFormat(int f) {
+  s_want = f == 1 ? Fmt::Adpcm : (f == 2 ? Fmt::Mulaw : Fmt::Pcm16);
+  Serial.printf("[diag] 下載格式 → %s（下一輪生效）\n", fmtName(s_want));
+}
 
 void onPress() {
   // 上一輪還在跑（上傳／等待／播放中）就直接放棄，開始新的一輪
@@ -117,9 +177,10 @@ void onPress() {
   net_hub::voiceActive(true);    // B3.6：錄放音期間關 Wi-Fi 省電，否則有滋滋聲
   audio_io::startRecording();
   ui_expression::setMood(Mood::Listening);
-  if (net_hub::linkUp()) net_hub::sendStart();
+  s_down = Fmt::Pcm16;   // 等中控回 format 確認才用壓縮格式解（舊版中控不回 → 照 PCM 處理）
+  if (net_hub::linkUp()) net_hub::sendStartFmt("pcm16", fmtName(s_want));
   else Serial.println("[voice] 中控未連線（放開後會改本機回放）");
-  s_rx_bytes = 0; s_rx_overflow = false;
+  s_rx_bytes = 0; s_rx_samples = 0; s_rx_overflow = false;
   s_st = St::Recording;
   perfReset();
 }

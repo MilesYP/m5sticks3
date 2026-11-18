@@ -47,7 +47,7 @@ flowchart TD
 連線：`wss://<中控>/ws?t=<HUB_TOKEN>`（B3.5）。token 不符時中控在升級成 WebSocket 之前回 401，不進 Durable Object。
 裝置送：
 - `{"t":"start"}`：長按 A 按下 → 中控開 OpenAI 連線，裝置進 Listening。
-- 二進位音訊幀：PCM16，單聲道（取樣率待確認，見第 9 節）。
+- 二進位音訊幀：PCM16，16kHz，單聲道，little-endian（上傳）。
 - `{"t":"stop"}`：放開 A → 中控收尾，進 Thinking。
 中控送：
 - `{"t":"state","v":"listening|thinking|speaking|idle"}` → 裝置切表情。
@@ -60,6 +60,12 @@ flowchart TD
 - 中控收到 `start` 清空該連線的暫存；二進位幀依序暫存（每輪上限 256KB，超過回 `{"t":"error"}` 並丟棄）；收到 `stop` → `state=thinking` → 原樣照順序回傳 → `{"t":"audio_end","n":<bytes>}` → `state=idle`。
 - 裝置收到 `audio_end` 後比對上傳／收回的 bytes 與 CRC32，再正規化＋淡入淡出播放。等 `audio_end` 逾時 8 秒放棄；中控未連線／上傳失敗／中途斷線 → 退回本機回放。
 - 表情由裝置本機決定（Listening → Thinking → Speaking → Idle），中控的 `state` 目前只印序列埠；B3c 依真實節奏再定。
+
+**B3b-3 格式協商與下載壓縮**：
+- 裝置 `{"t":"start","up":"pcm16","down":"adpcm"}` → 中控回 `{"t":"format","up":..,"down":..}`（不認得的格式退回 `pcm16`；舊版裝置不帶欄位也是 `pcm16`）。裝置收到 `format` 才用 ADPCM 解，沒收到就當 PCM。
+- `down=adpcm`：中控把 PCM 壓成 IMA ADPCM 幀（每幀 100ms＝1600 取樣：`int16 predictor`＋`uint8 step index`＋`uint8 保留`＋800 bytes，先低 4 bit），約 8KB/s；`audio_end` 加 `fmt` 與原始 `pcm` bytes。編碼在 `cloud/src/adpcm.js`、解碼在 `firmware/src/adpcm.cpp`。
+- 上傳格式目前只有 `pcm16`；日後要壓縮上傳只需增加 `up` 的選項。
+- 下載另有 `mulaw`（G.711 μ-law，16kHz、每取樣 8 bit、1/2 資料量、無狀態），**B3b-3 定案為預設**（實聽與原音無差；ADPCM 較糊，留作弱網備案）。下載不論格式都合併成每則 ≤8040 bytes 的訊息（v15 實測每則訊息約有 67ms 固定成本）；ADPCM 每則含多個固定 804 bytes 的幀，裝置依此拆回。
 
 ## 5. 表情狀態對應（已在 M1-A 備好）
 | 中控 state | 表情 | 觸發點 |
@@ -87,7 +93,7 @@ flowchart TD
 
 ## 9. 待確認 / 風險（實作前要查或驗）
 1. **ES8311 同時收放**：CLAUDE.md 記錄現函式庫下喇叭/麥克風同一時間只能一個 → 對講機式剛好規避；若要「邊說邊打斷」需較底層同時收放＋回音消除，列後期。
-2. **音訊格式/取樣率**：OpenAI 即時語音的輸入/輸出 PCM 取樣率、幀長；裝置 mic 取樣率與重取樣要對齊 → 實作時以官方文件為準。
+2. **音訊格式/取樣率**（2026-11-18 查官方文件定案）：GPT-Live 端點 `wss://api.openai.com/v1/live/sessions`、模型 `gpt-live-1`；`session.audio.format` 支援 `audio/pcm` 24kHz（預設）／**16kHz**、`audio/pcmu`／`audio/pcma`（8kHz G.711）；同一格式同時套用輸入輸出、session 中不能改；送 `session.input_audio.append`、收 `session.output_audio.delta`。→ 中控↔OpenAI 用 PCM 16kHz，與裝置相同，**不需重取樣**。裝置↔中控是獨立一段，由中控轉碼（上傳 PCM16、下載 μ-law，見第 4 節）。
 3. **延遲**：裝置→CF→OpenAI 兩段往返；對講機式可接受，實測確認。
 4. **費用**：語音 $0.05/分（Pro 每月送的 API 額度可付）；Workers AI 快報用免費額度。粗估每天聊 20 分鐘 ≈ $1/天，用額度內。
 

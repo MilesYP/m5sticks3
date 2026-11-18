@@ -23,10 +23,13 @@ void onState(StateCb cb);
 
 // ── B3b-2 音訊傳輸 ──
 typedef void (*BinCb)(const uint8_t* data, size_t len);   // 收到二進位幀（中控回傳的音訊）
-typedef void (*AudioEndCb)(uint32_t bytes);              // 收到 {"t":"audio_end","n":...}
+typedef void (*AudioEndCb)(uint32_t bytes, uint32_t pcm_bytes);  // {"t":"audio_end","n":...,"pcm":...}
+typedef void (*FormatCb)(const char* up, const char* down);   // B3b-3：{"t":"format","up":...,"down":...}
 bool sendBinary(const uint8_t* data, size_t len);        // 送一個二進位幀；未連線或失敗回 false
 void onBinary(BinCb cb);
 void onAudioEnd(AudioEndCb cb);
+void onFormat(FormatCb cb);
+void sendStartFmt(const char* up, const char* down);   // B3b-3：{"t":"start","up":..,"down":..}
 
 // ── B3b-2 量測：網路處理花多久（每個階段開始時 reset，結束時印）──
 void perfReset();

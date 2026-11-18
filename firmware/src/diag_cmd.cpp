@@ -6,6 +6,7 @@
 
 #include "audio_io.h"
 #include "net_hub.h"
+#include "voice_turn.h"
 
 namespace {
 
@@ -17,7 +18,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜k 送 ping｜? 目前設定");
+  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2 下載PCM/ADPCM/μ-law｜k 送 ping｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -40,15 +41,24 @@ void run(char* cmd) {
       if (isxdigit((unsigned char)cmd[1])) audio_io::setPga((uint8_t)strtol(cmd + 1, nullptr, 16));
       else printHelp();
       break;
+    case 'f':
+      if (cmd[1] >= '0' && cmd[1] <= '2') voice_turn::setDownFormat(cmd[1] - '0');
+      else printHelp();
+      break;
     case 'k':
       net_hub::pingNow();
       break;
     case '?':
       printConfig();
       break;
-    default:
+    default: {
+      // 印出收到的內容（含 16 進位），開機第一個指令失效時可以看到混進了什麼
+      Serial.printf("[diag] 不認得的指令「%s」（hex:", cmd);
+      for (const char* c = cmd; *c; ++c) Serial.printf(" %02X", (unsigned char)*c);
+      Serial.println("）");
       printHelp();
       break;
+    }
   }
 }
 
@@ -67,6 +77,10 @@ void loop() {
         run(s_line);
         s_n = 0;
       }
+    } else if (ch < 0x21 || ch > 0x7E) {
+      // B3b-3：開機後第一個指令常失效——序列埠剛連上時會混進看不見的字元。
+      // 指令只用可見 ASCII，其他一律略過（空白也略過）。
+      continue;
     } else if (s_n < sizeof(s_line) - 1) {
       s_line[s_n++] = (char)ch;
     }

@@ -12,9 +12,21 @@
 //   - stop  → state=thinking → 把暫存的幀「原封不動」照順序傳回
 //             → {"t":"audio_end","n":<bytes>} → state=idle。
 //   B3a 的「stop 就呼叫 OpenAI 文字」已撤下；askOpenAI() 保留給 B3c。
+// B3b-3：start 帶 {up, down} 格式 → 回 {"t":"format",up,down}；down=adpcm 時 stop 回傳的是
+//   ADPCM 幀（4:1），audio_end 加上 fmt 與原始 PCM bytes（pcm）。
 
 // 每輪最多收多少音訊：16kHz × 2 bytes × 6 秒 = 192000，留一點餘裕
 const MAX_AUDIO_BYTES = 256 * 1024;
+import { concatPcm16, encodeAdpcmFrames, encodeMulaw, packMessages, sliceBytes } from "./adpcm.js";
+
+// B3b-3：裝置↔中控的音訊格式（start 帶 up／down，中控回 format 確認）
+//   up：裝置上傳格式（目前只支援 pcm16＝16kHz PCM16 LE）
+//   down：中控回傳格式 pcm16 或 adpcm（IMA ADPCM，見 adpcm.js）
+const UP_FORMATS = ["pcm16"];
+const DOWN_FORMATS = ["pcm16", "adpcm", "mulaw"];
+// 下載每則 WebSocket 訊息的上限（合併以減少則數，見 adpcm.js packMessages）
+const DOWN_MSG_BYTES = 8040;   // ＝10 個 ADPCM 幀；PCM／μ-law 也用同一上限，比較才公平
+
 export class VoiceSession {
   constructor(state, env) {
     this.state = state;
@@ -22,7 +34,7 @@ export class VoiceSession {
     this.storage = state.storage;
     // 每條連線一份音訊暫存。只在「一輪對話」這幾秒內存在；
     // DO 在一連串訊息之間不會休眠，暫存放記憶體即可（不寫 storage）。
-    this.audio = new WeakMap();   // ws → { chunks: ArrayBuffer[], bytes, overflow }
+    this.audio = new WeakMap();   // ws → { chunks: ArrayBuffer[], bytes, overflow, up, down }
   }
 
   async fetch(request) {
@@ -41,7 +53,7 @@ export class VoiceSession {
     if (typeof message !== "string") {
       // B3b-2：二進位音訊幀 → 暫存，等 stop 再原樣傳回
       let buf = this.audio.get(ws);
-      if (!buf) { buf = { chunks: [], bytes: 0, overflow: false }; this.audio.set(ws, buf); }
+      if (!buf) { buf = { chunks: [], bytes: 0, overflow: false, up: "pcm16", down: "pcm16" }; this.audio.set(ws, buf); }
       if (buf.overflow) return;
       const n = message.byteLength;
       if (buf.bytes + n > MAX_AUDIO_BYTES) {
@@ -61,23 +73,34 @@ export class VoiceSession {
     }
 
     switch (msg.t) {
-      case "start":
-        this.audio.set(ws, { chunks: [], bytes: 0, overflow: false });
+      case "start": {
+        // 不認得的格式一律退回 pcm16（舊版裝置不帶欄位也走這裡）
+        const up = UP_FORMATS.includes(msg.up) ? msg.up : "pcm16";
+        const down = DOWN_FORMATS.includes(msg.down) ? msg.down : "pcm16";
+        this.audio.set(ws, { chunks: [], bytes: 0, overflow: false, up, down });
+        this.send(ws, { t: "format", up, down });
         this.send(ws, { t: "state", v: "listening" });
         break;
+      }
 
       case "stop": {
         // B3b-2：純傳輸測試——收到的音訊原封不動傳回
         this.send(ws, { t: "state", v: "thinking" });
-        const buf = this.audio.get(ws) || { chunks: [], bytes: 0, overflow: false };
+        const buf = this.audio.get(ws) || { chunks: [], bytes: 0, overflow: false, up: "pcm16", down: "pcm16" };
         this.audio.delete(ws);
-        let sent = 0;
+        // B3b-3：down=adpcm 時把收到的 PCM 壓成 ADPCM 幀再送；pcm16 則原樣回傳
+        let out = [];
         if (!buf.overflow) {
-          for (const c of buf.chunks) {
-            try { ws.send(c); sent += c.byteLength; } catch { break; }
-          }
+          const pcm = concatPcm16(buf.chunks);
+          if (buf.down === "adpcm") out = packMessages(encodeAdpcmFrames(pcm), DOWN_MSG_BYTES);
+          else if (buf.down === "mulaw") out = sliceBytes(encodeMulaw(pcm), DOWN_MSG_BYTES);
+          else out = sliceBytes(new Uint8Array(pcm.buffer), DOWN_MSG_BYTES);   // 8040 是偶數，不會切斷取樣
         }
-        this.send(ws, { t: "audio_end", n: sent });
+        let sent = 0;
+        for (const c of out) {
+          try { ws.send(c); sent += c.byteLength; } catch { break; }
+        }
+        this.send(ws, { t: "audio_end", n: sent, fmt: buf.down, pcm: buf.bytes });
         this.send(ws, { t: "state", v: "idle" });
         break;
       }
