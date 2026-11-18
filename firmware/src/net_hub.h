@@ -23,13 +23,13 @@ void onState(StateCb cb);
 
 // ── B3b-2 音訊傳輸 ──
 typedef void (*BinCb)(const uint8_t* data, size_t len);   // 收到二進位幀（中控回傳的音訊）
-typedef void (*AudioEndCb)(uint32_t bytes, uint32_t pcm_bytes);  // {"t":"audio_end","n":...,"pcm":...}
+typedef void (*AudioEndCb)(uint32_t bytes, uint32_t pcm_bytes, float gain, const char* fmt);  // {"t":"audio_end","n":...,"pcm":...,"g":...}（B3b-4 加 g＝中控正規化增益）
 typedef void (*FormatCb)(const char* up, const char* down);   // B3b-3：{"t":"format","up":...,"down":...}
 bool sendBinary(const uint8_t* data, size_t len);        // 送一個二進位幀；未連線或失敗回 false
 void onBinary(BinCb cb);
 void onAudioEnd(AudioEndCb cb);
 void onFormat(FormatCb cb);
-void sendStartFmt(const char* up, const char* down);   // B3b-3：{"t":"start","up":..,"down":..}
+void sendStartFmt(const char* up, const char* down, const char* pace = nullptr);   // B3b-3：{"t":"start","up":..,"down":..}；B3b-4 加 pace（fast／rt）
 
 // ── B3b-2 量測：網路處理花多久（每個階段開始時 reset，結束時印）──
 void perfReset();
@@ -44,5 +44,9 @@ void voiceActive(bool active);       // true＝開始錄音（關省電）；fal
 void setTxPowerDbm(int dbm);         // 發射功率，取最接近的檔位：20/15/11/8/5/2
 void pingNow();                      // 立刻送一次 ping（看發射封包是否對應雜訊）
 const char* configLabel();           // 例："wifi=WS ps=on tx=19.5dBm"（讀回實際值，不含機密）
+
+// ── B3b-4 斷線量測與畫面提示 ──
+uint32_t linkDownMs();               // 中控斷線多久了（ms）；連著時回 0。開機尚未連上也算斷線（從開機起算）
+void setPingInterval(uint32_t sec);  // 序列埠 i<秒>：ping 間隔（0＝不 ping），量測連線重置用
 
 }  // namespace net_hub

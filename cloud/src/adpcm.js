@@ -148,3 +148,79 @@ export function sliceBytes(u8, maxBytes) {
   for (let o = 0; o < u8.length; o += maxBytes) msgs.push(u8.slice(o, o + maxBytes).buffer);
   return msgs;
 }
+
+// ── B3b-4 追加：音量正規化（原本在裝置做；邊收邊播時裝置拿不到整段的峰值）──
+// 峰值拉到滿幅 85%、最多 ×8、峰值太小（< 200，沒講話）不放大。原地修改，回傳增益。
+export function normalizePcm(pcm) {
+  let peak = 0;
+  for (let i = 0; i < pcm.length; i++) { const v = Math.abs(pcm[i]); if (v > peak) peak = v; }
+  if (peak < 200) return 1;
+  let g = (0.85 * 32767) / peak;
+  if (g <= 1) return 1;
+  if (g > 8) g = 8;
+  for (let i = 0; i < pcm.length; i++) {
+    let v = Math.round(pcm[i] * g);
+    pcm[i] = v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
+  }
+  return g;
+}
+
+// ── B3b-4 追加：16kHz → 8kHz 降取樣（ADPCM 8kHz 下載用，資料量再減半）──
+// 先低通（31 階 windowed-sinc，截止 3.6kHz，避免 4kHz 以上折回變雜音）再每兩個取一個。
+// 濾波器對稱、以中心對齊 → 不產生延遲，裝置升取樣後與原音同步（驗收印 SNR 才有意義）。
+const LP_TAPS = (() => {
+  const N = 31, M = (N - 1) / 2, fc = 3600 / 16000;
+  const h = new Float64Array(N);
+  let sum = 0;
+  for (let k = 0; k < N; k++) {
+    const n = k - M;
+    const sinc = n === 0 ? 2 * fc : Math.sin(2 * Math.PI * fc * n) / (Math.PI * n);
+    const w = 0.54 - 0.46 * Math.cos((2 * Math.PI * k) / (N - 1));   // Hamming 窗
+    h[k] = sinc * w; sum += h[k];
+  }
+  for (let k = 0; k < N; k++) h[k] /= sum;   // 直流增益 = 1
+  return h;
+})();
+
+export function downsample2(pcm) {
+  const N = LP_TAPS.length, M = (N - 1) >> 1;
+  const out = new Int16Array((pcm.length + 1) >> 1);
+  for (let i = 0; i < out.length; i++) {
+    const c = 2 * i;
+    let acc = 0;
+    for (let k = 0; k < N; k++) {
+      const j = c + k - M;
+      if (j >= 0 && j < pcm.length) acc += LP_TAPS[k] * pcm[j];
+    }
+    const v = Math.round(acc);
+    out[i] = v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
+  }
+  return out;
+}
+
+// ── B3b-4：依下載格式編碼並切成訊息，回傳 { msgs: ArrayBuffer[], durs: 每則的音訊長度(ms) } ──
+// 每則大小：鐵則七第 5 點（每則有固定成本）與「第一則要夠快到」之間取捨，約 0.25～0.6 秒音訊一則。
+//   pcm16 8000 B（0.25s）、mulaw 8000 B（0.5s）、adpcm 5 幀 4020 B（0.5s）、adpcm8k 3 幀 2412 B（0.6s）
+// adpcm8k 的幀與 adpcm 同為 1600 取樣／804 bytes（但在 8kHz 下是 200ms），裝置拆幀方式不變。
+export function encodeDown(pcm, fmt) {
+  const msgs = [], durs = [];
+  const groupFrames = (frames, perMsg, rate) => {
+    for (let i = 0; i < frames.length; i += perMsg) {
+      const part = frames.slice(i, i + perMsg);
+      let samples = 0;
+      for (const f of part) samples += (f.byteLength - 4) * 2;
+      msgs.push(packMessages(part, Infinity)[0]);
+      durs.push((samples * 1000) / rate);
+    }
+  };
+  if (fmt === "adpcm8k") {
+    groupFrames(encodeAdpcmFrames(downsample2(pcm)), 3, 8000);
+  } else if (fmt === "adpcm") {
+    groupFrames(encodeAdpcmFrames(pcm), 5, 16000);
+  } else if (fmt === "mulaw") {
+    for (const m of sliceBytes(encodeMulaw(pcm), 8000)) { msgs.push(m); durs.push(m.byteLength / 16); }
+  } else {
+    for (const m of sliceBytes(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), 8000)) { msgs.push(m); durs.push(m.byteLength / 32); }
+  }
+  return { msgs, durs };
+}

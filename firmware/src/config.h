@@ -27,5 +27,7 @@ constexpr int      KILL_TASK_CORE  = 0;      // 與 Arduino loop（core 1）分�
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔
 constexpr uint32_t LOOP_YIELD_MS = 1;        // loop 結尾讓出 CPU 的時間（非阻塞）
+// B3b-4：中控斷線超過這麼久才顯示斷線提示（重連常在 1～2 秒內完成，避免圖示一閃一閃）
+constexpr uint32_t OFFLINE_SHOW_MS = 2000;
 
 }  // namespace cfg

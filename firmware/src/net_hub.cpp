@@ -27,6 +27,40 @@ net_hub::BinCb s_bin_cb = nullptr;
 net_hub::AudioEndCb s_end_cb = nullptr;
 net_hub::FormatCb s_fmt_cb = nullptr;
 
+// ── B3b-4 斷線量測：每次斷線印一行 [link]，找連線重置（ssl -80）的規律 ──
+uint32_t s_ping_ms = 20000;        // ping 間隔（序列埠 i<秒> 可改；0＝不 ping）
+uint32_t s_link_since = 0;         // 這次連上的時刻
+uint32_t s_down_since = 0;         // 這次斷線的時刻（開機時＝0，代表從開機起就沒連上）
+uint32_t s_last_pong = 0;          // 最後一次收到 pong 的時刻
+uint32_t s_last_rtt = 0;
+uint32_t s_rx_link = 0, s_tx_link = 0;   // 這次連線期間收／送的 bytes
+uint32_t s_drops = 0;              // 開機以來斷線次數
+// Wi-Fi 層事件（在 Wi-Fi 事件 task 裡只記錄，主迴圈再印，避免在別的 task 印序列埠）
+volatile uint8_t  s_wifi_reason = 0;     // 最後一次 Wi-Fi 斷線原因碼（ESP-IDF wifi_err_reason_t）
+volatile uint32_t s_wifi_drop_ms = 0;    // 最後一次 Wi-Fi 斷線的時刻
+volatile bool     s_wifi_drop_new = false;
+
+void onWifiDisconnected(arduino_event_id_t, arduino_event_info_t info) {
+  s_wifi_reason = info.wifi_sta_disconnected.reason;
+  s_wifi_drop_ms = millis();
+  s_wifi_drop_new = true;
+}
+
+void logLinkDown(const uint8_t* payload, size_t length) {
+  const uint32_t now = millis();
+  ++s_drops;
+  char wifi[48];
+  if (WiFi.status() == WL_CONNECTED) snprintf(wifi, sizeof(wifi), "Wi-Fi 層仍連著");
+  else snprintf(wifi, sizeof(wifi), "Wi-Fi 層也斷（原因 %u）", (unsigned)s_wifi_reason);
+  Serial.printf("[link] 斷線 #%lu｜連線維持 %.1f s｜距上次 pong %.1f s（最後 RTT %lu ms）｜這次連線收 %.1f KB／送 %.1f KB｜"
+                "RSSI %d dBm｜省電 %s｜ping 間隔 %lu s｜%s｜原因：%.*s\n",
+                (unsigned long)s_drops, (now - s_link_since) / 1000.0f,
+                s_last_pong ? (now - s_last_pong) / 1000.0f : -1.0f, (unsigned long)s_last_rtt,
+                s_rx_link / 1024.0f, s_tx_link / 1024.0f,
+                (int)WiFi.RSSI(), WiFi.getSleep() ? "開" : "關", (unsigned long)(s_ping_ms / 1000), wifi,
+                (int)length, length ? (const char*)payload : "-");
+}
+
 // 從 JSON 文字取出 "key":"value" 的 value（極簡，不引 JSON 函式庫）
 bool getStr(const char* json, const char* key, char* out, size_t cap) {
   char pat[24];
@@ -56,8 +90,10 @@ uint32_t s_bins_this_call = 0, s_bins_total = 0, s_bins_max_per_call = 0;
 void handleText(const uint8_t* payload, size_t len) {
   // B3b-2：pong → 印往返時間
   if (strstr((const char*)payload, "\"t\":\"pong\"")) {
+    s_last_pong = millis();
     if (s_ping_sent) {
-      Serial.printf("[hub] <- pong（RTT %lu ms）\n", (unsigned long)(millis() - s_ping_sent));
+      s_last_rtt = millis() - s_ping_sent;
+      Serial.printf("[hub] <- pong（RTT %lu ms）\n", (unsigned long)s_last_rtt);
       s_ping_sent = 0;
     } else {
       Serial.println("[hub] <- pong");
@@ -67,7 +103,12 @@ void handleText(const uint8_t* payload, size_t len) {
   // B3b-2：{"t":"audio_end","n":<bytes>}
   const char* js = (const char*)payload;
   if (strstr(js, "\"t\":\"audio_end\"")) {
-    if (s_end_cb) s_end_cb(getNum(js, "n"), getNum(js, "pcm"));
+    float g = 1.0f;
+    const char* gp = strstr(js, "\"g\":");
+    if (gp) g = strtof(gp + 4, nullptr);
+    char fmt[12] = "";
+    getStr(js, "fmt", fmt, sizeof(fmt));
+    if (s_end_cb) s_end_cb(getNum(js, "n"), getNum(js, "pcm"), g, fmt);
     return;
   }
   if (strstr(js, "\"t\":\"format\"")) {   // B3b-3：中控確認的音訊格式
@@ -89,11 +130,25 @@ void handleText(const uint8_t* payload, size_t len) {
 
 void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
-    case WStype_CONNECTED:
+    case WStype_CONNECTED: {
+      const uint32_t now = millis();
+      if (s_down_since || s_drops) {
+        Serial.printf("[link] 已連線（斷線 %.1f s 後恢復）\n", (now - s_down_since) / 1000.0f);
+      }
       s_link = true;
+      s_link_since = now;
+      s_last_pong = 0; s_last_rtt = 0;
+      s_rx_link = 0; s_tx_link = 0;
+      s_down_since = 0;
       Serial.println("[hub] WS connected");
       break;
+    }
     case WStype_DISCONNECTED:
+      if (s_link) {                 // 連著才算一次斷線（重連失敗也會進來，不重複記）
+        logLinkDown(payload, length);
+        s_down_since = millis();
+        if (s_down_since == 0) s_down_since = 1;
+      }
       s_link = false;
       // payload 是斷線原因；token 錯誤時為 "WebSocket handshake failed - HTTP 401"
       if (length > 0) {
@@ -103,12 +158,14 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
       }
       break;
     case WStype_TEXT:
+      s_rx_link += length;
       if (!strstr((const char*)payload, "\"t\":\"pong\""))   // pong 由 handleText 連同 RTT 一起印
         Serial.printf("[hub] <- %.*s\n", (int)length, (const char*)payload);
       handleText(payload, length);
       break;
     case WStype_BIN:
       ++s_bins_this_call; ++s_bins_total;
+      s_rx_link += length;
       if (s_bin_cb) s_bin_cb(payload, length);   // 音訊幀很多，不逐幀印
       break;
     default:
@@ -121,6 +178,7 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
 namespace net_hub {
 
 void begin() {
+  WiFi.onEvent(onWifiDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);   // B3b-4：記 Wi-Fi 層斷線原因
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.printf("[wifi] connecting to \"%s\" ...\n", WIFI_SSID);
@@ -129,6 +187,11 @@ void begin() {
 
 void loop() {
   static bool wifi_logged = false;
+  if (s_wifi_drop_new) {   // B3b-4：Wi-Fi 層斷線（事件 task 記下，這裡印）
+    s_wifi_drop_new = false;
+    Serial.printf("[wifi] 斷線，原因碼 %u（RSSI %d dBm）\n", (unsigned)s_wifi_reason, (int)WiFi.RSSI());
+    wifi_logged = false;   // 重新連上時再印一次 IP
+  }
   if (WiFi.status() == WL_CONNECTED) {
     if (!wifi_logged) {
       wifi_logged = true;
@@ -145,7 +208,13 @@ void loop() {
   // B3b-2：Wi-Fi 沒連上就不跑 WebSocket（否則它每 5 秒重連，DNS 查詢可能卡住主迴圈好幾秒）。
   // Wi-Fi 掉線時 WebSocket 自己不會馬上發現 → 這裡直接視為中斷，Wi-Fi 回來後 loop 會偵測並重連。
   if (s_ws_started && WiFi.status() != WL_CONNECTED) {
-    if (s_link) { s_link = false; Serial.println("[hub] Wi-Fi 未連線，WS 視為中斷（Wi-Fi 回來後自動重連）"); }
+    if (s_link) {
+      logLinkDown((const uint8_t*)"Wi-Fi 未連線", strlen("Wi-Fi 未連線"));
+      s_down_since = millis();
+      if (s_down_since == 0) s_down_since = 1;
+      s_link = false;
+      Serial.println("[hub] Wi-Fi 未連線，WS 視為中斷（Wi-Fi 回來後自動重連）");
+    }
   } else if (s_ws_started) {
     s_bins_this_call = 0;
     const uint32_t t0 = micros();
@@ -155,10 +224,11 @@ void loop() {
   }
 
   const uint32_t now = millis();
-  if (s_link && now - s_last_ping > 20000) {     // 每 20 秒 ping 一次保活
+  if (s_link && s_ping_ms && now - s_last_ping > s_ping_ms) {   // 預設每 20 秒 ping 一次保活（i<秒> 可改）
     s_last_ping = now;
     s_ping_sent = millis();
     s_ws.sendTXT("{\"t\":\"ping\"}");
+    s_tx_link += 12;
   }
 }
 
@@ -172,6 +242,7 @@ bool sendBinary(const uint8_t* data, size_t len) {
   if (!s_link) return false;
   const uint32_t t0 = micros();
   const bool ok = s_ws.sendBIN(data, len);
+  if (ok) s_tx_link += len;
   s_p_send.add(micros() - t0);
   return ok;
 }
@@ -194,11 +265,23 @@ const char* perfLine() {
 void onBinary(BinCb cb) { s_bin_cb = cb; }
 void onAudioEnd(AudioEndCb cb) { s_end_cb = cb; }
 void onFormat(FormatCb cb) { s_fmt_cb = cb; }
-void sendStartFmt(const char* up, const char* down) {
+void sendStartFmt(const char* up, const char* down, const char* pace) {
   if (!s_link) return;
-  char buf[64];
-  snprintf(buf, sizeof(buf), "{\"t\":\"start\",\"up\":\"%s\",\"down\":\"%s\"}", up, down);
+  char buf[96];
+  if (pace) snprintf(buf, sizeof(buf), "{\"t\":\"start\",\"up\":\"%s\",\"down\":\"%s\",\"pace\":\"%s\"}", up, down, pace);
+  else      snprintf(buf, sizeof(buf), "{\"t\":\"start\",\"up\":\"%s\",\"down\":\"%s\"}", up, down);
   s_ws.sendTXT(buf);
+}
+
+uint32_t linkDownMs() {
+  if (s_link) return 0;
+  return millis() - s_down_since;   // s_down_since=0（開機後還沒連上過）→ 從開機起算
+}
+
+void setPingInterval(uint32_t sec) {
+  s_ping_ms = sec * 1000;
+  if (sec) Serial.printf("[diag] ping 間隔 → %lu 秒\n", (unsigned long)sec);
+  else     Serial.println("[diag] ping 間隔 → 不 ping（量測閒置斷線用）");
 }
 
 // ── B3.6 Wi-Fi 干擾量測 ───────────────────────────────────────────────────

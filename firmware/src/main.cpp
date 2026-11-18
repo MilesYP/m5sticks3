@@ -23,6 +23,22 @@
 
 // B3b-2：表情改由本機（voice_turn）決定，中控回的 state 只印在序列埠（net_hub 已印）。
 
+// B3b-4 斷線提示（Miles 選定）：中控斷線超過 OFFLINE_SHOW_MS → 表情定格、眼睛變灰、右上角 Wi-Fi 斜線；
+// 恢復連線後回待機臉（這一輪語音若還在播已收到的部分，播完自己會回 Idle）。
+static void updateOffline() {
+  static bool shown = false;
+  const bool off = net_hub::linkDownMs() > cfg::OFFLINE_SHOW_MS;
+  if (off == shown) return;
+  shown = off;
+  ui_expression::setOffline(off);
+  if (off) {
+    Serial.println("[ui] 斷線提示：表情定格");
+  } else {
+    Serial.println("[ui] 連線恢復：回待機");
+    if (!voice_turn::busy()) ui_expression::setMood(Mood::Idle);
+  }
+}
+
 // Desktop 模式畫表情，其餘模式（含 Safe 的 KILLED 畫面）畫狀態畫面。
 static void renderActive(bool force) {
   if (mode_manager::current() == Mode::Desktop) ui_expression::render();
@@ -77,7 +93,7 @@ void loop() {
       break;
 
     case InputEvent::BtnA_Press:
-      // Desktop：按住 A 講話（B3b-2：錄音 → 上傳中控 → 原樣收回 → 播放，見 voice_turn）
+      // Desktop：按住 A 講話（錄音 → 上傳中控 → 邊收邊播，見 voice_turn）
       if (mode_manager::current() == Mode::Desktop) {
         voice_turn::onPress();
         break;
@@ -102,6 +118,7 @@ void loop() {
   voice_turn::loop();
 
   // (3) 重畫
+  updateOffline();
   renderActive(false);
   delay(cfg::LOOP_YIELD_MS);
 }

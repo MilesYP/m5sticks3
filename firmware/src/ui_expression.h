@@ -20,6 +20,9 @@ void setMood(Mood m);
 Mood mood();
 const char* moodName();
 void setSpeakLevel(float level01);   // 說話中的嘴巴開合：0～1（M1-B 接喇叭音量）；傳負值＝用內建模擬
+// B3b-4（Miles 選定方案 c）：斷線時表情定格（不呼吸、不眨眼、不過渡）、眼睛變灰、右上角 Wi-Fi 加斜線
+void setOffline(bool offline);
+bool offline();
 void debugNextMood();   // 測試用：循環切到下一種情緒（切片 3 接上 IMU 後移除）
 
 }  // namespace ui_expression

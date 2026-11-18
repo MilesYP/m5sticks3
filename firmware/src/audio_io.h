@@ -33,4 +33,18 @@ uint8_t pga();
 typedef const char* (*LabelFn)();
 void setDiagLabel(LabelFn fn); // 每次錄音那一行附上的設定標籤（例：Wi-Fi 省電／發射功率）
 
+// ── B3b-4 邊收邊播 ──
+// 收到的音訊（已解成 16kHz PCM16）寫進 PSRAM 環形緩衝；緩衝到 prebuffer 就開喇叭開始播。
+// 由喇叭播放 task 的「緩衝釋放回呼」自己從環形緩衝拿下一塊餵進去（不靠主迴圈，
+// 實測主迴圈收一則訊息會被卡最久 2.5 秒）。斷音後要補到 1 秒才繼續，避免一直斷斷續續。
+bool streamBegin();                                  // 開一輪（清空緩衝；還不開喇叭）
+size_t streamWrite(const int16_t* p, size_t n);      // 主迴圈寫入；回傳寫入幾個（緩衝滿會丟掉多的並計數）
+void streamEnd();                                    // 不會再有資料：剩下的播完就結束
+void streamAbort();                                  // 立刻停（新一輪、離開 Desktop）
+bool streamActive();                                 // 這一輪還沒播完（含等待緩衝）
+bool streamStarted();                                // 已經開始出聲
+uint32_t streamStartedAt();                          // 開始出聲的 millis()
+void setPrebufferMs(uint32_t ms);                    // 序列埠 b<ms>
+const char* streamReport();                          // 一行統計（播完時印）
+
 }  // namespace audio_io

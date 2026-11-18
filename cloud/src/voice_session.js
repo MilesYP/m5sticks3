@@ -14,18 +14,26 @@
 //   B3a 的「stop 就呼叫 OpenAI 文字」已撤下；askOpenAI() 保留給 B3c。
 // B3b-3：start 帶 {up, down} 格式 → 回 {"t":"format",up,down}；down=adpcm 時 stop 回傳的是
 //   ADPCM 幀（4:1），audio_end 加上 fmt 與原始 PCM bytes（pcm）。
+// B3b-4：邊收邊播。
+//   - 新增 down=adpcm8k（先降到 8kHz 再 ADPCM，約 4KB/s），裝置預設用這個。
+//   - stop 後一則一則送：pace=fast（預設，有多快送多快，模擬 OpenAI 產生得比即時快）
+//     或 pace=rt（照真實播放速度送，最嚴苛的壓力測試）。新一輪 start 會取消還沒送完的上一輪。
+//   - 音量正規化從裝置移到這裡（裝置邊收邊播拿不到整段峰值）；audio_end 帶增益 g 與音訊長度 ms。
+//   - 連線關閉／錯誤記到 console（wrangler tail 看得到），量連線重置用。
+//   - 這一輪的格式（up/down/pace）存進連線附件（serializeAttachment）：休眠式 WebSocket 閒置約 10 秒
+//     DO 會被移出記憶體、this.audio 會清空，但連線與附件還在。11-19 實測按住 A 10 秒沒送任何訊息
+//     → DO 休眠 → 中控忘了格式、照 pcm16 回傳 → 裝置當 ADPCM 解 → 大爆音。
 
 // 每輪最多收多少音訊：16kHz × 2 bytes × 6 秒 = 192000，留一點餘裕
 const MAX_AUDIO_BYTES = 256 * 1024;
-import { concatPcm16, encodeAdpcmFrames, encodeMulaw, packMessages, sliceBytes } from "./adpcm.js";
+import { concatPcm16, encodeDown, normalizePcm } from "./adpcm.js";
 
 // B3b-3：裝置↔中控的音訊格式（start 帶 up／down，中控回 format 確認）
 //   up：裝置上傳格式（目前只支援 pcm16＝16kHz PCM16 LE）
 //   down：中控回傳格式 pcm16 或 adpcm（IMA ADPCM，見 adpcm.js）
 const UP_FORMATS = ["pcm16"];
-const DOWN_FORMATS = ["pcm16", "adpcm", "mulaw"];
-// 下載每則 WebSocket 訊息的上限（合併以減少則數，見 adpcm.js packMessages）
-const DOWN_MSG_BYTES = 8040;   // ＝10 個 ADPCM 幀；PCM／μ-law 也用同一上限，比較才公平
+const DOWN_FORMATS = ["pcm16", "adpcm", "mulaw", "adpcm8k"];
+const PACES = ["fast", "rt"];
 
 export class VoiceSession {
   constructor(state, env) {
@@ -34,7 +42,9 @@ export class VoiceSession {
     this.storage = state.storage;
     // 每條連線一份音訊暫存。只在「一輪對話」這幾秒內存在；
     // DO 在一連串訊息之間不會休眠，暫存放記憶體即可（不寫 storage）。
-    this.audio = new WeakMap();   // ws → { chunks: ArrayBuffer[], bytes, overflow, up, down }
+    this.audio = new WeakMap();   // ws → { chunks: ArrayBuffer[], bytes, overflow, up, down, pace }
+    this.turn = new WeakMap();    // ws → 目前這一輪的序號；送音訊途中序號變了＝被新一輪取消
+    this.turnSeq = 0;
   }
 
   async fetch(request) {
@@ -45,6 +55,8 @@ export class VoiceSession {
     const client = pair[0];
     const server = pair[1];
     this.state.acceptWebSocket(server); // 休眠式：連線保持、閒置不計資源
+    try { server.serializeAttachment({ t0: Date.now() }); } catch {}   // B3b-4：記連線開始時間（休眠後仍在）
+    console.log("[ws] open");
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -53,7 +65,7 @@ export class VoiceSession {
     if (typeof message !== "string") {
       // B3b-2：二進位音訊幀 → 暫存，等 stop 再原樣傳回
       let buf = this.audio.get(ws);
-      if (!buf) { buf = { chunks: [], bytes: 0, overflow: false, up: "pcm16", down: "pcm16" }; this.audio.set(ws, buf); }
+      if (!buf) { buf = this.newTurn(ws); this.audio.set(ws, buf); }   // 休眠過：從附件找回這一輪的格式
       if (buf.overflow) return;
       const n = message.byteLength;
       if (buf.bytes + n > MAX_AUDIO_BYTES) {
@@ -77,31 +89,23 @@ export class VoiceSession {
         // 不認得的格式一律退回 pcm16（舊版裝置不帶欄位也走這裡）
         const up = UP_FORMATS.includes(msg.up) ? msg.up : "pcm16";
         const down = DOWN_FORMATS.includes(msg.down) ? msg.down : "pcm16";
-        this.audio.set(ws, { chunks: [], bytes: 0, overflow: false, up, down });
-        this.send(ws, { t: "format", up, down });
+        const pace = PACES.includes(msg.pace) ? msg.pace : "fast";
+        this.turn.set(ws, 0);   // 取消上一輪還沒送完的音訊
+        this.saveFmt(ws, { up, down, pace });
+        this.audio.set(ws, { chunks: [], bytes: 0, overflow: false, up, down, pace });
+        this.send(ws, { t: "format", up, down, pace });
         this.send(ws, { t: "state", v: "listening" });
         break;
       }
 
       case "stop": {
-        // B3b-2：純傳輸測試——收到的音訊原封不動傳回
+        // B3b-2：純傳輸測試——收到的音訊傳回（B3b-4：正規化後一則一則送，裝置邊收邊播）
         this.send(ws, { t: "state", v: "thinking" });
-        const buf = this.audio.get(ws) || { chunks: [], bytes: 0, overflow: false, up: "pcm16", down: "pcm16" };
+        const buf = this.audio.get(ws) || this.newTurn(ws);
         this.audio.delete(ws);
-        // B3b-3：down=adpcm 時把收到的 PCM 壓成 ADPCM 幀再送；pcm16 則原樣回傳
-        let out = [];
-        if (!buf.overflow) {
-          const pcm = concatPcm16(buf.chunks);
-          if (buf.down === "adpcm") out = packMessages(encodeAdpcmFrames(pcm), DOWN_MSG_BYTES);
-          else if (buf.down === "mulaw") out = sliceBytes(encodeMulaw(pcm), DOWN_MSG_BYTES);
-          else out = sliceBytes(new Uint8Array(pcm.buffer), DOWN_MSG_BYTES);   // 8040 是偶數，不會切斷取樣
-        }
-        let sent = 0;
-        for (const c of out) {
-          try { ws.send(c); sent += c.byteLength; } catch { break; }
-        }
-        this.send(ws, { t: "audio_end", n: sent, fmt: buf.down, pcm: buf.bytes });
-        this.send(ws, { t: "state", v: "idle" });
+        const turn = ++this.turnSeq;
+        this.turn.set(ws, turn);
+        await this.streamOut(ws, buf, turn);
         break;
       }
 
@@ -121,13 +125,60 @@ export class VoiceSession {
   }
 
   async webSocketClose(ws, code, reason, wasClean) {
+    console.log("[ws] close code=" + code + " clean=" + wasClean + " reason=" + JSON.stringify(reason || "") + " 連線 " + this.aliveSec(ws) + " s");
     try {
       ws.close(code, "server closing");
     } catch {}
   }
 
   async webSocketError(ws, err) {
-    // 記錄即可；休眠連線出錯會自動清掉
+    // 記錄即可；休眠連線出錯會自動清掉（B3b-4：印出來找連線重置原因）
+    console.log("[ws] error " + (err && err.message ? err.message : String(err)) + " 連線 " + this.aliveSec(ws) + " s");
+  }
+
+  // 連線附件：{ t0, fmt:{up,down,pace} }。休眠後 this.audio 會清空，附件不會。
+  attach(ws) {
+    try { return ws.deserializeAttachment() || {}; } catch { return {}; }
+  }
+  saveFmt(ws, fmt) {
+    try { ws.serializeAttachment({ ...this.attach(ws), fmt }); } catch {}
+  }
+  newTurn(ws) {
+    const f = this.attach(ws).fmt || { up: "pcm16", down: "pcm16", pace: "fast" };
+    if (this.attach(ws).fmt) console.log("[ws] DO 休眠後恢復這一輪的格式 down=" + f.down);
+    return { chunks: [], bytes: 0, overflow: false, up: f.up, down: f.down, pace: f.pace };
+  }
+
+  aliveSec(ws) {
+    try {
+      const a = ws.deserializeAttachment();
+      return a && a.t0 ? ((Date.now() - a.t0) / 1000).toFixed(1) : "?";
+    } catch { return "?"; }
+  }
+
+  // B3b-4：把這輪音訊正規化、編碼，一則一則送出。pace=rt 時照音訊長度等待（真實速度）。
+  async streamOut(ws, buf, turn) {
+    let msgs = [], durs = [], gain = 1;
+    if (!buf.overflow) {
+      const pcm = concatPcm16(buf.chunks);
+      gain = normalizePcm(pcm);
+      ({ msgs, durs } = encodeDown(pcm, buf.down));
+    }
+    const t0 = Date.now();
+    let sent = 0, audioMs = 0;
+    for (let i = 0; i < msgs.length; i++) {
+      if (this.turn.get(ws) !== turn) return;   // 被新一輪取消：不送 audio_end
+      try { ws.send(msgs[i]); } catch { break; }
+      sent += msgs[i].byteLength;
+      audioMs += durs[i];
+      if (buf.pace === "rt" && i + 1 < msgs.length) {
+        const wait = t0 + audioMs - Date.now();
+        if (wait > 0) await this.sleep(wait);
+      }
+    }
+    if (this.turn.get(ws) !== turn) return;
+    this.send(ws, { t: "audio_end", n: sent, fmt: buf.down, pcm: buf.bytes, g: Math.round(gain * 100) / 100, ms: Math.round(audioMs) });
+    this.send(ws, { t: "state", v: "idle" });
   }
 
   // ── 工具 ──

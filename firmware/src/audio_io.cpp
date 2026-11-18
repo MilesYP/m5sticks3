@@ -4,9 +4,10 @@
 #include <string.h>
 #include <math.h>
 #include <algorithm>
+#include <atomic>
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "17-b3b3"
+#define AUDIO_BUILD_TAG "19-b3b4"
 
 namespace {
 
@@ -94,6 +95,85 @@ void speakerOff() {
   M5.Speaker.end();   // 它的 callback 會自己把放大器斷電
 }
 
+// ── B3b-4 邊收邊播：環形緩衝＋播放 task 自己餵 ─────────────────────────
+// M5Unified 0.3.0 Speaker 的排隊行為（2026-11-19 查原始碼 Speaker_Class.inl 確認）：
+//   - 每個虛擬聲道只有 2 格（播放中＋排隊 1 個），isPlaying(ch) 回 0／1／2。
+//   - playRaw 不指定聲道會挑「沒在播的聲道」→ 兩塊會同時混音 → 一律指定聲道 0。
+//   - 隊列滿時 playRaw 會原地等 → 呼叫前先確認 isPlaying(0) < 2。
+//   - 排隊的下一塊在同一次 DMA 填充裡接上，不會有空隙；一塊播完前它的記憶體不能改寫。
+//   - setBufferReleaseCallback：播放 task 讀完一塊時呼叫，裡面可以再 playRaw（不會等待），
+//     但不可 begin()/end()；只能在 begin() 之前或 end() 之後設定。
+constexpr uint8_t  STREAM_CH      = 0;
+constexpr size_t   RING_SAMPLES   = SAMPLE_RATE * 8;     // 8 秒（256KB，PSRAM）
+constexpr size_t   STREAM_BLOCK   = SAMPLE_RATE / 10;    // 每次交給喇叭 100ms
+constexpr uint32_t REBUFFER_MS    = 1000;                // 斷音後補到這麼多才繼續
+uint32_t s_prebuf_ms = 300;                              // 開始播之前先緩衝多少（b<ms> 可改）
+
+int16_t* s_ring = nullptr;
+std::atomic<uint32_t> s_wr{0};       // 已寫入的取樣總數（只增不減，取餘數得位置）
+std::atomic<uint32_t> s_rd{0};       // 已交給喇叭的取樣總數
+std::atomic<uint32_t> s_fr{0};       // 喇叭已讀完、可以覆寫的取樣總數
+std::atomic<uint8_t>  s_inflight{0}; // 交給喇叭還沒讀完的塊數（0～2）
+uint32_t s_q_len[4];                 // 在喇叭裡的各塊長度（單一生產者／單一消費者的小佇列）
+std::atomic<uint8_t> s_q_head{0}, s_q_tail{0};
+std::atomic<bool> s_feed_lock{false};
+volatile bool s_st_active = false, s_st_started = false, s_st_ended = false, s_st_starved = false;
+// 統計
+uint32_t s_st_t_begin = 0, s_st_t_started = 0, s_st_t_starve = 0;
+uint32_t s_st_underruns = 0, s_st_starve_ms = 0, s_st_dropped = 0;
+volatile uint32_t s_st_min_buf = 0xFFFFFFFF;   // 播放中「還沒播的量」最低值（取樣數）
+uint32_t s_st_written = 0;
+
+// 從環形緩衝拿資料交給喇叭，直到喇叭的 2 格隊列滿或沒資料。主迴圈與播放 task 都會呼叫，
+// 用 try-lock 避免兩邊同時改讀取位置；搶不到就跳過（另一邊正在餵）。
+void streamFeed() {
+  if (s_feed_lock.exchange(true, std::memory_order_acquire)) return;
+  while (s_st_active && M5.Speaker.isPlaying(STREAM_CH) < 2) {
+    const uint32_t wr = s_wr.load(std::memory_order_acquire);
+    const uint32_t rd = s_rd.load(std::memory_order_relaxed);
+    const uint32_t avail = wr - rd;
+    if (avail == 0) break;
+    const uint32_t pos = rd % RING_SAMPLES;
+    uint32_t len = avail;
+    if (len > STREAM_BLOCK) len = STREAM_BLOCK;
+    if (len > RING_SAMPLES - pos) len = RING_SAMPLES - pos;   // 不跨過緩衝尾端
+    // 還在收、喇叭裡還有東西時，不送零碎小塊（等湊滿 100ms；喇叭讀完那塊時會再來餵）
+    if (len < STREAM_BLOCK && !s_st_ended && s_inflight.load() > 0 && pos + len < RING_SAMPLES) break;
+    if (!M5.Speaker.playRaw(s_ring + pos, len, SAMPLE_RATE, false, 1, STREAM_CH, false)) break;
+    const uint8_t t = s_q_tail.load(std::memory_order_relaxed);
+    s_q_len[t & 3] = len;
+    s_q_tail.store((uint8_t)(t + 1), std::memory_order_release);
+    s_inflight.fetch_add(1);
+    s_rd.store(rd + len, std::memory_order_release);
+  }
+  // 斷音：還在收、喇叭沒東西、緩衝也空了
+  if (s_st_active && s_st_started && !s_st_ended && !s_st_starved &&
+      s_inflight.load() == 0 && s_wr.load() == s_rd.load()) {
+    s_st_starved = true;
+    ++s_st_underruns;
+    s_st_t_starve = millis();
+  }
+  s_feed_lock.store(false, std::memory_order_release);
+}
+
+// 播放 task 讀完一塊時呼叫（不是中斷；保持簡短、不可 begin()/end()）
+void onSpeakerRelease(void*, const void* data, uint8_t ch) {
+  if (ch != STREAM_CH || !s_st_active || s_ring == nullptr) return;
+  const int16_t* p = (const int16_t*)data;
+  if (p < s_ring || p >= s_ring + RING_SAMPLES) return;   // 不是串流的塊（例如本機整段播放）
+  const uint8_t h = s_q_head.load(std::memory_order_relaxed);
+  if (h != s_q_tail.load(std::memory_order_acquire)) {
+    s_fr.fetch_add(s_q_len[h & 3]);
+    s_q_head.store((uint8_t)(h + 1), std::memory_order_release);
+    if (s_inflight.load() > 0) s_inflight.fetch_sub(1);
+  }
+  if (!s_st_ended) {   // 收尾階段不算（本來就會見底）
+    const uint32_t ahead = s_wr.load() - s_fr.load();
+    if (ahead < s_st_min_buf) s_st_min_buf = ahead;
+  }
+  streamFeed();
+}
+
 // 開喇叭：begin() 的 callback 是同步執行的（已對照原始碼確認），回來時放大器
 // 已通電、codec 已重設完。接著立刻靜音壓住剛設定好的瞬態，等穩定再解除；
 // 此時 I2S 還沒送資料，解除靜音不會出聲。全程不自己動放大器電源。
@@ -103,6 +183,7 @@ void speakerOn() {
   cfg.sample_rate   = SPK_SAMPLE_RATE;
   cfg.magnification = SPK_MAGNIFICATION;
   M5.Speaker.config(cfg);
+  M5.Speaker.setBufferReleaseCallback(nullptr, onSpeakerRelease);   // B3b-4：end() 之後、begin() 之前設定
   M5.Speaker.begin();
   dacMute(true);
   M5.delay(CODEC_SETTLE_MS);
@@ -345,7 +426,8 @@ namespace audio_io {
 void begin() {
   s_buf = (int16_t*)ps_malloc(CAP_SAMPLES * sizeof(int16_t));
   s_rx  = (int16_t*)ps_malloc(CAP_SAMPLES * sizeof(int16_t));
-  s_ready = (s_buf != nullptr && s_rx != nullptr);
+  s_ring = (int16_t*)ps_malloc(RING_SAMPLES * sizeof(int16_t));   // B3b-4 邊收邊播
+  s_ready = (s_buf != nullptr && s_rx != nullptr && s_ring != nullptr);
   if (!s_ready) {
     Serial.println("[audio] PSRAM 緩衝配置失敗");
     return;
@@ -357,6 +439,7 @@ void begin() {
 
 void startRecording() {
   if (!s_ready || s_recording) return;
+  if (s_st_active) streamAbort();             // B3b-4：上一輪回答還在播 → 停掉
   if (s_playing || M5.Speaker.isPlaying()) {   // 上一段還在播就先收掉
     M5.Speaker.stop();
     s_playing = false;
@@ -385,6 +468,38 @@ void loop() {
     while (M5.Mic.isRecording() < 2 && s_queued + CHUNK <= CAP_SAMPLES) {
       if (!M5.Mic.record(s_buf + s_queued, CHUNK, SAMPLE_RATE)) break;
       s_queued += CHUNK;
+    }
+  }
+
+  // B3b-4 邊收邊播：緩衝夠了開始播、斷音後補夠再繼續、播完切回麥克風
+  if (s_st_active) {
+    const uint32_t now = millis();
+    const uint32_t unplayed = s_wr.load() - s_fr.load();          // 還沒播（含喇叭裡的）
+    const uint32_t queued   = s_wr.load() - s_rd.load();          // 還沒交給喇叭
+    if (!s_st_started) {
+      if (unplayed >= s_prebuf_ms * (SAMPLE_RATE / 1000) || (s_st_ended && unplayed > 0)) {
+        if (M5.Mic.isRunning()) M5.Mic.end();   // ES8311 同時只能麥克風或喇叭其一
+        speakerOn();
+        s_st_started = true;
+        s_st_t_started = millis();
+        streamFeed();
+      } else if (s_st_ended) {                  // 一點資料都沒有就結束了
+        s_st_active = false;
+      }
+    } else {
+      if (s_st_starved) {
+        if (queued >= REBUFFER_MS * (SAMPLE_RATE / 1000) || s_st_ended) {
+          s_st_starve_ms += now - s_st_t_starve;
+          s_st_starved = false;
+          streamFeed();
+        }
+      } else {
+        streamFeed();   // 保險：播放 task 搶不到鎖時，由主迴圈補餵
+      }
+      if (s_st_ended && s_wr.load() == s_rd.load() && s_inflight.load() == 0 && !M5.Speaker.isPlaying()) {
+        s_st_active = false;
+        micOn();        // 內含 speakerOff()：先靜音、斷放大器
+      }
     }
   }
 
@@ -483,5 +598,79 @@ void setPga(uint8_t reg14) {
 }
 uint8_t pga() { return s_pga; }
 void setDiagLabel(LabelFn fn) { s_label_fn = fn; }
+
+// ── B3b-4 邊收邊播 ──────────────────────────────────────────────────────
+bool streamBegin() {
+  if (!s_ready) return false;
+  if (s_st_active) streamAbort();
+  s_wr.store(0); s_rd.store(0); s_fr.store(0);
+  s_inflight.store(0); s_q_head.store(0); s_q_tail.store(0);
+  s_st_started = false; s_st_ended = false; s_st_starved = false;
+  s_st_t_begin = millis(); s_st_t_started = 0;
+  s_st_underruns = 0; s_st_starve_ms = 0; s_st_dropped = 0; s_st_written = 0;
+  s_st_min_buf = 0xFFFFFFFF;
+  s_st_active = true;
+  return true;
+}
+
+size_t streamWrite(const int16_t* p, size_t n) {
+  if (!s_st_active || s_st_ended || p == nullptr) return 0;
+  const uint32_t wr = s_wr.load(std::memory_order_relaxed);
+  const uint32_t room = RING_SAMPLES - (wr - s_fr.load(std::memory_order_acquire));
+  size_t m = n < room ? n : room;
+  if (m < n) s_st_dropped += (uint32_t)(n - m);
+  for (size_t i = 0; i < m; ++i) {
+    int32_t v = p[i];
+    if (s_st_written + i < FADE_IN) v = v * (int32_t)(s_st_written + i) / (int32_t)FADE_IN;   // 開頭淡入
+    s_ring[(wr + i) % RING_SAMPLES] = (int16_t)v;
+  }
+  s_st_written += (uint32_t)m;
+  s_wr.store(wr + (uint32_t)m, std::memory_order_release);
+  return m;
+}
+
+void streamEnd() {
+  if (!s_st_active || s_st_ended) return;
+  // 結尾淡出：只能改還沒交給喇叭的部分
+  while (s_feed_lock.exchange(true, std::memory_order_acquire)) {}
+  const uint32_t wr = s_wr.load(), rd = s_rd.load();
+  const uint32_t pend = wr - rd;
+  const uint32_t nfade = pend < FADE_OUT ? pend : FADE_OUT;
+  for (uint32_t i = 0; i < nfade; ++i) {
+    int16_t& v = s_ring[(wr - 1 - i) % RING_SAMPLES];
+    v = (int16_t)((int32_t)v * (int32_t)i / (int32_t)FADE_OUT);
+  }
+  s_st_ended = true;
+  s_feed_lock.store(false, std::memory_order_release);
+}
+
+void streamAbort() {
+  if (!s_st_active) return;
+  s_st_active = false;          // 先關，回呼看到就不再餵
+  M5.Speaker.stop();
+  micOn();                      // 內含 speakerOff()
+}
+
+bool streamActive() { return s_st_active; }
+bool streamStarted() { return s_st_active && s_st_started; }
+uint32_t streamStartedAt() { return s_st_t_started; }
+
+void setPrebufferMs(uint32_t ms) {
+  if (ms > 4000) ms = 4000;
+  s_prebuf_ms = ms;
+  Serial.printf("[diag] 預緩衝 → %lu ms（下一輪生效）\n", (unsigned long)ms);
+}
+
+const char* streamReport() {
+  static char buf[200];
+  const uint32_t ms_per = SAMPLE_RATE / 1000;
+  snprintf(buf, sizeof(buf),
+           "[stream] 收到 %lu ms 音訊｜送出 stop 後 %lu ms 開始播（預緩衝 %lu ms）｜播放中緩衝最低 %ld ms｜斷音 %lu 次共 %lu ms｜緩衝滿丟棄 %lu 取樣",
+           (unsigned long)(s_st_written / ms_per),
+           s_st_t_started ? (unsigned long)(s_st_t_started - s_st_t_begin) : 0UL, (unsigned long)s_prebuf_ms,
+           s_st_min_buf == 0xFFFFFFFF ? -1L : (long)(s_st_min_buf / ms_per),
+           (unsigned long)s_st_underruns, (unsigned long)s_st_starve_ms, (unsigned long)s_st_dropped);
+  return buf;
+}
 
 }  // namespace audio_io

@@ -54,6 +54,21 @@ uint32_t s_next_gap_ms = 2800;
 constexpr uint32_t BLINK_DUR_MS = 120;     // 一次眨眼壓扁多久
 constexpr float    EASE_PER_MS  = 0.010f;  // 過渡速度：越大換表情越快
 
+// B3b-4 斷線提示
+bool     s_offline = false;
+uint32_t s_freeze_ms = 0;      // 定格那一刻；斷線期間所有動畫都用這個時間算
+constexpr uint8_t OFF_R = 95, OFF_G = 94, OFF_B = 90;   // 斷線時眼睛的灰色
+
+// 右上角「Wi-Fi 加紅色斜線」：(x, y) 是扇形的圓心（最下面那個點）
+void drawWifiOff(int x, int y) {
+  const uint16_t c = s_cv.color565(150, 150, 150);
+  s_cv.fillArc(x, y, 13, 11, 225, 315, c);   // 角度：0°＝右、順時針，270°＝正上方
+  s_cv.fillArc(x, y, 8, 6, 225, 315, c);
+  s_cv.fillCircle(x, y - 1, 2, c);
+  const uint16_t red = s_cv.color565(226, 75, 74);
+  for (int d = -1; d <= 1; ++d) s_cv.drawLine(x - 9 + d, y - 14, x + 9 + d, y + 2, red);
+}
+
 inline float approach(float cur, float target, float k) { return cur + (target - cur) * k; }
 
 const MoodSpec& target() { return kMoods[static_cast<uint8_t>(s_mood)]; }
@@ -77,14 +92,24 @@ const char* moodName() { return target().name; }
 
 void setSpeakLevel(float level01) { s_speak_level = level01; }
 
+void setOffline(bool off) {
+  if (off && !s_offline) {
+    s_freeze_ms = millis();
+    s_blinking = false;          // 不要定格在眨眼的那一下
+  }
+  s_offline = off;
+}
+bool offline() { return s_offline; }
+
 void debugNextMood() {
   s_mood = static_cast<Mood>((static_cast<uint8_t>(s_mood) + 1) % kMoodCount);
 }
 
 void render() {
   if (!s_ready) return;
-  const uint32_t now = millis();
-  const uint32_t dt = now - s_last_frame_ms;
+  // B3b-4：斷線時時間停在定格那一刻 → 呼吸、眨眼、漣漪、過渡全部不動
+  const uint32_t now = s_offline ? s_freeze_ms : millis();
+  const uint32_t dt = (now > s_last_frame_ms) ? now - s_last_frame_ms : 0;
   s_last_frame_ms = now;
 
   // ── 平滑過渡：目前值往目標情緒靠近 ──
@@ -144,7 +169,9 @@ void render() {
   const int think_dx = (int)(sinf(now / 700.0f) * 7.0f * s_cur.think);
 
   const int ey = cy - eh / 2 + breathe - think_up;     // 眼睛上緣 y
-  const uint16_t col = s_cv.color565((uint8_t)s_cur.r, (uint8_t)s_cur.g, (uint8_t)s_cur.b);
+  // B3b-4：斷線時眼睛（含漣漪、嘴巴）一律灰色
+  const float cr = s_offline ? OFF_R : s_cur.r, cg = s_offline ? OFF_G : s_cur.g, cb = s_offline ? OFF_B : s_cur.b;
+  const uint16_t col = s_cv.color565((uint8_t)cr, (uint8_t)cg, (uint8_t)cb);
 
   // ── 繪製 ──
   s_cv.fillScreen(TFT_BLACK);
@@ -154,9 +181,9 @@ void render() {
     for (int i = 0; i < 3; ++i) {
       const int prog = (int)((now / 14 + i * 22) % 66);          // 0～65
       const float fade = (1.0f - prog / 66.0f) * s_cur.listen;
-      const uint16_t rc = s_cv.color565((uint8_t)(s_cur.r * fade * 0.6f),
-                                        (uint8_t)(s_cur.g * fade * 0.6f),
-                                        (uint8_t)(s_cur.b * fade * 0.6f));
+      const uint16_t rc = s_cv.color565((uint8_t)(cr * fade * 0.6f),
+                                        (uint8_t)(cg * fade * 0.6f),
+                                        (uint8_t)(cb * fade * 0.6f));
       s_cv.drawCircle(cx, cy + breathe, 24 + prog, rc);
       s_cv.drawCircle(cx, cy + breathe, 25 + prog, rc);
     }
@@ -224,6 +251,8 @@ void render() {
     s_cv.setTextSize(2);
     s_cv.drawString("Z", cx + gap + 14, cy - 46 - (int)(p * 14));
   }
+
+  if (s_offline) drawWifiOff(W - 16, 20);
 
   s_cv.pushSprite(0, 0);
 }

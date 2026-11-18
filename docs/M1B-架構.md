@@ -67,6 +67,15 @@ flowchart TD
 - 上傳格式目前只有 `pcm16`；日後要壓縮上傳只需增加 `up` 的選項。
 - 下載另有 `mulaw`（G.711 μ-law，16kHz、每取樣 8 bit、1/2 資料量、無狀態），**B3b-3 定案為預設**（實聽與原音無差；ADPCM 較糊，留作弱網備案）。下載不論格式都合併成每則 ≤8040 bytes 的訊息（v15 實測每則訊息約有 67ms 固定成本）；ADPCM 每則含多個固定 804 bytes 的幀，裝置依此拆回。
 
+**B3b-4 邊收邊播**：
+- `start` 多帶 `pace`：`fast`（預設，有多快送多快）或 `rt`（照音訊長度等待，壓力測試）；中控在 `format` 回覆裡一併確認。
+- 新增 `down=adpcm8k`（**裝置預設**）：中控先正規化、低通、降到 8kHz，再 IMA ADPCM 編碼；幀格式與 `adpcm` 相同（1600 取樣／804 bytes，在 8kHz 下是 200ms），每則 3 幀（2412 bytes、0.6 秒）。裝置解壓後用半帶濾波器升回 16kHz。
+- 每則大小：pcm16／mulaw 8000 bytes、adpcm 5 幀（4020 bytes）、adpcm8k 3 幀。
+- 音量正規化改在中控（裝置邊收邊播拿不到整段峰值）；`audio_end` 多帶 `g`（增益）與 `ms`（音訊長度）。
+- 新一輪 `start` 會取消上一輪還沒送完的音訊（不送 `audio_end`）。
+- 這一輪的格式存在連線附件（`serializeAttachment`），DO 閒置休眠後仍找得回（見 `CLAUDE.md` 鐵則七第 9 點）。
+- 裝置：中控未連線、上傳或等待中斷線 → 這輪結束、不再本機回放；回答播到一半斷線 → 已收到的播完。
+
 ## 5. 表情狀態對應（已在 M1-A 備好）
 | 中控 state | 表情 | 觸發點 |
 | :-- | :-- | :-- |
@@ -93,7 +102,7 @@ flowchart TD
 
 ## 9. 待確認 / 風險（實作前要查或驗）
 1. **ES8311 同時收放**：CLAUDE.md 記錄現函式庫下喇叭/麥克風同一時間只能一個 → 對講機式剛好規避；若要「邊說邊打斷」需較底層同時收放＋回音消除，列後期。
-2. **音訊格式/取樣率**（2026-11-18 查官方文件定案）：GPT-Live 端點 `wss://api.openai.com/v1/live/sessions`、模型 `gpt-live-1`；`session.audio.format` 支援 `audio/pcm` 24kHz（預設）／**16kHz**、`audio/pcmu`／`audio/pcma`（8kHz G.711）；同一格式同時套用輸入輸出、session 中不能改；送 `session.input_audio.append`、收 `session.output_audio.delta`。→ 中控↔OpenAI 用 PCM 16kHz，與裝置相同，**不需重取樣**。裝置↔中控是獨立一段，由中控轉碼（上傳 PCM16、下載 μ-law，見第 4 節）。
+2. **音訊格式/取樣率**（2026-11-18 查官方文件定案）：GPT-Live 端點 `wss://api.openai.com/v1/live/sessions`、模型 `gpt-live-1`；`session.audio.format` 支援 `audio/pcm` 24kHz（預設）／**16kHz**、`audio/pcmu`／`audio/pcma`（8kHz G.711）；同一格式同時套用輸入輸出、session 中不能改；送 `session.input_audio.append`、收 `session.output_audio.delta`。→ 中控↔OpenAI 用 PCM 16kHz，與裝置相同，**不需重取樣**。裝置↔中控是獨立一段，由中控轉碼（上傳 PCM16、下載 ADPCM 8kHz，見第 4 節）。
 3. **延遲**：裝置→CF→OpenAI 兩段往返；對講機式可接受，實測確認。
 4. **費用**：語音 $0.05/分（Pro 每月送的 API 額度可付）；Workers AI 快報用免費額度。粗估每天聊 20 分鐘 ≈ $1/天，用額度內。
 

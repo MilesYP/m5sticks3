@@ -17,7 +17,7 @@
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
-| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3.5 完成（進度見 `docs/PROGRESS.md`） |
+| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3b-4 完成（進度見 `docs/PROGRESS.md`） |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
 
@@ -105,9 +105,11 @@
 3. **Wi-Fi 沒連上就不要跑 `WebSocketsClient::loop()`**：它每 5 秒重連，走到 DNS 查詢時可能卡住主迴圈好幾秒（B3b-2 實測按 8 秒只錄到 2 秒）。`net_hub` 已處理。
 4. **逾時用「多久沒進展」，不要用固定總時長**：6 秒錄音在熱點上下載就要約 7.5 秒。
 5. **每則 WebSocket 訊息有固定成本**（B3b-3 實測）：ADPCM 每則 804 bytes 時下載只剩約 12KB/s；合併成每則約 8KB 後回到約 23～26KB/s（頻寬上限）。下載一律合併成 ≤8040 bytes 一則。
-6. **下載格式預設 μ-law**（B3b-3，Miles 實聽選定）：16kHz、每取樣 8 bit、16KB/s，SNR 約 36.6 dB，與原音聽不出差；ADPCM（8KB/s，SNR 約 25 dB）聽得出較糊，留作弱網備案（序列埠 `f1`）。5～6 秒錄音的等待回傳：PCM 6.3～6.6 秒、μ-law 約 3.6 秒、ADPCM 約 2.0 秒。裝置↔中控格式由 `start` 的 `up`／`down` 協商，與中控↔OpenAI 的格式無關（中控轉碼）。
-7. **熱點連線會被重置**：`ssl_client (-80) Connection lost` 閒置時約每 40～80 秒一次、上傳中也發生過；前後 RTT 飆到 1～3 秒。會自動重連，原因未查（B3b-4 處理）。
+6. **下載格式**：B3b-3 定 μ-law（16KB/s），**B3b-4 改預設 ADPCM 8kHz**（約 4KB/s，序列埠 `f3`；`f2` 切回 μ-law）。原因：11-19 熱點 RTT 升到 630～760ms 時下載只剩約 8.8KB/s，μ-law 跟不上即時。中控先低通（31 階、截止 3.6kHz）再降到 8kHz，裝置用 8 階半帶濾波器升回 16kHz（線性內插只有約 25dB，半帶約 42dB）；實測真人語音 SNR 約 20～22 dB（含 4kHz 以上的頻寬損失）。以下為 B3b-3 原紀錄——下載格式 μ-law（B3b-3，Miles 實聽選定）：16kHz、每取樣 8 bit、16KB/s，SNR 約 36.6 dB，與原音聽不出差；ADPCM（8KB/s，SNR 約 25 dB）聽得出較糊，留作弱網備案（序列埠 `f1`）。5～6 秒錄音的等待回傳：PCM 6.3～6.6 秒、μ-law 約 3.6 秒、ADPCM 約 2.0 秒。裝置↔中控格式由 `start` 的 `up`／`down` 協商，與中控↔OpenAI 的格式無關（中控轉碼）。
+7. **熱點連線會被重置**：`ssl_client (-80) Connection lost` 閒置時約每 40～80 秒一次、上傳中也發生過；前後 RTT 飆到 1～3 秒。會自動重連，原因未查。B3b-4 已加 `[link]` 斷線紀錄（連線維持多久、距上次 pong、收送量、RSSI、省電、Wi-Fi 層原因碼）與 `i<秒>` ping 間隔，中控 `wrangler tail` 印 `[ws] close code=…`；11-19 那晚連 185 秒都沒斷，資料待收。**重連（TLS 交握）會卡主迴圈約 2.3 秒**，錄音中發生會少錄 2 秒（B3b-5 網路背景化處理）。
 8. **量測先行**：每輪印 `[perf]`（主迴圈、`ws.loop`、送幀耗時、收幀數），ping 回來印 RTT；改傳輸前先看這些數字。
+9. **中控 Durable Object 閒置約 10 秒會休眠**（B3b-4 實測）：休眠式 WebSocket 下 DO 被移出記憶體，**連線不斷，但 `this.*` 記憶體全部清空**。按住 A 10 秒期間裝置沒送任何訊息 → 中控忘了這輪格式、照 pcm16 回傳 → 裝置當 ADPCM 解 → 大爆音。規則：**跨訊息要記住的東西一律存 `ws.serializeAttachment()`**（或 storage），不能只放記憶體。B3c 中控要開 OpenAI 連線時同樣要注意（有外連中的 DO 不會休眠，但開之前的設定要能找回）。
+10. **邊收邊播（B3b-4）**：中控 stop 後一則一則送（預設 `pace=fast` 全速，`r1` 改照真實速度＝壓力測試；只照真實速度送時緩衝永遠只有預緩衝那 0.3 秒，任何卡頓都會斷音）。**WebSocket 函式庫要等一整則訊息收完才放手，`ws.loop()` 實測最久卡 2.5 秒** → 喇叭不能靠主迴圈餵，改由 M5Unified 播放 task 的 `setBufferReleaseCallback` 自己從環形緩衝拿下一塊。M5Unified 0.3.0 `Speaker.playRaw` 規則（查原始碼）：每聲道只有 2 格隊列；**不指定聲道會挑空聲道 → 兩塊同時混音，一律指定聲道 0**；隊列滿時會原地等 → 先查 `isPlaying(0) < 2`；回呼裡可以 `playRaw`、不可 `begin()/end()`，回呼只能在 `begin()` 前或 `end()` 後設定。實測熱點（RTT 300～500ms）中控送完後 0.6～1.4 秒開始播、0 斷音，緩衝最低 1.6～2.5 秒。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
@@ -156,11 +158,11 @@ firmware/src/
   input_hal.*         // 開機 I2C 掃描，辨識 CardKB(0x5F)/Scroll(0x40)，統一輸入事件
   killswitch.*        // 正面按鈕急停，最高優先（鐵則三）
   ui_expression.*     // 模式1：幾何表情（M1-A 已建）
-  net_hub.*           // Wi-Fi＋中控 WebSocket（token、RTT、省電切換、二進位收送、格式協商）（M1-B 已建）
-  audio_io.*          // ES8311 錄放音、PGA、正規化、雜訊量測（M1-B 已建）
-  voice_turn.*        // 一輪語音：錄→上傳→等回傳→解壓→播；表情本機決定（M1-B 已建）
-  adpcm.*             // IMA ADPCM／μ-law 解碼（M1-B B3b-3 已建）
-  diag_cmd.*          // 序列埠診斷指令 w/s/p/g/f/k/?（M1-B B3.6 已建）
+  net_hub.*           // Wi-Fi＋中控 WebSocket（token、RTT、省電切換、二進位收送、格式協商、[link] 斷線紀錄）（M1-B 已建）
+  audio_io.*          // ES8311 錄放音、PGA、雜訊量測、邊收邊播環形緩衝（播放 task 自餵）（M1-B 已建）
+  voice_turn.*        // 一輪語音：錄→上傳→邊收邊解壓邊播；表情本機決定（M1-B 已建）
+  adpcm.*             // IMA ADPCM／μ-law 解碼、8kHz→16kHz 升取樣（M1-B B3b-3／B3b-4 已建）
+  diag_cmd.*          // 序列埠診斷指令 w/s/p/g/f/r/b/i/k/?（M1-B B3.6 已建）
   ui_grok.*           // 模式1：M5GFX 幾何表情 + 音量連動 + 跑馬燈
   hid_injector.*      // 模式2：TinyUSB 跨平台鍵鼠 + 急停整合
   rf_transceiver.*    // 模式3：CC1101 學習/存/發 + RSSI 掃描

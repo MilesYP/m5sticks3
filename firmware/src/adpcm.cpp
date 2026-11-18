@@ -44,4 +44,43 @@ int16_t mulawToPcm(uint8_t u) {
   return (int16_t)((u & 0x80) ? (0x84 - t) : (t - 0x84));
 }
 
+// ── B3b-4：8kHz → 16kHz 升取樣 ──
+// 半帶濾波器係數（windowed-sinc、Hann 窗、每側 4 點，和為 0.5），由 node 算出：
+//   奇數點 = Σ c[k]·(x[m-k] + x[m+1+k])，k = 0..3
+namespace {
+constexpr float HB[4] = {0.61713087f, -0.15907955f, 0.05258227f, -0.01063358f};
+}
+
+void Upsampler2x::reset() {
+  for (int16_t& v : h_) v = 0;
+  count_ = 0;
+}
+
+size_t Upsampler2x::step(int16_t s, int16_t* out) {
+  for (int i = 0; i < 7; ++i) h_[i] = h_[i + 1];
+  h_[7] = s;
+  if (++count_ <= 4) return 0;   // 前 4 點只填歷史，還沒有足夠的「之後」可內插
+  // 要輸出的是 x[m] 與 x[m]～x[m+1] 之間的點，m 位在 h_[3]
+  float acc = HB[0] * (h_[3] + h_[4]) + HB[1] * (h_[2] + h_[5]) +
+              HB[2] * (h_[1] + h_[6]) + HB[3] * (h_[0] + h_[7]);
+  int32_t v = (int32_t)(acc >= 0 ? acc + 0.5f : acc - 0.5f);
+  if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+  out[0] = h_[3];
+  out[1] = (int16_t)v;
+  return 2;
+}
+
+size_t Upsampler2x::push(const int16_t* in, size_t n, int16_t* out) {
+  size_t w = 0;
+  for (size_t i = 0; i < n; ++i) w += step(in[i], out + w);
+  return w;
+}
+
+size_t Upsampler2x::flush(int16_t* out) {
+  // 補 4 個 0 推進歷史：前面累積的輸入全部輸出（總輸出＝輸入 × 2）
+  size_t w = 0;
+  for (int i = 0; i < 4; ++i) w += step(0, out + w);
+  return w;
+}
+
 }  // namespace adpcm

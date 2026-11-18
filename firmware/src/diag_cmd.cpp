@@ -18,7 +18,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2 下載PCM/ADPCM/μ-law｜k 送 ping｜? 目前設定");
+  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -42,7 +42,19 @@ void run(char* cmd) {
       else printHelp();
       break;
     case 'f':
-      if (cmd[1] >= '0' && cmd[1] <= '2') voice_turn::setDownFormat(cmd[1] - '0');
+      if (cmd[1] >= '0' && cmd[1] <= '3') voice_turn::setDownFormat(cmd[1] - '0');
+      else printHelp();
+      break;
+    case 'r':   // B3b-4：中控送法
+      if (cmd[1] == '0' || cmd[1] == '1') voice_turn::setPaceRealtime(cmd[1] == '1');
+      else printHelp();
+      break;
+    case 'b':   // B3b-4：預緩衝（ms）
+      if (isdigit((unsigned char)cmd[1])) audio_io::setPrebufferMs((uint32_t)atoi(cmd + 1));
+      else printHelp();
+      break;
+    case 'i':   // B3b-4：ping 間隔（秒），量連線重置用
+      if (isdigit((unsigned char)cmd[1])) net_hub::setPingInterval((uint32_t)atoi(cmd + 1));
       else printHelp();
       break;
     case 'k':
