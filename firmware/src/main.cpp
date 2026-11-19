@@ -56,7 +56,7 @@ void setup() {
   mode_manager::begin(Mode::Desktop);
   ui_status::begin();        // 設定螢幕方向並建立狀態畫布
   ui_expression::begin();    // 需在 ui_status::begin 之後
-  net_hub::begin();          // 連 Wi-Fi + 中控（B2a）
+  net_hub::begin();          // 連 Wi-Fi + 建網路 task（B2a／B3b-5）
   audio_io::begin();             // 音訊緩衝（B3b-1）
   voice_turn::begin();           // 一輪語音：錄→傳中控→收回→播（B3b-2）
   audio_io::setDiagLabel(net_hub::configLabel);  // 錄音那一行附 Wi-Fi 設定（B3.6）
@@ -65,7 +65,7 @@ void setup() {
 }
 
 void loop() {
-  net_hub::loop();   // 驅動 Wi-Fi / WebSocket（非阻塞）
+  net_hub::loop();   // B3b-5：代印網路 task 的 log、依序處理收到的訊息（WebSocket 本身在網路 task 跑）
   diag_cmd::loop();  // 序列埠診斷指令（B3.6，非阻塞）
 
   // (1) 急停第二段

@@ -24,14 +24,21 @@
 //     DO 會被移出記憶體、this.audio 會清空，但連線與附件還在。11-19 實測按住 A 10 秒沒送任何訊息
 //     → DO 休眠 → 中控忘了格式、照 pcm16 回傳 → 裝置當 ADPCM 解 → 大爆音。
 
-// 每輪最多收多少音訊：16kHz × 2 bytes × 6 秒 = 192000，留一點餘裕
-const MAX_AUDIO_BYTES = 256 * 1024;
-import { concatPcm16, encodeDown, normalizePcm } from "./adpcm.js";
+// B3b-5：上傳改 μ-law 邊錄邊傳、錄音不設上限（Miles 定案）。
+//   - start 多帶 id（每次按 A 遞增）；裝置斷線重連後用同一個 id 重送 start 再從頭重送，這裡照樣清空重收。
+//   - up=mulaw：收到的是 μ-law（16kHz、每取樣 1 byte），stop 時解回 PCM16 再處理。
+//   - audio_end 的 pcm＝收到的 PCM16 bytes，裝置拿來核對「送出＝收到」。
+//   - 最近一段錄音（最多 60 秒）存進 storage，給 B3c 先導測試用。
+// 每輪上限 64MB（μ-law 約 70 分鐘）：等於沒有上限，只防記憶體被塞爆（DO 記憶體 128MB）
+const MAX_AUDIO_BYTES = 64 * 1024 * 1024;
+const CLIP_MAX_SAMPLES = 16000 * 60;     // 存最近 60 秒
+const CLIP_CHUNK_BYTES = 100 * 1024;     // storage 單一值上限 128KiB，切 100KB 一塊
+import { concatPcm16, concatU8, decodeMulaw, encodeDown, normalizePcm } from "./adpcm.js";
 
 // B3b-3：裝置↔中控的音訊格式（start 帶 up／down，中控回 format 確認）
 //   up：裝置上傳格式（目前只支援 pcm16＝16kHz PCM16 LE）
 //   down：中控回傳格式 pcm16 或 adpcm（IMA ADPCM，見 adpcm.js）
-const UP_FORMATS = ["pcm16"];
+const UP_FORMATS = ["pcm16", "mulaw"];
 const DOWN_FORMATS = ["pcm16", "adpcm", "mulaw", "adpcm8k"];
 const PACES = ["fast", "rt"];
 
@@ -91,6 +98,7 @@ export class VoiceSession {
         const down = DOWN_FORMATS.includes(msg.down) ? msg.down : "pcm16";
         const pace = PACES.includes(msg.pace) ? msg.pace : "fast";
         this.turn.set(ws, 0);   // 取消上一輪還沒送完的音訊
+        console.log("[turn] start id=" + (msg.id ?? "-") + " up=" + up + " down=" + down + " pace=" + pace);
         this.saveFmt(ws, { up, down, pace });
         this.audio.set(ws, { chunks: [], bytes: 0, overflow: false, up, down, pace });
         this.send(ws, { t: "format", up, down, pace });
@@ -105,7 +113,8 @@ export class VoiceSession {
         this.audio.delete(ws);
         const turn = ++this.turnSeq;
         this.turn.set(ws, turn);
-        await this.streamOut(ws, buf, turn);
+        const pcm = await this.streamOut(ws, buf, turn);
+        if (pcm) await this.saveClip(pcm);
         break;
       }
 
@@ -158,16 +167,19 @@ export class VoiceSession {
 
   // B3b-4：把這輪音訊正規化、編碼，一則一則送出。pace=rt 時照音訊長度等待（真實速度）。
   async streamOut(ws, buf, turn) {
-    let msgs = [], durs = [], gain = 1;
+    let msgs = [], durs = [], gain = 1, pcmBytes = 0, raw = null;
     if (!buf.overflow) {
-      const pcm = concatPcm16(buf.chunks);
+      const pcm = buf.up === "mulaw" ? decodeMulaw(concatU8(buf.chunks)) : concatPcm16(buf.chunks);
+      pcmBytes = pcm.length * 2;
+      raw = pcm.slice(0, Math.min(pcm.length, CLIP_MAX_SAMPLES));   // 正規化之前留一份（B3c 先導測試用）
       gain = normalizePcm(pcm);
       ({ msgs, durs } = encodeDown(pcm, buf.down));
+      console.log("[turn] stop：收到 " + buf.bytes + " bytes（" + buf.up + "）＝ " + (pcm.length / 16000).toFixed(1) + " 秒");
     }
     const t0 = Date.now();
     let sent = 0, audioMs = 0;
     for (let i = 0; i < msgs.length; i++) {
-      if (this.turn.get(ws) !== turn) return;   // 被新一輪取消：不送 audio_end
+      if (this.turn.get(ws) !== turn) return null;   // 被新一輪取消：不送 audio_end
       try { ws.send(msgs[i]); } catch { break; }
       sent += msgs[i].byteLength;
       audioMs += durs[i];
@@ -176,9 +188,30 @@ export class VoiceSession {
         if (wait > 0) await this.sleep(wait);
       }
     }
-    if (this.turn.get(ws) !== turn) return;
-    this.send(ws, { t: "audio_end", n: sent, fmt: buf.down, pcm: buf.bytes, g: Math.round(gain * 100) / 100, ms: Math.round(audioMs) });
+    if (this.turn.get(ws) !== turn) return null;
+    this.send(ws, { t: "audio_end", n: sent, fmt: buf.down, pcm: pcmBytes, g: Math.round(gain * 100) / 100, ms: Math.round(audioMs) });
     this.send(ws, { t: "state", v: "idle" });
+    return raw;
+  }
+
+  // B3b-5：最近一段錄音（PCM16 16kHz，未正規化）存進 storage，B3c 先導測試直接拿來餵 GPT-Live
+  async saveClip(pcm) {
+    try {
+      const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+      const entries = {};
+      let n = 0;
+      for (let o = 0; o < bytes.length; o += CLIP_CHUNK_BYTES) {
+        entries["clip:" + n] = bytes.slice(o, Math.min(o + CLIP_CHUNK_BYTES, bytes.length));
+        n++;
+      }
+      entries["clip:meta"] = { n, samples: pcm.length, t: Date.now() };
+      await this.storage.put(entries);
+      const old = [];
+      for (let k = n; k < 20; k++) old.push("clip:" + k);
+      await this.storage.delete(old);
+    } catch (e) {
+      console.log("[clip] 存錄音失敗 " + (e && e.message ? e.message : String(e)));
+    }
   }
 
   // ── 工具 ──

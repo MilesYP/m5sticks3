@@ -44,6 +44,20 @@ int16_t mulawToPcm(uint8_t u) {
   return (int16_t)((u & 0x80) ? (0x84 - t) : (t - 0x84));
 }
 
+// ── B3b-5：μ-law 編碼（上傳）──
+// 標準 G.711：偏移 0x84、上限 32635、8 段指數＋4 bit 尾數，最後整個位元組取反。
+uint8_t pcmToMulaw(int16_t pcm) {
+  int32_t s = pcm;
+  uint8_t sign = 0;
+  if (s < 0) { sign = 0x80; s = -s; }
+  if (s > 32635) s = 32635;
+  s += 0x84;
+  int exp = 7;
+  for (int32_t mask = 0x4000; (s & mask) == 0 && exp > 0; --exp, mask >>= 1) {}
+  const uint8_t mant = (uint8_t)((s >> (exp + 3)) & 0x0F);
+  return (uint8_t)~(sign | (exp << 4) | mant);
+}
+
 // ── B3b-4：8kHz → 16kHz 升取樣 ──
 // 半帶濾波器係數（windowed-sinc、Hann 窗、每側 4 點，和為 0.5），由 node 算出：
 //   奇數點 = Σ c[k]·(x[m-k] + x[m+1+k])，k = 0..3

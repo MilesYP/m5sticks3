@@ -18,7 +18,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜? 目前設定");
+  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -44,6 +44,13 @@ void run(char* cmd) {
     case 'f':
       if (cmd[1] >= '0' && cmd[1] <= '3') voice_turn::setDownFormat(cmd[1] - '0');
       else printHelp();
+      break;
+    case 'u':   // B3b-5：上傳格式
+      if (cmd[1] == '0' || cmd[1] == '1') voice_turn::setUpFormat(cmd[1] - '0');
+      else printHelp();
+      break;
+    case 'x':   // B3b-5：只斷 WebSocket（模擬連線重置），測錄音中斷線重送
+      net_hub::dropLink();
       break;
     case 'r':   // B3b-4：中控送法
       if (cmd[1] == '0' || cmd[1] == '1') voice_turn::setPaceRealtime(cmd[1] == '1');

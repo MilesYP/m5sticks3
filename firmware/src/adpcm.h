@@ -17,6 +17,8 @@ constexpr size_t FRAME_BYTES = HEADER_BYTES + FRAME_SAMPLES / 2;  // 804；中�
 size_t decodeFrame(const uint8_t* frame, size_t len, int16_t* out, size_t max_samples);
 // B3b-3 追加：G.711 μ-law 解碼（每 byte 一個取樣，無狀態）
 int16_t mulawToPcm(uint8_t u);
+// B3b-5 追加：G.711 μ-law 編碼（上傳用；與中控 cloud/src/adpcm.js 的 encodeMulaw／decodeMulaw 同一套）
+uint8_t pcmToMulaw(int16_t pcm);
 
 // B3b-4 追加：8kHz → 16kHz 升取樣（ADPCM 8kHz 下載用）。
 // 偶數點＝原取樣，奇數點用 8 階半帶濾波器內插（node 實測：只做降升取樣 SNR 約 42dB，

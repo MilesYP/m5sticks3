@@ -33,6 +33,16 @@ export function concatPcm16(chunks) {
   return out;
 }
 
+// B3b-5：把多個 ArrayBuffer 接成一個 Uint8Array（μ-law 上傳用）
+export function concatU8(chunks) {
+  let bytes = 0;
+  for (const c of chunks) bytes += c.byteLength;
+  const out = new Uint8Array(bytes);
+  let k = 0;
+  for (const c of chunks) { out.set(new Uint8Array(c), k); k += c.byteLength; }
+  return out;
+}
+
 // 編碼整段 PCM，回傳 ArrayBuffer 陣列（每個是一幀）
 export function encodeAdpcmFrames(pcm) {
   const frames = [];

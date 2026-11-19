@@ -76,6 +76,15 @@ flowchart TD
 - 這一輪的格式存在連線附件（`serializeAttachment`），DO 閒置休眠後仍找得回（見 `CLAUDE.md` 鐵則七第 9 點）。
 - 裝置：中控未連線、上傳或等待中斷線 → 這輪結束、不再本機回放；回答播到一半斷線 → 已收到的播完。
 
+**B3b-5 邊錄邊傳（11-19 定案）**：
+- `start` 多帶 `id`（每次按 A 遞增）與 `up=mulaw`（裝置預設；`pcm16` 仍支援）。斷線重連後裝置用**同一個 id** 重送 `start`，再從頭重送整段；中控收到 `start` 一律清空重收。
+- 上傳：按下 A 就開始送，μ-law 16kHz（16KB/s），每則 8000 bytes（0.5 秒），放開後送完剩下的再送 `stop`。頭 60ms 不送、尾 60ms 放開時切掉。
+- 中控把 μ-law 解回 PCM16 再處理（B3b-5 仍是原樣回傳測試）；每輪上限 64MB（等於沒有錄音上限）；`audio_end` 的 `pcm` 是中控收到的 PCM16 bytes，裝置拿來核對「送出＝收到」。
+- 中控把最近一段錄音（最多 60 秒，分 100KB 一塊）存進 DO storage，給 B3c 先導測試用。
+- 裝置端：WebSocket 只在網路 task（core 0、優先權 1）操作；收到的訊息照順序進收件佇列由主迴圈處理；佇列滿就暫停收（反壓）。
+
+**B3c 定案（官方文件 11-19 查證）**：GPT-Live 沒有「使用者講完」指令、沒有「回答講完」事件（`session.output_audio.delta` 無時間欄位、無 done），逐字稿 `session.input_transcript.delta`／`session.output_transcript.delta` 也沒有 done；session 結束時 `session.closed`（reason 含 `expired`）。做法與先導測試的判定規則見 `docs/StickS3 執行計劃.md` B3c 列。
+
 ## 5. 表情狀態對應（已在 M1-A 備好）
 | 中控 state | 表情 | 觸發點 |
 | :-- | :-- | :-- |
@@ -118,8 +127,8 @@ flowchart TD
 - **B2 裝置連線**：StickS3 連 Wi-Fi、連中控 WS、長按 A 送 `start`/`stop`、收 `state` 切表情（先不接真音訊）。
 - **B3 OpenAI 語音**：中控接 GPT-Live，跑通一輪真語音（裝置收音→回覆播放）。
 - **B4 對話列與文字**：對話文字顯示（直式 ≤5 行/橫式側欄），Speaking 連動音量。
-- **B5 新聞快報**：Workers AI Cron 定時摘要＋TTS 推播。
-- **B6 喚醒詞**（選配）、工具呼叫接 M3/IR（之後）。
+- ~~**B5 新聞快報**~~（11-19 移待辦）：Workers AI Cron 定時摘要＋TTS 推播。
+- ~~**B6 喚醒詞**~~（11-19 移待辦）（選配）、工具呼叫接 M3/IR（之後）。
 
 ## 12. 開發分工
 - **中控（Worker）**：純雲端、JS/TS，可在這端（Cowork/claude.ai）或 CLI 寫，`wrangler` 本機部署。

@@ -7,13 +7,17 @@
 #include <atomic>
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "19-b3b4"
+#define AUDIO_BUILD_TAG "20-b3b5"
 
 namespace {
 
 constexpr uint32_t SAMPLE_RATE = 16000;
 constexpr size_t   CHUNK       = SAMPLE_RATE / 10;   // 1600 取樣 = 100ms，一塊
-constexpr size_t   CAP_SAMPLES = SAMPLE_RATE * 6;    // 最長 6 秒
+// B3b-5：錄音改環形緩衝、不設上限（Miles 定案）。4MB＝128 秒；送出去的部分可以被覆蓋，
+// 只有「斷線後從頭重送」與「網路停擺超過 128 秒」會受這個長度影響。容量必須是塊（CHUNK）的整數倍。
+constexpr size_t   REC_RING    = SAMPLE_RATE * 128;
+constexpr size_t   ANALYZE_MAX = SAMPLE_RATE * 6;    // 放開後的量測與 SNR 只看前 6 秒
+static_assert(REC_RING % CHUNK == 0, "REC_RING 必須是 CHUNK 的整數倍");
 
 // ── 麥克風 ────────────────────────────────────────────────────────────────
 // 夾波的真正位置在 ES8311 晶片內部，不在這一層：StickS3 的設定是
@@ -58,19 +62,21 @@ constexpr uint8_t  DAC_VOL_MUTE   = 0x00;
 constexpr uint32_t I2C_FREQ        = 100000;
 constexpr uint32_t CODEC_SETTLE_MS = 40;     // codec 重置後等它穩定
 
-// ── 音量正規化與淡入淡出 ──────────────────────────────────────────────────
-constexpr float   TARGET_PEAK   = 0.85f;  // 正規化目標：滿幅的 85%，留餘裕不夾波
-constexpr int32_t NORM_MIN_PEAK = 200;    // 低於此視為沒講話，不放大（免得放大底噪）
-constexpr float   NORM_MAX_GAIN = 8.0f;
+// ── 串流播放的淡入淡出 ──────────────────────────────────────────────
 constexpr size_t  FADE_IN       = SAMPLE_RATE / 200;  // 5ms
 constexpr size_t  FADE_OUT      = SAMPLE_RATE / 100;  // 10ms
 
-int16_t* s_buf = nullptr;
-int16_t* s_rx  = nullptr;   // B3b-2：中控回傳的音訊
+int16_t* s_rec = nullptr;   // B3b-5：錄音環形緩衝（REC_RING 個取樣）
+int16_t* s_rx  = nullptr;   // B3b-2：中控回傳的音訊（只留前 6 秒算 SNR）
 bool     s_ready = false;
 bool     s_recording = false;
-bool     s_playing = false;
-size_t   s_queued = 0;      // 已排進麥克風隊列的取樣數
+size_t   s_queued = 0;      // 已排進麥克風隊列的取樣數（這一輪的絕對位置）
+// 給網路 task 讀的錄音進度（B3b-5）
+std::atomic<uint32_t> s_rec_gen{0};
+std::atomic<uint32_t> s_rec_queued{0};   // = s_queued
+std::atomic<uint32_t> s_rec_done{0};     // 麥克風已寫完的取樣數
+std::atomic<uint32_t> s_rec_end{0};      // 放開後：切尾後的結尾
+std::atomic<bool>     s_rec_ended{true};
 size_t   s_len = 0;
 uint32_t s_t0 = 0;          // 按下 A 的時刻，用來算實際按住多久
 // 切掉頭尾的按鍵聲：A 鍵就在麥克風旁，按下／放開的機械「喀」聲近距離錄進去
@@ -212,35 +218,6 @@ void micOn() {
 }
 
 // 峰值掃描：回傳 0~32767。順便記開頭 0.5 秒的峰值，看 codec 暖機是否吃掉開頭。
-// 去除孤立尖峰（數位突波）：實測每次錄音有 10～13 個樣本突然跳到 32752，
-// 前後樣本卻很小——那不是聲音。播出來就是「噠」，也會把峰值頂到 1.000
-// 讓正規化失效。判斷：本身接近滿幅、且與前後鄰居差距極大 → 用鄰居內插補上。
-// 跑兩輪，連續兩個樣本的尖峰也抹得掉。回傳修掉幾個。
-constexpr int32_t SPIKE_LEVEL = 28000;   // 夠接近滿幅才算候選
-constexpr int32_t SPIKE_JUMP  = 16000;   // 與鄰居差這麼多才算突波
-uint32_t despike(int16_t* buf, size_t len) {
-  uint32_t fixed = 0;
-  if (len < 5) return 0;
-  for (int pass = 0; pass < 2; ++pass) {
-    for (size_t i = 2; i + 2 < len; ++i) {
-      int32_t v = buf[i];
-      int32_t a = (v < 0) ? -v : v;
-      if (a < SPIKE_LEVEL) continue;
-      // 鄰居：單點尖峰看 i±1；兩點尖峰時 i±1 可能也是尖峰，改看 i±2
-      int32_t l = buf[i - 1], r = buf[i + 1];
-      int32_t la = l < 0 ? -l : l, ra = r < 0 ? -r : r;
-      if (la >= SPIKE_LEVEL) l = buf[i - 2];
-      if (ra >= SPIKE_LEVEL) r = buf[i + 2];
-      if ((v - l > SPIKE_JUMP || l - v > SPIKE_JUMP) &&
-          (v - r > SPIKE_JUMP || r - v > SPIKE_JUMP)) {
-        buf[i] = (int16_t)((l + r) / 2);
-        ++fixed;
-      }
-    }
-  }
-  return fixed;
-}
-
 // 診斷：列出滿幅樣本出現的位置（ms），確認是否集中在頭尾（按鍵聲）
 void printClipPositions(const int16_t* buf, size_t len) {
   char line[160];
@@ -286,35 +263,6 @@ int32_t scanPeak(const int16_t* buf, size_t len) {
   return peak;
 }
 
-// 數位正規化：把峰值拉到接近滿幅。比調大喇叭音量好——放大的是訊號本身，
-// 不是 DAC 與功率放大器輸出端的所有東西（含它們自己的底噪）。
-void normalize(int16_t* buf, size_t len, int32_t peak) {
-  if (peak < NORM_MIN_PEAK) return;
-  float g = (TARGET_PEAK * 32767.0f) / (float)peak;
-  if (g <= 1.0f) return;
-  if (g > NORM_MAX_GAIN) g = NORM_MAX_GAIN;
-  for (size_t i = 0; i < len; ++i) {
-    int32_t v = (int32_t)(buf[i] * g);
-    if (v >  32767) v =  32767;
-    if (v < -32768) v = -32768;
-    buf[i] = (int16_t)v;
-  }
-  Serial.printf("[audio] 正規化增益 ×%.2f\n", g);
-}
-
-// 頭尾各做一小段淡入淡出：波形從零平滑長起來、再平滑回零，
-// 消掉「資料從零突然跳到訊號」造成的 click（與放大器的 pop 是兩回事）。
-void applyFades(int16_t* buf, size_t len) {
-  if (len < FADE_IN + FADE_OUT + 1) return;
-  for (size_t i = 0; i < FADE_IN; ++i) {
-    buf[i] = (int16_t)((int32_t)buf[i] * (int32_t)i / (int32_t)FADE_IN);
-  }
-  for (size_t i = 0; i < FADE_OUT; ++i) {
-    size_t j = len - 1 - i;
-    buf[j] = (int16_t)((int32_t)buf[j] * (int32_t)i / (int32_t)FADE_OUT);
-  }
-}
-
 // ── B3.6 Wi-Fi 干擾量測（v10：脈衝偵測）──────────────────────────────────
 // 量的是「正規化之前」的原始資料，才能在不同設定之間比較。
 // v9 的教訓：滋滋聲是短促脈衝，平均音量（RMS）被麥克風本身的穩定底噪蓋過，
@@ -332,7 +280,7 @@ uint32_t s_starved = 0;
 audio_io::LabelFn s_label_fn = nullptr;
 
 constexpr size_t PF      = SAMPLE_RATE / 500;          // 2ms = 32 取樣
-constexpr size_t PF_MAX  = CAP_SAMPLES / PF;           // 最多 3000 格
+constexpr size_t PF_MAX  = ANALYZE_MAX / PF;           // 最多 3000 格
 constexpr float  PULSE_K = 3.0f;                       // 比平常大 3 倍（約 +9.5dB）才算脈衝
 float s_env[PF_MAX];    // 每格差分 RMS
 float s_tmp[PF_MAX];    // 算中位數用的副本
@@ -424,15 +372,14 @@ NoiseStats analyze(const int16_t* buf, size_t len) {
 namespace audio_io {
 
 void begin() {
-  s_buf = (int16_t*)ps_malloc(CAP_SAMPLES * sizeof(int16_t));
-  s_rx  = (int16_t*)ps_malloc(CAP_SAMPLES * sizeof(int16_t));
+  s_rec = (int16_t*)ps_malloc(REC_RING * sizeof(int16_t));      // B3b-5：4MB 錄音環形緩衝
+  s_rx  = (int16_t*)ps_malloc(ANALYZE_MAX * sizeof(int16_t));
   s_ring = (int16_t*)ps_malloc(RING_SAMPLES * sizeof(int16_t));   // B3b-4 邊收邊播
-  s_ready = (s_buf != nullptr && s_rx != nullptr && s_ring != nullptr);
+  s_ready = (s_rec != nullptr && s_rx != nullptr && s_ring != nullptr);
   if (!s_ready) {
     Serial.println("[audio] PSRAM 緩衝配置失敗");
     return;
   }
-  memset(s_buf, 0, CAP_SAMPLES * sizeof(int16_t));
   micOn();   // 讓 ES8311 上電暖機，第一次按 A 才不會錄到一秒的無聲
   Serial.printf("[audio] 就緒 v%s（麥克風待機）\n", AUDIO_BUILD_TAG);
 }
@@ -440,13 +387,15 @@ void begin() {
 void startRecording() {
   if (!s_ready || s_recording) return;
   if (s_st_active) streamAbort();             // B3b-4：上一輪回答還在播 → 停掉
-  if (s_playing || M5.Speaker.isPlaying()) {   // 上一段還在播就先收掉
-    M5.Speaker.stop();
-    s_playing = false;
-  }
+  if (M5.Speaker.isPlaying()) M5.Speaker.stop();
   if (!M5.Mic.isRunning()) micOn();
-  // 清零：沒錄到的尾段就是靜音，不會播出未初始化記憶體的雜訊
-  memset(s_buf, 0, CAP_SAMPLES * sizeof(int16_t));
+  // B3b-5：先換代（網路 task 的舊上傳工作看到就停），再重設進度。
+  // 不再清零整個緩衝（4MB 約要 100ms）：只會送真的錄到的部分，尾端未寫完的那幾毫秒落在切掉的 60ms 內。
+  s_rec_gen.fetch_add(1, std::memory_order_acq_rel);
+  s_rec_ended.store(false, std::memory_order_release);
+  s_rec_end.store(0);
+  s_rec_done.store(0);
+  s_rec_queued.store(0);
   s_queued = 0;
   s_len = 0;
   s_starved = 0;
@@ -462,13 +411,18 @@ void loop() {
   // 錄音中：隊列未滿就預排下一塊。保持兩塊在飛，塊與塊之間才不會有空檔
   //（M5Unified 保證「前一塊完成時已排隊的請求」是連續的）。
   if (s_recording) {
-    if (s_queued > 0 && s_queued + CHUNK <= CAP_SAMPLES && M5.Mic.isRecording() == 0) {
+    if (s_queued > 0 && M5.Mic.isRecording() == 0) {
       ++s_starved;   // 隊列見底：上一圈到這一圈之間錄音停過
     }
-    while (M5.Mic.isRecording() < 2 && s_queued + CHUNK <= CAP_SAMPLES) {
-      if (!M5.Mic.record(s_buf + s_queued, CHUNK, SAMPLE_RATE)) break;
+    // B3b-5：寫進環形緩衝，繞回就覆蓋最舊的（網路 task 以 recOldest() 判斷）。不設上限。
+    while (M5.Mic.isRecording() < 2) {
+      if (!M5.Mic.record(s_rec + (s_queued % REC_RING), CHUNK, SAMPLE_RATE)) break;
       s_queued += CHUNK;
     }
+    // 已寫完＝已排的減掉還在隊列裡的塊（麥克風寫完一塊才把它移出隊列，見 Mic_Class.inl）
+    const size_t inq = M5.Mic.isRecording();
+    s_rec_queued.store((uint32_t)s_queued, std::memory_order_release);
+    s_rec_done.store((uint32_t)(s_queued > inq * CHUNK ? s_queued - inq * CHUNK : 0), std::memory_order_release);
   }
 
   // B3b-4 邊收邊播：緩衝夠了開始播、斷音後補夠再繼續、播完切回麥克風
@@ -503,34 +457,28 @@ void loop() {
     }
   }
 
-  // 播完了就收喇叭、切回麥克風等下一次講話
-  if (s_playing && !M5.Speaker.isPlaying()) {
-    s_playing = false;
-    micOn();   // 內含 speakerOff()：先靜音、斷放大器，再停 I2S
-  }
 }
 
-size_t stopRecording(int16_t** out) {
-  if (out) *out = nullptr;
+size_t stopRecording() {
   if (!s_recording || !s_ready) return 0;
   s_recording = false;
 
-  // 實際長度用「按住多久」算；佇列可能比實際多排最多兩塊（那段是清零的靜音）
+  // 結尾用「按住多久」算，但不少於已寫完的量（網路 task 可能已送到那裡），也不超過已排的量
   const uint32_t held_ms = millis() - s_t0;
   size_t end = (size_t)((uint64_t)held_ms * SAMPLE_RATE / 1000);
+  const size_t done = s_rec_done.load();
+  if (end < done) end = done;
   if (end > s_queued) end = s_queued;
   M5.Mic.end();
-  // B3b-2 量測：按住的時間比實際排進去的錄音長很多 → 主迴圈中途被卡住、錄音停了
+  // 量測：按住的時間比實際排進去的錄音長很多 → 主迴圈中途被卡住、錄音停了
   {
-    const uint32_t queued_ms = (uint32_t)(s_queued * 1000 / SAMPLE_RATE);
-    if (s_queued + CHUNK <= CAP_SAMPLES && held_ms > queued_ms + 250) {
+    const uint32_t queued_ms = (uint32_t)((uint64_t)s_queued * 1000 / SAMPLE_RATE);
+    if (held_ms > queued_ms + 250) {
       Serial.printf("[audio] 錄音缺 %lu ms（按住 %lu ms、只錄到 %lu ms）→ 主迴圈被卡住\n",
                     (unsigned long)(held_ms - queued_ms), (unsigned long)held_ms,
                     (unsigned long)queued_ms);
     }
   }
-
-  printClipPositions(s_buf, end);   // 診斷：切之前的滿幅位置
 
   const size_t a = TRIM_START_MS * SAMPLE_RATE / 1000;
   const size_t cut = TRIM_END_MS * SAMPLE_RATE / 1000;
@@ -538,49 +486,69 @@ size_t stopRecording(int16_t** out) {
   if (b <= a + FADE_IN + FADE_OUT) {         // 按太短，切完不剩
     Serial.printf("[audio] 太短（%u ms），不送不播\n", (unsigned)held_ms);
     s_len = 0;
+    s_rec_end.store((uint32_t)a, std::memory_order_release);
+    s_rec_ended.store(true, std::memory_order_release);
     micOn();
     return 0;
   }
-  int16_t* p = s_buf + a;
   s_len = b - a;
+  s_rec_end.store((uint32_t)b, std::memory_order_release);   // 先寫結尾，再標「已放開」（網路 task 依此順序讀）
+  s_rec_ended.store(true, std::memory_order_release);
 
-  despike(p, s_len);
-  scanPeak(p, s_len);
-  Serial.printf("[audio v%s] 按住 %u ms，切頭尾後 %u ms，峰值 %.3f，滿幅 %u 個\n",
-                AUDIO_BUILD_TAG, (unsigned)held_ms,
-                (unsigned)(s_len * 1000 / SAMPLE_RATE), s_peak, (unsigned)s_clip_n);
-  {
-    const NoiseStats st = analyze(p, s_len);
-    Serial.printf("[audio v%s] 脈衝 %.1f 次/秒｜間隔中位 %d ms｜約100ms %d%%｜週期峰 %d ms (r=%.2f)｜"
-                  "整段 %.1f dBFS｜高頻底噪 %.1f dBFS｜斷流 %u｜%s pga=0x%02X\n",
-                  AUDIO_BUILD_TAG, st.per_sec, st.gap_ms, st.near100, st.period_ms, st.period_r,
-                  st.total_db, st.hp_db, (unsigned)s_starved,
+  // 診斷（放開後才做、只看前 6 秒；整段太長、開頭已被覆蓋就略過）
+  const int16_t* w = nullptr;
+  const size_t wn = recWindow(&w);
+  if (wn) {
+    printClipPositions(w, wn);
+    scanPeak(w, wn);
+    const NoiseStats st = analyze(w, wn);
+    Serial.printf("[audio v%s] 按住 %u ms，切頭尾後 %u ms（量測看前 %u ms）｜峰值 %.3f｜滿幅 %u 個｜脈衝 %.1f 次/秒｜"
+                  "週期峰 %d ms (r=%.2f)｜整段 %.1f dBFS｜高頻底噪 %.1f dBFS｜斷流 %u｜%s pga=0x%02X\n",
+                  AUDIO_BUILD_TAG, (unsigned)held_ms, (unsigned)(s_len * 1000 / SAMPLE_RATE),
+                  (unsigned)(wn * 1000 / SAMPLE_RATE), s_peak, (unsigned)s_clip_n, st.per_sec,
+                  st.period_ms, st.period_r, st.total_db, st.hp_db, (unsigned)s_starved,
                   s_label_fn ? s_label_fn() : "", s_pga);
+  } else {
+    Serial.printf("[audio v%s] 按住 %u ms，切頭尾後 %u ms（開頭已被覆蓋，不做量測）｜斷流 %u\n",
+                  AUDIO_BUILD_TAG, (unsigned)held_ms, (unsigned)(s_len * 1000 / SAMPLE_RATE),
+                  (unsigned)s_starved);
   }
 
   micOn();   // 等上傳／回傳的空檔先回麥克風待機，播放時再切喇叭
-  if (out) *out = p;
   return s_len;
 }
 
-bool playBuffer(int16_t* buf, size_t samples) {
-  if (!s_ready || buf == nullptr || samples < FADE_IN + FADE_OUT + 1) return false;
-  if (M5.Mic.isRunning()) M5.Mic.end();     // ES8311 同時只能麥克風或喇叭其一
-  int32_t peak = 0;
-  for (size_t i = 0; i < samples; ++i) {
-    int32_t v = buf[i] < 0 ? -(int32_t)buf[i] : (int32_t)buf[i];
-    if (v > peak) peak = v;
-  }
-  normalize(buf, samples, peak);
-  applyFades(buf, samples);
-  speakerOn();
-  M5.Speaker.playRaw(buf, samples, SAMPLE_RATE);
-  s_playing = true;
-  return true;
+// ── B3b-5 錄音環形緩衝的讀取介面（網路 task 會呼叫，只讀 atomic 與固定指標）──
+uint32_t recGen() { return s_rec_gen.load(std::memory_order_acquire); }
+uint32_t recFrom() { return TRIM_START_MS * SAMPLE_RATE / 1000; }
+bool recEnded() { return s_rec_ended.load(std::memory_order_acquire); }
+uint32_t recLimit() {
+  if (s_rec_ended.load(std::memory_order_acquire)) return s_rec_end.load(std::memory_order_acquire);
+  const uint32_t d = s_rec_done.load(std::memory_order_acquire);
+  const uint32_t tail = TRIM_END_MS * SAMPLE_RATE / 1000;   // 尾 60ms 先不送，放開時才知道要不要切
+  return d > tail ? d - tail : 0;
+}
+uint32_t recOldest() {
+  // 麥克風正在寫（與主迴圈即將排）的塊會覆蓋「一圈之前」的位置，多留兩塊餘裕
+  const uint32_t q = s_rec_queued.load(std::memory_order_acquire) + 2 * CHUNK;
+  return q > REC_RING ? q - REC_RING : 0;
+}
+const int16_t* recPtr(uint32_t abs, size_t* contig) {
+  const size_t pos = abs % REC_RING;
+  if (contig) *contig = REC_RING - pos;
+  return s_rec + pos;
+}
+size_t recWindow(const int16_t** p) {
+  *p = nullptr;
+  if (s_len == 0 || s_rec == nullptr) return 0;
+  const size_t a = recFrom();
+  if (s_queued > a + REC_RING) return 0;   // 開頭已被新錄音覆蓋
+  *p = s_rec + a;
+  return s_len < ANALYZE_MAX ? s_len : ANALYZE_MAX;
 }
 
 int16_t* rxBuffer() { return s_rx; }
-size_t rxCapacityBytes() { return s_rx ? CAP_SAMPLES * sizeof(int16_t) : 0; }
+size_t rxCapacityBytes() { return s_rx ? ANALYZE_MAX * sizeof(int16_t) : 0; }
 
 bool isPlaying() { return M5.Speaker.isPlaying(); }
 uint32_t recordedSamples() { return (uint32_t)s_len; }
@@ -659,6 +627,11 @@ void setPrebufferMs(uint32_t ms) {
   if (ms > 4000) ms = 4000;
   s_prebuf_ms = ms;
   Serial.printf("[diag] 預緩衝 → %lu ms（下一輪生效）\n", (unsigned long)ms);
+}
+
+size_t streamRoom() {
+  if (!s_st_active) return RING_SAMPLES;
+  return RING_SAMPLES - (s_wr.load() - s_fr.load());
 }
 
 const char* streamReport() {

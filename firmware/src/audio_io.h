@@ -14,12 +14,20 @@ namespace audio_io {
 
 void begin();                  // 配置 PSRAM 緩衝、讓 ES8311 上電暖機（開機呼叫一次）
 void loop();                   // 每圈呼叫：預排錄音區塊、放音結束後切回麥克風
-void startRecording();         // 開始錄（麥克風已開著，只是重設緩衝與計數）
-// B3b-2：「停止錄音」與「播放」拆開，中間可以先上傳中控、等回傳
-size_t stopRecording(int16_t** out);  // 停止錄音、切頭尾、修突波、印量測行；回傳取樣數（0＝太短），
-                                      // *out 指向處理後（尚未正規化）的音訊，下次 startRecording 前有效
-bool playBuffer(int16_t* buf, size_t samples);  // 正規化＋淡入淡出後播出（會改寫 buf）
-int16_t* rxBuffer();                  // 收中控回傳音訊用的 PSRAM 緩衝
+void startRecording();         // 開始錄（麥克風已開著，只是重設計數）；錄音不設上限（B3b-5）
+size_t stopRecording();        // 停止錄音：定好結尾（切頭尾）、印量測行；回傳切頭尾後的取樣數（0＝太短）
+
+// ── B3b-5 錄音環形緩衝（4MB＝128 秒，PSRAM）：網路 task 邊錄邊讀、編碼上傳 ──
+// 位置一律是「這一輪的絕對取樣編號」（從按下 A 起算，只增不減）；這些函式可從網路 task 呼叫。
+uint32_t recGen();             // 每次 startRecording 加 1；上傳工作用它判斷錄音是否已換一輪
+uint32_t recFrom();            // 第一個要送的取樣（切掉開頭 60ms 按鍵聲）
+uint32_t recLimit();           // 目前可以送到哪（不含）：錄音中＝已錄完減 60ms；放開後＝切尾後的結尾
+bool     recEnded();           // 已放開（recLimit 不會再長）
+uint32_t recOldest();          // 還沒被新錄音覆蓋的最舊位置
+const int16_t* recPtr(uint32_t abs, size_t* contig);   // 取樣位置 → 記憶體位址；*contig＝到緩衝尾端前連續幾個
+size_t   recWindow(const int16_t** p);                 // 放開後：切頭後前 ≤6 秒（量測與 SNR 用；已被覆蓋回 0）
+
+int16_t* rxBuffer();                  // 收中控回傳音訊用的 PSRAM 緩衝（只留前 6 秒，算 SNR）
 size_t rxCapacityBytes();
 bool isPlaying();              // 喇叭是否還在放
 uint32_t recordedSamples();    // 這次錄到幾個取樣（除錯用）
@@ -46,5 +54,6 @@ bool streamStarted();                                // 已經開始出聲
 uint32_t streamStartedAt();                          // 開始出聲的 millis()
 void setPrebufferMs(uint32_t ms);                    // 序列埠 b<ms>
 const char* streamReport();                          // 一行統計（播完時印）
+size_t streamRoom();                                 // B3b-5：串流緩衝還能寫幾個取樣（收件反壓用）
 
 }  // namespace audio_io

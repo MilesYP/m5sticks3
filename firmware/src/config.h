@@ -24,6 +24,14 @@ constexpr uint32_t BTN_B_KILL_MS   = 3000;   // 按住滿 3 秒（不等放開�
 constexpr uint32_t KILL_TASK_STACK = 3072;
 constexpr int      KILL_TASK_CORE  = 0;      // 與 Arduino loop（core 1）分開，避免被主迴圈拖住
 
+// ── 網路 task（B3b-5）：WebSocket 收送、重連都在這裡，不卡主迴圈 ──
+// core 0：主迴圈在 core 1，兩邊互不卡；Wi-Fi／TCP 底層本來就在 core 0。
+// 優先權 1：比急停 task（最高）與 M5Unified 的 Mic／Speaker task（2）低，錄放音與急停永遠先跑。
+// 堆疊 10KB：TLS 交握在這裡跑（原本在 8KB 的 loopTask 跑得動）；[perf] 會印剩餘量。
+constexpr uint32_t NET_TASK_STACK = 10240;
+constexpr int      NET_TASK_CORE  = 0;
+constexpr uint32_t NET_TASK_PRIO  = 1;
+
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔
 constexpr uint32_t LOOP_YIELD_MS = 1;        // loop 結尾讓出 CPU 的時間（非阻塞）

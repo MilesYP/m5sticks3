@@ -12,27 +12,29 @@
 
 namespace {
 
-// Receiving＝送出 stop 之後：等中控回傳＋邊收邊播，直到播完
-enum class St : uint8_t { Idle, Recording, Uploading, Receiving };
+enum class St : uint8_t { Idle, Recording, Flushing, Receiving };
 
-constexpr size_t   FRAME_BYTES      = 3200;   // 上傳 100ms：16kHz × 2 bytes × 0.1s
-constexpr int      FRAMES_PER_LOOP  = 2;      // 每圈最多送幾塊，避免主迴圈被 TLS 寫入卡住
 // 「多久沒收到任何回傳資料」就不再等（已收到的照樣播完）。B3b-2 實測固定總時長會誤判，改看進展。
-constexpr uint32_t WAIT_IDLE_MS     = 5000;
-constexpr size_t   DEC_CHUNK        = 1600;   // 解碼暫存：一次處理 1600 取樣
+constexpr uint32_t WAIT_IDLE_MS       = 5000;
+constexpr uint32_t FLUSH_LINK_LOST_MS = 15000;   // 放開後連不回中控多久就放棄這輪（B3b-5 定案）
+constexpr uint32_t UP_REPORT_MS       = 500;     // 錄音／送尾巴時每 0.5 秒印一次上傳進度
+constexpr size_t   DEC_CHUNK          = 1600;    // 解碼暫存：一次處理 1600 取樣
+constexpr uint32_t SR                 = 16000;
 
 St       s_st = St::Idle;
-int16_t* s_up = nullptr;      // 要上傳的音訊（audio_io 的錄音緩衝，未正規化）
-size_t   s_up_bytes = 0;
-size_t   s_sent = 0;
+uint32_t s_turn_id = 0;
+size_t   s_rec_samples = 0;   // 切頭尾後的錄音長度
+uint32_t s_sent_samples = 0;  // 上傳完成時，裝置送出的取樣數（跟中控報的比對）
 size_t   s_rx_bytes = 0;      // 收到的位元組（壓縮後的大小）
 size_t   s_rx_samples = 0;    // 解出來的 16kHz 取樣數
 bool     s_rx_overflow = false;
 bool     s_ended = false;     // 不會再有資料（收到 audio_end、斷線或逾時）
 bool     s_spoke = false;     // 已切到 Speaking
-uint32_t s_t_release = 0;     // 放開 A 的時刻
+uint32_t s_t_press = 0, s_t_release = 0;
 uint32_t s_t_wait = 0;        // 送出 stop 或最後一次收到資料的時刻（算逾時）
 uint32_t s_t_first = 0, s_t_last = 0;   // 第一／最後一則回傳資料到達的時刻（算下載速度）
+uint32_t s_t_link_lost = 0;   // Flushing 時斷線的時刻
+uint32_t s_t_report = 0, s_rep_tx = 0, s_tx0 = 0;
 
 // 下載格式：s_want＝要求（序列埠 f0～f3），s_down＝中控回 format 確認的
 enum class Fmt : uint8_t { Pcm16, Adpcm, Mulaw, Adpcm8k };
@@ -44,9 +46,10 @@ const char* fmtName(Fmt f) {
     default:           return "pcm16";
   }
 }
-// B3b-4（Miles 定案）：預設 ADPCM 8kHz（約 4KB/s）。11-19 熱點實測下載只有約 8.8KB/s，μ-law（16KB/s）跟不上即時。
+// 下載預設 ADPCM 8kHz（B3b-4 定案，約 4KB/s）；上傳預設 μ-law（B3b-5 定案，16KB/s，OpenAI 本身接受的電話格式）
 Fmt      s_want = Fmt::Adpcm8k;
 Fmt      s_down = Fmt::Pcm16;
+bool     s_up_mulaw = true;
 bool     s_pace_rt = false;
 adpcm::Upsampler2x s_up2x;
 
@@ -71,7 +74,46 @@ void toIdle() {
   net_hub::voiceActive(false);   // B3.6：一輪結束才開回 Wi-Fi 省電
 }
 
-// 解好的 16kHz 音訊：寫進串流緩衝（播放），並留一份到 rxBuffer（播完算 SNR 驗收）
+// [up] 已錄｜已送｜待送｜上傳速度（速度＝這 0.5 秒內實際送出的 bytes，含重送）
+void reportUp() {
+  const uint32_t now = millis();
+  const uint32_t from = audio_io::recFrom();
+  const uint32_t lim = audio_io::recLimit();
+  const uint32_t rec = lim > from ? lim - from : 0;
+  const uint32_t sent = net_hub::uploadSentSamples();
+  const uint32_t bps = s_up_mulaw ? 1 : 2;
+  const uint32_t tx = net_hub::txBytesTotal();
+  const uint32_t dt = now - s_t_report;
+  const float rate = dt ? (tx - s_rep_tx) / 1024.0f / (dt / 1000.0f) : 0.0f;
+  Serial.printf("[up] 已錄 %.1f s｜已送 %.1f s｜待送 %.1f KB｜上傳 %.1f KB/s%s\n",
+                rec / (float)SR, sent / (float)SR, (rec > sent ? rec - sent : 0) * bps / 1024.0f, rate,
+                net_hub::linkUp() ? "" : "｜中控斷線中（連回後從頭重送）");
+  s_t_report = now;
+  s_rep_tx = tx;
+}
+
+// stop 已送出：開始等回傳
+void enterReceiving() {
+  const uint32_t now = millis();
+  s_sent_samples = net_hub::uploadSentSamples();
+  const uint32_t bytes = net_hub::txBytesTotal() - s_tx0;
+  const uint32_t span = now - s_t_press;
+  Serial.printf("[voice] 上傳完成：%lu 取樣（%.1f s，%s）｜放開後 %lu ms 送完｜整輪送出 %.1f KB、平均 %.1f KB/s｜"
+                "開機以來重送 %lu 次、被覆蓋 %lu 取樣\n",
+                (unsigned long)s_sent_samples, s_sent_samples / (float)SR, s_up_mulaw ? "mulaw" : "pcm16",
+                (unsigned long)(now - s_t_release), bytes / 1024.0f,
+                span ? bytes / 1024.0f / (span / 1000.0f) : 0.0f,
+                (unsigned long)net_hub::uploadResends(), (unsigned long)net_hub::uploadLostSamples());
+  perfPrint("送尾巴");
+  s_ended = false; s_spoke = false;
+  s_t_first = 0; s_t_last = 0;
+  s_t_wait = now;
+  s_up2x.reset();
+  audio_io::streamBegin();
+  s_st = St::Receiving;
+}
+
+// 解好的 16kHz 音訊：寫進串流緩衝（播放），並留前 6 秒到 rxBuffer（播完算 SNR 驗收）
 void pushPcm(const int16_t* p, size_t n) {
   if (n == 0) return;
   int16_t* rx = audio_io::rxBuffer();
@@ -84,7 +126,23 @@ void pushPcm(const int16_t* p, size_t n) {
   s_rx_samples += n;
 }
 
+// 收件反壓：這則音訊解開後放得進串流緩衝嗎？放不下就先留在 net_hub 的佇列
+bool canTake(size_t len) {
+  if (s_st == St::Flushing && net_hub::uploadDone()) return true;   // 下面 onBin 會先切到 Receiving；緩衝是空的
+  if (s_st != St::Receiving || s_ended) return true;                // 會被丟掉，不必等
+  size_t need;
+  const size_t frames = (len + adpcm::FRAME_BYTES - 1) / adpcm::FRAME_BYTES;
+  switch (s_down) {
+    case Fmt::Adpcm8k: need = frames * adpcm::FRAME_SAMPLES * 2 + 8; break;
+    case Fmt::Adpcm:   need = frames * adpcm::FRAME_SAMPLES; break;
+    case Fmt::Mulaw:   need = len; break;
+    default:           need = len / 2; break;
+  }
+  return audio_io::streamRoom() >= need;
+}
+
 void onBin(const uint8_t* data, size_t len) {
+  if (s_st == St::Flushing && net_hub::uploadDone()) enterReceiving();   // 回傳比主迴圈切狀態還早到
   if (s_st != St::Receiving || s_ended) return;   // 不是這一輪的，丟掉
   static int16_t dec[DEC_CHUNK];
   static int16_t up[DEC_CHUNK * 2 + 8];
@@ -150,36 +208,39 @@ void onFormat(const char* up, const char* down) {
   else if (strcmp(down, "mulaw") == 0) s_down = Fmt::Mulaw;
   else s_down = Fmt::Pcm16;
   Serial.printf("[voice] 中控確認格式：上傳 %s、下載 %s\n", up, down);
+  if (strcmp(up, s_up_mulaw ? "mulaw" : "pcm16") != 0)
+    Serial.printf("[voice] ⚠ 中控不認得上傳格式 %s（舊版中控？要先 wrangler deploy）\n", s_up_mulaw ? "mulaw" : "pcm16");
 }
 
 void onEnd(uint32_t n, uint32_t pcm_bytes, float gain, const char* fmt) {
+  if (s_st == St::Flushing && net_hub::uploadDone()) enterReceiving();
   if (s_st != St::Receiving || s_ended) return;
   endStream(nullptr);
-  // 11-19 爆音：中控 DO 休眠後忘了格式、照 pcm16 回傳，裝置照 ADPCM 解。中控已修；這裡留著當警報
   if (fmt && fmt[0] && strcmp(fmt, fmtName(s_down)) != 0) {
     Serial.printf("[voice] ⚠ 格式不符：中控實際送 %s、裝置照 %s 解（播出來會是雜音）\n", fmt, fmtName(s_down));
   }
   perfPrint("等待回傳");
+  // B3b-5 驗收：中控收到的取樣數必須等於裝置送出的（不掉資料）
+  const uint32_t hub_samples = pcm_bytes / 2;
+  Serial.printf("[voice] 完整性：裝置送出 %lu 取樣、中控收到 %lu 取樣 → %s\n", (unsigned long)s_sent_samples,
+                (unsigned long)hub_samples, hub_samples == s_sent_samples ? "一致 ✓" : "不一致 ✗");
   // 下載速度：第一則到最後一則之間（全速送時＝網路實際速度）。格式需求＝每秒音訊要幾 bytes。
-  const float audio_s = s_rx_samples / 16000.0f;
+  const float audio_s = s_rx_samples / (float)SR;
   const float need = audio_s > 0 ? s_rx_bytes / 1024.0f / audio_s : 0.0f;
   const uint32_t span = s_t_last - s_t_first;
   const float rate = span > 0 ? (s_rx_bytes / 1024.0f) / (span / 1000.0f) : 0.0f;
-  const size_t up_samples = s_up_bytes / sizeof(int16_t);
+  const int16_t* ref = nullptr;
+  size_t m = audio_io::recWindow(&ref);
   const size_t cap = audio_io::rxCapacityBytes() / sizeof(int16_t);
-  size_t m = s_rx_samples < up_samples ? s_rx_samples : up_samples;
+  if (m > s_rx_samples) m = s_rx_samples;
   if (m > cap) m = cap;
-  Serial.printf("[voice] 下載 %s %u bytes（中控報 %lu，原始 %lu）→ 解出 %u 取樣（上傳 %u）｜中控增益 ×%.2f｜SNR %.1f dB%s%s\n",
-                fmtName(s_down), (unsigned)s_rx_bytes, (unsigned long)n, (unsigned long)pcm_bytes,
-                (unsigned)s_rx_samples, (unsigned)up_samples, gain,
-                m ? snrDb(s_up, audio_io::rxBuffer(), m) : 0.0f,
-                s_down == Fmt::Adpcm8k ? "（含 8kHz 頻寬損失）" : "",
-                s_rx_overflow ? "｜緩衝滿或幀錯誤！" : "");
+  Serial.printf("[voice] 下載 %s %u bytes（中控報 %lu）→ 解出 %u 取樣｜中控增益 ×%.2f｜前 %u ms SNR %.1f dB（含上傳 %s、下載壓縮）%s\n",
+                fmtName(s_down), (unsigned)s_rx_bytes, (unsigned long)n, (unsigned)s_rx_samples, gain,
+                (unsigned)(m / 16), m ? snrDb(ref, audio_io::rxBuffer(), m) : 0.0f,
+                s_up_mulaw ? "μ-law" : "PCM", s_rx_overflow ? "｜緩衝滿或幀錯誤！" : "");
   if (span > 0) {
     Serial.printf("[voice] 實測下載 %.1f KB/s（%lu ms 收完）｜這個格式需要 %.1f KB/s｜餘裕 %.1f 倍｜節奏 %s\n",
                   rate, (unsigned long)span, need, need > 0 ? rate / need : 0.0f, s_pace_rt ? "rt" : "fast");
-  } else {
-    Serial.println("[voice] 只收到一則，無法算下載速度");
   }
 }
 
@@ -191,6 +252,7 @@ void begin() {
   net_hub::onBinary(onBin);
   net_hub::onAudioEnd(onEnd);
   net_hub::onFormat(onFormat);
+  net_hub::onBinGate(canTake);
 }
 
 bool busy() { return s_st != St::Idle; }
@@ -200,45 +262,50 @@ void setDownFormat(int f) {
   Serial.printf("[diag] 下載格式 → %s（下一輪生效）\n", fmtName(s_want));
 }
 
+void setUpFormat(int f) {
+  s_up_mulaw = (f != 0);
+  Serial.printf("[diag] 上傳格式 → %s（下一輪生效）\n", s_up_mulaw ? "mulaw" : "pcm16");
+}
+
 void setPaceRealtime(bool rt) {
   s_pace_rt = rt;
   Serial.printf("[diag] 中控送法 → %s（下一輪生效）\n", rt ? "rt 照真實速度（壓力測試）" : "fast 全速");
 }
 
 void onPress() {
-  // 上一輪還在跑（上傳／等待／播放中）就直接放棄，開始新的一輪（startRecording 會停掉串流）
+  // 上一輪還在跑（送尾巴／等待／播放中）就直接放棄，開始新的一輪
+  // （startRecording 會停掉串流並換代，網路 task 的舊上傳工作看到就停）
   net_hub::voiceActive(true);    // B3.6：錄放音期間關 Wi-Fi 省電，否則有滋滋聲
   audio_io::startRecording();
   ui_expression::setMood(Mood::Listening);
-  s_down = Fmt::Pcm16;   // 等中控回 format 確認才用壓縮格式解（舊版中控不回 → 照 PCM 處理）
-  if (net_hub::linkUp()) net_hub::sendStartFmt("pcm16", fmtName(s_want), s_pace_rt ? "rt" : "fast");
-  else Serial.println("[voice] 中控未連線（放開後這輪直接結束）");
+  s_down = Fmt::Pcm16;   // 等中控回 format 確認才用壓縮格式解
+  ++s_turn_id;
+  net_hub::uploadBegin(s_turn_id, s_up_mulaw ? "mulaw" : "pcm16", fmtName(s_want), s_pace_rt ? "rt" : "fast");
+  if (!net_hub::linkUp()) Serial.println("[voice] 中控未連線：先錄著，連上後從頭送");
   s_rx_bytes = 0; s_rx_samples = 0; s_rx_overflow = false;
+  s_t_press = millis();
+  s_t_report = s_t_press;
+  s_tx0 = net_hub::txBytesTotal();
+  s_rep_tx = s_tx0;
   s_st = St::Recording;
   perfReset();
 }
 
 void onRelease() {
   if (s_st != St::Recording) return;
-  int16_t* p = nullptr;
-  const size_t n = audio_io::stopRecording(&p);
+  s_rec_samples = audio_io::stopRecording();
   s_t_release = millis();
   perfPrint("錄音");
-  if (n == 0 || p == nullptr) {             // 按太短
-    if (net_hub::linkUp()) net_hub::sendStop();   // 讓中控也結束這輪（會回 audio_end n=0）
+  if (s_rec_samples == 0) {             // 按太短
+    net_hub::uploadAbort();
     toIdle();
     return;
   }
-  s_up = p;
-  s_up_bytes = n * sizeof(int16_t);
-  s_sent = 0;
-  if (!net_hub::linkUp()) {   // B3b-4（Miles 選定）：不再本機回放
-    Serial.println("[voice] 中控未連線 → 這輪結束（不回放）");
-    toIdle();
-    return;
-  }
+  net_hub::uploadFinish();
   ui_expression::setMood(Mood::Thinking);
-  s_st = St::Uploading;
+  s_t_link_lost = 0;
+  s_st = St::Flushing;
+  reportUp();
 }
 
 void loop() {
@@ -252,7 +319,8 @@ void loop() {
   }
   // 中途離開 Desktop（切模式、急停）→ 中止這一輪
   if (s_st != St::Idle && mode_manager::current() != Mode::Desktop) {
-    if (s_st == St::Recording) audio_io::stopRecording(nullptr);
+    if (s_st == St::Recording) audio_io::stopRecording();
+    if (s_st == St::Recording || s_st == St::Flushing) net_hub::uploadAbort();
     if (s_st == St::Receiving) audio_io::streamAbort();
     Serial.println("[voice] 離開 Desktop，中止這一輪");
     s_st = St::Idle;
@@ -260,39 +328,26 @@ void loop() {
     return;
   }
 
+  const uint32_t now = millis();
   switch (s_st) {
-    case St::Uploading: {
-      if (!net_hub::linkUp()) {
-        Serial.printf("[voice] 上傳中斷線（已送 %u／%u bytes）→ 這輪結束（不回放）\n",
-                      (unsigned)s_sent, (unsigned)s_up_bytes);
-        toIdle();
-        break;
-      }
-      for (int i = 0; i < FRAMES_PER_LOOP && s_sent < s_up_bytes; ++i) {
-        size_t len = s_up_bytes - s_sent;
-        if (len > FRAME_BYTES) len = FRAME_BYTES;
-        if (!net_hub::sendBinary((const uint8_t*)s_up + s_sent, len)) {
-          Serial.println("[voice] 上傳失敗 → 這輪結束（不回放）");
-          toIdle();
-          return;
-        }
-        s_sent += len;
-      }
-      if (s_sent >= s_up_bytes) {
-        net_hub::sendStop();
-        Serial.printf("[voice] 上傳完成 %u bytes（%u 塊），%lu ms\n", (unsigned)s_up_bytes,
-                      (unsigned)((s_up_bytes + FRAME_BYTES - 1) / FRAME_BYTES),
-                      (unsigned long)(millis() - s_t_release));
-        perfPrint("上傳");
-        s_ended = false; s_spoke = false;
-        s_t_first = 0; s_t_last = 0;
-        s_t_wait = millis();
-        s_up2x.reset();
-        audio_io::streamBegin();
-        s_st = St::Receiving;
-      }
+    case St::Recording:
+      if (now - s_t_report >= UP_REPORT_MS) reportUp();
       break;
-    }
+    case St::Flushing:
+      if (net_hub::uploadDone()) { enterReceiving(); break; }
+      if (!net_hub::linkUp()) {
+        if (s_t_link_lost == 0) s_t_link_lost = now | 1;
+        else if (now - s_t_link_lost > FLUSH_LINK_LOST_MS) {
+          Serial.printf("[voice] 放開後 %lu 秒連不回中控 → 這輪結束\n", (unsigned long)(FLUSH_LINK_LOST_MS / 1000));
+          net_hub::uploadAbort();
+          toIdle();
+          break;
+        }
+      } else {
+        s_t_link_lost = 0;
+      }
+      if (now - s_t_report >= UP_REPORT_MS) reportUp();
+      break;
     case St::Receiving:
       if (!s_spoke && audio_io::streamStarted()) {
         s_spoke = true;
@@ -302,7 +357,7 @@ void loop() {
                       s_t_first ? (unsigned long)(s_t_first - s_t_release) : 0UL);
       }
       if (!s_ended && !net_hub::linkUp()) endStream("回答途中斷線");
-      if (!s_ended && millis() - s_t_wait > WAIT_IDLE_MS) endStream("5 秒沒有新的回傳資料");
+      if (!s_ended && now - s_t_wait > WAIT_IDLE_MS) endStream("5 秒沒有新的回傳資料");
       if (!audio_io::streamActive()) {
         Serial.println(audio_io::streamReport());
         toIdle();
