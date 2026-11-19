@@ -17,6 +17,13 @@ enum class St : uint8_t { Idle, Recording, Flushing, Receiving };
 
 // 「多久沒收到任何回傳資料」就不再等（已收到的照樣播完）。B3b-2 實測固定總時長會誤判，改看進展。
 constexpr uint32_t WAIT_IDLE_MS       = 5000;
+// B3c：gpt 模式放開後要等「補靜音＋模型反應」才有第一則回覆，開口前最多等 20 秒；開口後 8 秒沒資料才放棄
+// （中控會在輸出停頓超過門檻時送 audio_end，這裡只是保險）
+constexpr uint32_t GPT_WAIT_FIRST_MS  = 20000;
+constexpr uint32_t GPT_WAIT_IDLE_MS   = 8000;
+// B3c 實機（11-20）：GPT-Live 的回覆照「即時速度」送來，預緩衝 0.3 秒遇到熱點延遲抖動（RTT 0.5～1 秒）
+// 就見底斷音（每輪 1～3 次、共 1.2～2 秒）→ gpt 模式先存 1.2 秒再開始播（多等約 0.9 秒換不斷音）
+constexpr uint32_t GPT_PREBUF_MS      = 1200;
 constexpr uint32_t FLUSH_LINK_LOST_MS = 15000;   // 放開後連不回中控多久就放棄這輪（B3b-5 定案）
 constexpr uint32_t UP_REPORT_MS       = 500;     // 錄音／送尾巴時每 0.5 秒印一次上傳進度
 constexpr size_t   DEC_CHUNK          = 1600;    // 解碼暫存：一次處理 1600 取樣
@@ -48,10 +55,53 @@ const char* fmtName(Fmt f) {
   }
 }
 // 下載預設 ADPCM 8kHz（B3b-4 定案，約 4KB/s）；上傳預設 μ-law（B3b-5 定案，16KB/s，OpenAI 本身接受的電話格式）
-Fmt      s_want = Fmt::Adpcm8k;
+// 11-20 B3c 實聽：ADPCM 8kHz 有「老電話沙沙聲」（頻寬只到 4kHz）→ Miles 選 μ-law 16kHz（f2，需 16KB/s；網路差時 f1／f3 備用）
+Fmt      s_want = Fmt::Mulaw;
 Fmt      s_down = Fmt::Pcm16;
 bool     s_up_mulaw = true;
 bool     s_pace_rt = false;
+bool     s_gpt = true;           // B3c：預設接 GPT-Live（m0 改 echo）
+bool     s_turn_gpt = true;      // 這一輪實際用的模式（按下 A 時決定）
+uint32_t s_text_user = 0, s_text_bot = 0;   // 這一輪收到的逐字稿 bytes
+
+// ── B4 實機補（11-20）：小S 的字幕對齊聲音 ──
+// 中控給每段字標上「對應回覆音訊第幾 ms」，先存在這裡，喇叭播到那裡才顯示。
+constexpr size_t   CAP_POOL = 2048;
+constexpr int      CAP_SEGS = 64;
+struct Seg { uint32_t ms; uint16_t off, len; };
+char     s_pool[CAP_POOL];
+Seg      s_segs[CAP_SEGS];
+int      s_seg_head = 0, s_seg_n = 0;
+size_t   s_pool_used = 0;
+
+void capReset() { s_seg_head = 0; s_seg_n = 0; s_pool_used = 0; }
+void capShow(const Seg& g) {
+  char tmp[400];
+  const size_t n = g.len < sizeof(tmp) - 1 ? g.len : sizeof(tmp) - 1;
+  memcpy(tmp, s_pool + g.off, n);
+  tmp[n] = '\0';
+  ui_expression::convText(true, tmp);
+}
+// 顯示「播到的位置 ≥ 標記」的字；all＝全部顯示（播完／結束時）
+void capRelease(bool all) {
+  if (!all && !audio_io::streamStarted()) return;   // 喇叭還沒出聲：一個字都先不顯示
+  const uint32_t played = audio_io::streamPlayedMs();
+  while (s_seg_n > 0 && (all || s_segs[s_seg_head].ms <= played)) {
+    capShow(s_segs[s_seg_head]);
+    s_seg_head = (s_seg_head + 1) % CAP_SEGS;
+    --s_seg_n;
+  }
+  if (s_seg_n == 0) s_pool_used = 0;
+}
+bool capPush(const char* str, uint32_t ms) {
+  const size_t n = strlen(str);
+  if (s_seg_n >= CAP_SEGS || s_pool_used + n > CAP_POOL) return false;
+  memcpy(s_pool + s_pool_used, str, n);
+  s_segs[(s_seg_head + s_seg_n) % CAP_SEGS] = {ms, (uint16_t)s_pool_used, (uint16_t)n};
+  s_pool_used += n;
+  ++s_seg_n;
+  return true;
+}
 adpcm::Upsampler2x s_up2x;
 
 // ── 量測：主迴圈每圈多久（相鄰兩次 voice_turn::loop 的間隔）──
@@ -70,7 +120,10 @@ void perfPrint(const char* phase) {
 }
 
 void toIdle() {
+  capRelease(true);   // B4：還沒顯示的字一次補上
   s_st = St::Idle;
+  ui_expression::setSpeakLevel(-1.0f);
+  ui_expression::convEnd();      // B4：對話區過幾秒收起
   ui_expression::setMood(Mood::Idle);
   net_hub::voiceActive(false);   // B3.6：一輪結束才開回 Wi-Fi 省電
 }
@@ -114,6 +167,7 @@ void enterReceiving() {
   s_t_first = 0; s_t_last = 0;
   s_t_wait = now;
   s_up2x.reset();
+  audio_io::setTurnPrebufferMs(s_turn_gpt ? GPT_PREBUF_MS : 0);
   audio_io::streamBegin();
   s_st = St::Receiving;
 }
@@ -239,14 +293,45 @@ void onEnd(uint32_t n, uint32_t pcm_bytes, float gain, const char* fmt) {
   const size_t cap = audio_io::rxCapacityBytes() / sizeof(int16_t);
   if (m > s_rx_samples) m = s_rx_samples;
   if (m > cap) m = cap;
+  if (s_turn_gpt) {
+    // B3c：回覆是 GPT 的聲音、不是原音 → 不算 SNR
+    Serial.printf("[voice] 下載 %s %u bytes（中控報 %lu）→ 解出 %u 取樣＝回覆 %.1f 秒｜逐字稿 你 %lu／Friday %lu bytes%s\n",
+                  fmtName(s_down), (unsigned)s_rx_bytes, (unsigned long)n, (unsigned)s_rx_samples, s_rx_samples / (float)SR,
+                  (unsigned long)s_text_user, (unsigned long)s_text_bot, s_rx_overflow ? "｜緩衝滿或幀錯誤！" : "");
+  } else {
   Serial.printf("[voice] 下載 %s %u bytes（中控報 %lu）→ 解出 %u 取樣｜中控增益 ×%.2f｜前 %u ms SNR %.1f dB（含上傳 %s、下載壓縮）%s\n",
                 fmtName(s_down), (unsigned)s_rx_bytes, (unsigned long)n, (unsigned)s_rx_samples, gain,
                 (unsigned)(m / 16), m ? snrDb(ref, audio_io::rxBuffer(), m) : 0.0f,
                 s_up_mulaw ? "μ-law" : "PCM", s_rx_overflow ? "｜緩衝滿或幀錯誤！" : "");
+  }
   if (span > 0) {
     Serial.printf("[voice] 實測下載 %.1f KB/s（%lu ms 收完）｜這個格式需要 %.1f KB/s｜餘裕 %.1f 倍｜節奏 %s\n",
                   rate, (unsigned long)span, need, need > 0 ? rate / need : 0.0f, s_pace_rt ? "rt" : "fast");
   }
+}
+
+// B3c：中控回報錯誤
+void onError(const char* code, const char* s) {
+  if (strcmp(code, "quota") == 0) {
+    Serial.printf("[voice] 今日額度已用完（%s）→ 這輪不送，回待機\n", s);
+    ui_expression::convText(true, "（今日額度已用完）");
+    if (s_st == St::Recording) audio_io::stopRecording();
+    if (s_st == St::Recording || s_st == St::Flushing) net_hub::uploadAbort();
+    if (s_st == St::Receiving) audio_io::streamAbort();
+    if (s_st != St::Idle) toIdle();
+    return;
+  }
+  Serial.printf("[voice] 中控錯誤 code=%s：%s\n", code[0] ? code : "-", s);
+}
+
+// B4：逐字稿片段 → 畫面對話區；序列埠逐段印
+void onText(const char* role, const char* s, uint32_t ms) {
+  if (s_st == St::Idle) return;   // 上一輪的晚到文字
+  const bool bot = strcmp(role, "assistant") == 0;
+  (bot ? s_text_bot : s_text_user) += strlen(s);
+  // 小S 的字：存起來等播到 ms 才顯示（序列埠照樣馬上印）；存不下就直接顯示
+  if (!bot || !capPush(s, ms)) ui_expression::convText(bot, s);
+  Serial.printf("[text] %s：%s\n", bot ? "Friday" : "你", s);
 }
 
 }  // namespace
@@ -258,7 +343,15 @@ void begin() {
   net_hub::onAudioEnd(onEnd);
   net_hub::onFormat(onFormat);
   net_hub::onBinGate(canTake);
+  net_hub::onError(onError);
+  net_hub::onText(onText);
 }
+
+void setGptMode(bool gpt) {
+  s_gpt = gpt;
+  Serial.printf("[diag] 對話模式 → %s（下一輪生效）\n", gpt ? "gpt（GPT-Live）" : "echo（原樣回傳，回歸測試）");
+}
+bool gptMode() { return s_gpt; }
 
 bool busy() { return s_st != St::Idle; }
 
@@ -285,7 +378,14 @@ void onPress() {
   ui_expression::setMood(Mood::Listening);
   s_down = Fmt::Pcm16;   // 等中控回 format 確認才用壓縮格式解
   ++s_turn_id;
-  net_hub::uploadBegin(s_turn_id, s_up_mulaw ? "mulaw" : "pcm16", fmtName(s_want), s_pace_rt ? "rt" : "fast");
+  s_turn_gpt = s_gpt;
+  // 下載格式照序列埠 f0～f3（預設 f3＝ADPCM 8kHz）。gpt 模式中控支援 f1 ADPCM 16kHz／f2 μ-law 16kHz／f3，
+  // 不支援的（f0 PCM）中控會退回 ADPCM 8kHz 並在 format 回覆裡告知（11-20 加：比較「老電話沙沙聲」）
+  net_hub::uploadBegin(s_turn_id, s_up_mulaw ? "mulaw" : "pcm16", fmtName(s_want),
+                       s_pace_rt ? "rt" : "fast", s_turn_gpt ? "gpt" : "echo");
+  s_text_user = 0; s_text_bot = 0;
+  capReset();
+  ui_expression::convBegin();    // B4：開對話區（清掉上一輪的字）
   if (!net_hub::linkUp()) Serial.println("[voice] 中控未連線：先錄著，連上後從頭送");
   s_rx_bytes = 0; s_rx_samples = 0; s_rx_overflow = false;
   s_t_press = millis();
@@ -367,7 +467,17 @@ void loop() {
                       s_t_first ? (unsigned long)(s_t_first - s_t_release) : 0UL);
       }
       if (!s_ended && !net_hub::linkUp()) endStream("回答途中斷線");
-      if (!s_ended && now - s_t_wait > WAIT_IDLE_MS) endStream("5 秒沒有新的回傳資料");
+      {
+        const uint32_t lim = !s_turn_gpt ? WAIT_IDLE_MS : (s_t_first ? GPT_WAIT_IDLE_MS : GPT_WAIT_FIRST_MS);
+        if (!s_ended && now - s_t_wait > lim) {
+          static char why[48];
+          snprintf(why, sizeof(why), "%lu 秒沒有新的回傳資料", (unsigned long)(lim / 1000));
+          endStream(why);
+        }
+      }
+      // B4：嘴巴跟著播放音量（播放 task 每 100ms 一塊算的 RMS）
+      if (s_spoke) ui_expression::setSpeakLevel(audio_io::playLevel());
+      capRelease(false);   // B4：字幕跟著播放進度出現
       if (!audio_io::streamActive()) {
         Serial.println(audio_io::streamReport());
         toIdle();

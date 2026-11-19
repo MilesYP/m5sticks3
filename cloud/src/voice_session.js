@@ -33,6 +33,8 @@
 const MAX_AUDIO_BYTES = 64 * 1024 * 1024;
 const CLIP_MAX_SAMPLES = 16000 * 60;     // 存最近 60 秒
 const CLIP_CHUNK_BYTES = 100 * 1024;     // storage 單一值上限 128KiB，切 100KB 一塊
+import { runLab } from "./lab.js";
+import { GptLink } from "./gpt_turn.js";
 import { concatPcm16, concatU8, decodeMulaw, encodeDown, normalizePcm } from "./adpcm.js";
 
 // B3b-3：裝置↔中控的音訊格式（start 帶 up／down，中控回 format 確認）
@@ -52,9 +54,13 @@ export class VoiceSession {
     this.audio = new WeakMap();   // ws → { chunks: ArrayBuffer[], bytes, overflow, up, down, pace }
     this.turn = new WeakMap();    // ws → 目前這一輪的序號；送音訊途中序號變了＝被新一輪取消
     this.turnSeq = 0;
+    // B3c：mode=gpt 的對話（GPT-Live 連線、上下文、額度）。有外連時 DO 不會休眠，這份物件留在記憶體。
+    this.gpt = new GptLink(this.storage, env, (ws, obj) => this.send(ws, obj));
   }
 
   async fetch(request) {
+    if (new URL(request.url).pathname === "/lab") return runLab(request, this.env, this.storage);   // B3c 先導測試
+    if (new URL(request.url).pathname === "/persona") return this.persona(request);              // Friday 記憶
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 426 });
     }
@@ -70,6 +76,7 @@ export class VoiceSession {
   // ── 休眠 WebSocket 事件處理 ──
   async webSocketMessage(ws, message) {
     if (typeof message !== "string") {
+      if (this.modeOf(ws) === "gpt") return this.gpt.onAudio(ws, message);   // B3c
       // B3b-2：二進位音訊幀 → 暫存，等 stop 再原樣傳回
       let buf = this.audio.get(ws);
       if (!buf) { buf = this.newTurn(ws); this.audio.set(ws, buf); }   // 休眠過：從附件找回這一輪的格式
@@ -97,9 +104,20 @@ export class VoiceSession {
         const up = UP_FORMATS.includes(msg.up) ? msg.up : "pcm16";
         const down = DOWN_FORMATS.includes(msg.down) ? msg.down : "pcm16";
         const pace = PACES.includes(msg.pace) ? msg.pace : "fast";
+        // B3c：mode=gpt 接 GPT-Live；不帶或其他值＝echo（B3b-5 原樣回傳，回歸測試用；舊版韌體不帶 mode）
+        const mode = msg.mode === "gpt" ? "gpt" : "echo";
         this.turn.set(ws, 0);   // 取消上一輪還沒送完的音訊
-        console.log("[turn] start id=" + (msg.id ?? "-") + " up=" + up + " down=" + down + " pace=" + pace);
-        this.saveFmt(ws, { up, down, pace });
+        console.log("[turn] start id=" + (msg.id ?? "-") + " mode=" + mode + " up=" + up + " down=" + down + " pace=" + pace);
+        if (mode === "gpt") {
+          // GPT 模式下載：串流 ADPCM 8kHz（預設）／ADPCM 16kHz／μ-law 16kHz（11-20 加，音質比較）
+          const gdown = ["adpcm8k", "adpcm", "mulaw"].includes(down) ? down : "adpcm8k";
+          this.saveFmt(ws, { up, down: gdown, pace, mode });
+          this.audio.delete(ws);
+          this.send(ws, { t: "format", up, down: gdown, pace, mode });
+          if (await this.gpt.onStart(ws, msg, { up, down: gdown })) this.send(ws, { t: "state", v: "listening" });
+          break;
+        }
+        this.saveFmt(ws, { up, down, pace, mode });
         this.audio.set(ws, { chunks: [], bytes: 0, overflow: false, up, down, pace });
         this.send(ws, { t: "format", up, down, pace });
         this.send(ws, { t: "state", v: "listening" });
@@ -107,6 +125,7 @@ export class VoiceSession {
       }
 
       case "stop": {
+        if (this.modeOf(ws) === "gpt") { this.gpt.onStop(ws); break; }   // B3c
         // B3b-2：純傳輸測試——收到的音訊傳回（B3b-4：正規化後一則一則送，裝置邊收邊播）
         this.send(ws, { t: "state", v: "thinking" });
         const buf = this.audio.get(ws) || this.newTurn(ws);
@@ -123,8 +142,9 @@ export class VoiceSession {
         break;
 
       case "history": {
-        const log = (await this.storage.get("log")) || [];
-        this.send(ws, { t: "history", turns: log });
+        // B3c：GPT 模式的上下文（最近 50 輪逐字稿）
+        const ctx = await this.gpt.history();
+        this.send(ws, { t: "history", turns: ctx.slice(-5) });
         break;
       }
 
@@ -151,6 +171,10 @@ export class VoiceSession {
   }
   saveFmt(ws, fmt) {
     try { ws.serializeAttachment({ ...this.attach(ws), fmt }); } catch {}
+  }
+  modeOf(ws) {
+    const f = this.attach(ws).fmt;
+    return f && f.mode === "gpt" ? "gpt" : "echo";
   }
   newTurn(ws) {
     const f = this.attach(ws).fmt || { up: "pcm16", down: "pcm16", pace: "fast" };
@@ -212,6 +236,23 @@ export class VoiceSession {
     } catch (e) {
       console.log("[clip] 存錄音失敗 " + (e && e.message ? e.message : String(e)));
     }
+  }
+
+  // Friday 的記憶（B3c 補，11-20）：PUT /persona?name=friday|miles 上傳 markdown（≤16KB），GET 看目前內容長度。
+  // 開新 GPT-Live session 時接在人設後面（gpt_turn.js）。改了重新上傳即可，不用重新部署。
+  async persona(request) {
+    const url = new URL(request.url);
+    const name = url.searchParams.get("name");
+    if (request.method === "PUT") {
+      if (!["friday", "miles"].includes(name)) return new Response("name 只能是 friday 或 miles\n", { status: 400 });
+      const text = await request.text();
+      if (text.length > 16000) return new Response("太長（上限 16000 字元）\n", { status: 413 });
+      await this.storage.put("persona:" + name, text);
+      return new Response(`已更新 ${name}：${text.length} 字元（下一次開新對話生效；目前的對話閒置 30 秒關閉後就會用新的）\n`);
+    }
+    const f = (await this.storage.get("persona:friday")) || "";
+    const m = (await this.storage.get("persona:miles")) || "";
+    return new Response(`friday：${f.length} 字元｜miles：${m.length} 字元\n`);
   }
 
   // ── 工具 ──

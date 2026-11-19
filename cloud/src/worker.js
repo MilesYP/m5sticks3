@@ -20,6 +20,20 @@ export default {
       });
     }
 
+    if (url.pathname === "/persona") {
+      // Friday 的角色說明與使用者記憶（cloud/persona.sh 上傳）：要 token，存進同一個 DO 的 storage
+      const auth = await checkToken(url.searchParams.get("t"), env.HUB_TOKEN);
+      if (auth !== "ok") return new Response("unauthorized", { status: auth === "unset" ? 503 : 401 });
+      return env.VOICE.get(env.VOICE.idFromName("miles")).fetch(request);
+    }
+
+    if (url.pathname === "/lab") {
+      // B3c 先導測試：同樣要 token（會花 OpenAI 的錢），交給同一個 DO（錄音存在它的 storage）
+      const auth = await checkToken(url.searchParams.get("t"), env.HUB_TOKEN);
+      if (auth !== "ok") return new Response("unauthorized", { status: auth === "unset" ? 503 : 401 });
+      return env.VOICE.get(env.VOICE.idFromName("miles")).fetch(request);
+    }
+
     if (url.pathname === "/ws") {
       // B3.5：先驗 token，不符直接拒絕（不進 DO、不升級 WebSocket）
       const auth = await checkToken(url.searchParams.get("t"), env.HUB_TOKEN);

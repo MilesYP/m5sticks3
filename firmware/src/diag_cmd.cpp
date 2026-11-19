@@ -15,11 +15,12 @@ char s_line[16];
 size_t s_n = 0;
 
 void printConfig() {
-  Serial.printf("[diag] 目前：%s pga=0x%02X\n", net_hub::configLabel(), audio_io::pga());
+  Serial.printf("[diag] 目前：%s pga=0x%02X 對話=%s\n", net_hub::configLabel(), audio_io::pga(),
+                voice_turn::gptMode() ? "gpt" : "echo");
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜? 目前設定");
+  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -48,6 +49,10 @@ void run(char* cmd) {
       break;
     case 'u':   // B3b-5：上傳格式
       if (cmd[1] == '0' || cmd[1] == '1') voice_turn::setUpFormat(cmd[1] - '0');
+      else printHelp();
+      break;
+    case 'm':   // B3c：對話模式 m1＝GPT-Live（預設）、m0＝echo 原樣回傳（回歸測試）
+      if (cmd[1] == '0' || cmd[1] == '1') voice_turn::setGptMode(cmd[1] == '1');
       else printHelp();
       break;
     case 'x':   // B3b-5：只斷 WebSocket（模擬連線重置），測錄音中斷線重送

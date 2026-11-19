@@ -57,7 +57,10 @@ bool streamActive();                                 // 這一輪還沒播完（
 bool streamStarted();                                // 已經開始出聲
 uint32_t streamStartedAt();                          // 開始出聲的 millis()
 void setPrebufferMs(uint32_t ms);                    // 序列埠 b<ms>
+void setTurnPrebufferMs(uint32_t ms);                // B3c：這一輪的預緩衝（0＝用 b<ms> 的設定）；GPT 回覆照即時速度來，要多存一點抗網路抖動
 const char* streamReport();                          // 一行統計（播完時印）
 size_t streamRoom();                                 // B3b-5：串流緩衝還能寫幾個取樣（收件反壓用）
+uint32_t streamPlayedMs();                           // B4：這一輪已播完幾 ms（字幕對齊聲音用）
+float playLevel();                                   // B4：正在播的那塊音量（0～1，嘴巴開合用）；沒在播＝0
 
 }  // namespace audio_io

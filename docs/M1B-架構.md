@@ -85,6 +85,40 @@ flowchart TD
 
 **B3c 定案（官方文件 11-19 查證）**：GPT-Live 沒有「使用者講完」指令、沒有「回答講完」事件（`session.output_audio.delta` 無時間欄位、無 done），逐字稿 `session.input_transcript.delta`／`session.output_transcript.delta` 也沒有 done；session 結束時 `session.closed`（reason 含 `expired`）。做法與先導測試的判定規則見 `docs/StickS3 執行計劃.md` B3c 列。
 
+**B3c 先導測試（2026-11-20，`cloud/src/lab.js`，報告原檔在 `docs/lab/`）**：中控把 B3b-5 存的錄音直接送 GPT-Live（`/lab`，`cloud/lab.sh` 呼叫），不需裝置。
+- **新發現（官方文件沒寫）**：
+  1. GPT-Live **沒講話時也每 100ms 送一則靜音 `output_audio.delta`**（RMS 中位 −120 dBFS、最大約 −50；講話 −50～−16）→ 開口／講完一律看音量（每則 RMS > −50 dBFS＝有聲），不能看有沒有收到。第一輪測試因此全部誤判、作廢。
+  2. 預設 `delegation={type:"client"}`：問天氣時模型送 `session.delegation.created` 想交給後端工具，沒接工具就講完「我幫你查一下」停住 → 人設加「沒有即時資訊工具，被問到直接說查不到再給一般建議」，實測有效。
+  3. 逐字稿 delta 帶 `start_ms`／`end_ms`；短 session 可能沒有 `session.usage.updated`，`session.closed` 一定帶 `usage.seconds`（≈連線秒數，照連線時間計費）。
+  4. 模型會自己判斷輪替：使用者句間換氣（錄音第 3.5 秒）就可能開口。
+- **數字與判定**（每項 2 次；短問題 4.5 秒「台北今天天氣怎麼樣我該穿什麼」、長問題 13.7 秒）：
+  | 項目 | 實測 | 判定 → 參數（`cloud/src/gpt_turn.js` 的 `B3C`） |
+  | :-- | :-- | :-- |
+  | A 送完後多久開口 | 短 1.10／1.20 秒、長 1.03／1.64 秒（從最後一個字算 1.1～2.0 秒） | `PAD_MS`＝1.2＋0.5＝**1.7 秒**（之後仍持續送靜音到這輪結束，官方建議持續送音） |
+  | B 4 倍速送 | 逐字稿正確、回答正常，從開始送到開口反而更短 | **可快送**（`FEED_FAST`） |
+  | C 中途停 2 秒 | 4／4 次搶話；停 0.8 秒後 `mute` 也擋不住（2／2） | ~~保底：放開後才把整段餵進去~~（實機後改回邊講邊送，見下方「最終定案」）——原判定：「兩者都不行」→ **保底：放開後才把整段餵進去**（`UPLOAD_GAP="buffer"`），速度用 B 驗證過的 **4 倍**（`FEED_SPEED`；規則原寫照真實速度，那樣 13 秒問題要多等 13 秒）。代價：開口約在放開後 3 秒＋問題長度／4 |
+  | D 回答中最長停頓 | 長回答（12～15 秒）915／800 ms；短回答 ≤300 ms | `END_GAP_MS`＝0.92＋0.5 → **1.5 秒** |
+- 費用：每次測試的 session 約 13～34 秒（`usage.seconds`）。
+
+**B3c＋B4 實機後的最終定案（2026-11-20，覆蓋上表 C 的判定）**：
+- **送音改回邊講邊送**（`UPLOAD_GAP="none"`）：buffer＋4 倍速在實機開口要 3～4 秒（15 秒長問題 8 秒），且那次長問題逐字稿後半段遺失（推測與 4 倍速有關，只有一筆）→ Miles 選邊講邊送：放開後約 3 秒開口、長句完整。代價：使用者句間停頓時模型可能先答一半——stop 前的回覆音訊扣到放開才送，使用者聽不到被打斷。stop 後持續照真實速度送靜音直到這輪結束。
+- **開口後的停頓照送**：第一版把回答中的安靜段扣著等下一句才補送 → 裝置緩衝見底斷音；改成開口後全送，講完判斷只看最後一則有聲。
+- **上網查詢**：`delegation={type:"responses", responses:{model:"gpt-5.6-luna", tools:[{type:"web_search"}], tool_choice:"auto"}}`；`session.delegation.created` 到 `response.event`（巢狀 `response.completed` 等）之間不算講完（最多 30 秒）。帶委派開 session 失敗會自動改不帶委派。費用：web_search 每 1000 次 $10＋內容 token；luna 每百萬 token $0.2／$1.2。
+- **下載格式**：GPT 模式支援 `adpcm8k`／`adpcm`／`mulaw`（中控串流編碼器 `makeStreamEncoder`，與整段版逐 byte 相同）。實聽 ADPCM 8kHz 有老電話沙沙聲（頻寬只到 4kHz）→ **裝置預設 μ-law 16kHz**（16KB/s，`f2`；網路差改 `f1` ADPCM 16kHz 或 `f3`）。
+- **裝置預緩衝 1.2 秒**（gpt 模式；echo 仍 0.3 秒）：GPT 回覆照即時速度送來，0.3 秒遇熱點 RTT 抖動就斷音（每輪 1～3 次）。
+- **音量**：固定增益 `OUT_GAIN`（wrangler 變數）＝1；實聽 2.5 倍較大聲但更爆。裝置喇叭已最大（`SPK_VOLUME`=255）。
+- **聲音**：`GPT_VOICE`（wrangler 變數，不能叫 `VOICE`＝DO 綁定名）＝`meridian`（英語北美口音男聲）。API 聲音清單（11-20）：quartz、ripple、vesper、willow、stone、gleam、meridian、bossa、tempo、beacon、delta、cinder、nuri、juni、flitz、brise、sillage、nira、harema、shida、noeul，預設 marin。ChatGPT App 的 Ember 與 GPT-Live-1.1 都不在 API。
+- **字幕**：中控每段 Friday 的字帶 `ms`（該段開始時這輪回覆音訊已產生多少 ms），裝置播到才顯示（`audio_io::streamPlayedMs`）；使用者與 Friday 的字都經 OpenCC（`cn → twp`，詞組＋單字）轉台灣繁體，「臺」換回「台」——GPT 的使用者逐字稿有時是簡體，`efontTW_12` 沒有簡體字形會顯示方框。對累積全文轉換、最後一字等 0.6 秒沒新字才送（避免跨段詞轉錯）。
+- **人設與記憶**：基本人設在 `gpt_live.js`（`XS_INSTRUCTIONS`）；`cloud/persona/friday.md`（進 repo）＋`miles.local.md`（不進 repo）由 `cloud/persona.sh` 上傳到 DO storage，開新 session 時接在人設後面（instructions 上限 16,384 token）。
+- **USB 嗡嗡聲**：接著 USB 線時待機有日光燈管般的嗡嗡聲，拔線就沒有 → 電腦端電源／接地雜訊，非韌體；聽音質要拔線。
+
+**B3c＋B4 協定（裝置 ↔ 中控）**：
+- 裝置 `start` 多帶 `mode`：`gpt`（新韌體預設）／`echo`（不帶也是 echo，舊韌體相容）；序列埠 `m1`／`m0`。gpt 模式 `down` 只接受 `adpcm8k`／`adpcm`／`mulaw`，其他退回 `adpcm8k`；`format` 回覆多帶 `mode`。
+- 中控送 `{"t":"text","role":"user|assistant","s":"…","ms":N}`（每 0.3 秒合併；assistant 才有 `ms`；s ≤240 bytes UTF-8，已轉繁體）。
+- 中控送 `{"t":"error","code":"quota|openai","s":"…"}`；quota 時接著 `audio_end` n=0、`state` idle。
+- `audio_end` 的 `g`＝中控固定增益；之後送 `{"t":"usage","s":"{\"seconds\":N}"}`（裝置照印）。
+- `/persona?t=…`（PUT `name=friday|miles` 上傳、GET 看長度）；`/lab?t=…`（先導測試，`cloud/lab.sh`）。
+
 ## 5. 表情狀態對應（已在 M1-A 備好）
 | 中控 state | 表情 | 觸發點 |
 | :-- | :-- | :-- |

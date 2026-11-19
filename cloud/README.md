@@ -1,7 +1,7 @@
 # StickS3 中控（Cloudflare Worker + Durable Object）
 
 M1-B 的雲端中控。裝置用一條常開 WebSocket 連到這裡；中控持 OpenAI 連線、存對話、做工具呼叫。
-架構見 `../docs/M1B-架構.md`。目前進度：B1～B3b-3 完成（WebSocket 協定、存對話、token 驗證、音訊原樣回傳、下載壓縮 μ-law／ADPCM）；**B3.5 起 `/ws` 需要 token**。B3b-2 起 `stop` 不再呼叫 OpenAI（`askOpenAI()` 留給 B3c）。
+架構見 `../docs/M1B-架構.md`。目前進度：**M1-B 完成**（11-20，B3c＋B4 接 GPT-Live，助理 Friday）；以下為歷史紀錄——B1～B3b-3 完成（WebSocket 協定、存對話、token 驗證、音訊原樣回傳、下載壓縮 μ-law／ADPCM）；**B3.5 起 `/ws` 需要 token**。B3b-2 起 `stop` 不再呼叫 OpenAI（`askOpenAI()` 留給 B3c）。
 
 ## 一次性準備
 ```bash
@@ -50,3 +50,11 @@ npx wrangler secret put OPENAI_API_KEY   # 貼上你的 OpenAI API key；只存�
 裝置送：`{"t":"start","up":"pcm16","down":"mulaw|adpcm|pcm16"}` / 二進位音訊（PCM16 16kHz LE，3200 bytes 一幀）/ `{"t":"stop"}` / `{"t":"ping"}` / `{"t":"history"}`
 中控送：`{"t":"format","up":…,"down":…}`（確認格式，不認得的退回 pcm16）/ `{"t":"state","v":"listening|thinking|speaking|idle"}` / 二進位音訊（依 down 格式，合併成每則 ≤8040 bytes）/ `{"t":"audio_end","n":<bytes>,"fmt":…,"pcm":<原始 bytes>}` / `{"t":"pong"}` / `{"t":"history","turns":[…]}`
 編碼器在 `src/adpcm.js`（IMA ADPCM、μ-law），細節見 `../docs/M1B-架構.md` 第 4 節。
+
+
+## GPT-Live（B3c＋B4，11-20）
+- 部署前一次性：`npm install`（裝 `opencc-js` 簡轉繁）。
+- 設定（`wrangler.toml` 的 `[vars]`，可用 `npx wrangler deploy --var 名稱:值` 暫時覆蓋）：`DAILY_MAX_TURNS`、`DAILY_MAX_AUDIO_SEC`（每日額度）、`OUT_GAIN`（回覆音量倍數，預設 1）、`GPT_VOICE`（聲音，預設 `meridian`）。
+- Friday 的記憶：改 `persona/friday.md`（進 repo）或 `persona/miles.local.md`（不進 repo，範本 `persona/miles.example.md`）後跑 `cloud/persona.sh`（不用重新部署；`cloud/persona.sh show` 看中控存的長度）。
+- 先導測試：`cloud/lab.sh info|pin|all|more`（報告存 `docs/lab/`，不進 repo）。
+- 協定（`mode`、`text`、`error`、`usage`）見 `../docs/M1B-架構.md` 第 4 節「B3c＋B4 協定」。

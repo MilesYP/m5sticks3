@@ -234,3 +234,156 @@ export function encodeDown(pcm, fmt) {
   }
   return { msgs, durs };
 }
+
+// ── B3c 追加：串流版 ADPCM 8kHz 編碼器（GPT-Live 的 output_audio.delta 一段一段來）──
+// 低通／降取樣／ADPCM 的狀態都跨 push() 延續；固定增益 1.0（不做整段正規化）。
+// 輸出與整段版 encodeDown(pcm, "adpcm8k") 逐 byte 相同（不論怎麼切段），每則 3 幀（2412 bytes、0.6 秒）。
+export class StreamAdpcm8k {
+  // decimate=false：不降取樣，直接 16kHz ADPCM（11-20 加，GPT 模式音質比較用；每則 5 幀＝0.5 秒）
+  constructor(framesPerMsg = 3, decimate = true) {
+    this.decimate = decimate;
+    this.rate = decimate ? 8000 : 16000;
+    this.M = (LP_TAPS.length - 1) >> 1;
+    this.perMsg = framesPerMsg;
+    this.buf = new Int16Array(4096);   // 未處理的 16kHz 輸入（前面保留 M 個歷史取樣）
+    this.len = this.M;                 // 開頭 M 個零＝整段版「超出範圍當 0」
+    this.center = this.M;              // 下一個輸出取樣的中心位置（buf 內索引）
+    this.out8 = new Int16Array(1600);  // 正在湊的一幀（8kHz）
+    this.nOut = 0;
+    this.frames = [];                  // 湊好的幀（等湊滿一則）
+    this.pred = 0; this.idx = 0;
+    this.inSamples = 0;                // 收到的 16kHz 取樣總數（算長度）
+    this.outMs = 0;                    // 已送出則的音訊長度
+    this.bytes = 0;
+  }
+  _append(pcm) {
+    if (this.len + pcm.length > this.buf.length) {
+      const nb = new Int16Array(Math.max(this.buf.length * 2, this.len + pcm.length));
+      nb.set(this.buf.subarray(0, this.len));
+      this.buf = nb;
+    }
+    this.buf.set(pcm, this.len);
+    this.len += pcm.length;
+  }
+  _filterOne(c, limit) {   // limit：有效輸入的結尾（之後當 0）
+    let acc = 0;
+    for (let k = 0; k < LP_TAPS.length; k++) {
+      const j = c + k - this.M;
+      if (j < limit) acc += LP_TAPS[k] * this.buf[j];
+    }
+    const v = Math.round(acc);
+    return v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
+  }
+  _emitSample(v) {
+    this.out8[this.nOut++] = v;
+    if (this.nOut === 1600) this._closeFrame();
+  }
+  _closeFrame() {
+    if (!this.nOut) return;
+    const n = this.nOut;
+    const buf = new ArrayBuffer(4 + ((n + 1) >> 1));
+    const dv = new DataView(buf);
+    dv.setInt16(0, this.pred, true); dv.setUint8(2, this.idx); dv.setUint8(3, 0);
+    const u8 = new Uint8Array(buf);
+    let pred = this.pred, idx = this.idx;
+    for (let i = 0; i < n; i++) {
+      let diff = this.out8[i] - pred, code = 0;
+      if (diff < 0) { code = 8; diff = -diff; }
+      let step = STEP[idx], vpdiff = step >> 3;
+      if (diff >= step) { code |= 4; diff -= step; vpdiff += step; }
+      step >>= 1;
+      if (diff >= step) { code |= 2; diff -= step; vpdiff += step; }
+      step >>= 1;
+      if (diff >= step) { code |= 1; vpdiff += step; }
+      pred += (code & 8) ? -vpdiff : vpdiff;
+      if (pred > 32767) pred = 32767; else if (pred < -32768) pred = -32768;
+      idx += INDEX[code];
+      if (idx < 0) idx = 0; else if (idx > 88) idx = 88;
+      const b = 4 + (i >> 1);
+      if (i & 1) u8[b] |= code << 4; else u8[b] = code;
+    }
+    this.pred = pred; this.idx = idx;
+    this.frames.push(buf);
+    this.nOut = 0;
+  }
+  _takeMsgs(all) {
+    const msgs = [];
+    while (this.frames.length >= this.perMsg || (all && this.frames.length)) {
+      const part = this.frames.splice(0, this.perMsg);
+      let samples = 0;
+      for (const f of part) samples += (f.byteLength - 4) * 2;
+      const m = packMessages(part, Infinity)[0];
+      this.outMs += (samples * 1000) / this.rate;
+      this.bytes += m.byteLength;
+      msgs.push(m);
+    }
+    return msgs;
+  }
+  // 加入一段 16kHz PCM，回傳湊滿的訊息（ArrayBuffer[]）
+  push(pcm) {
+    this._append(pcm);
+    this.inSamples += pcm.length;
+    if (!this.decimate) {
+      for (let i = 0; i < pcm.length; i++) this._emitSample(pcm[i]);
+      this.len = this.M; this.center = this.M;
+      return this._takeMsgs(false);
+    }
+    while (this.center + this.M < this.len) {   // 右邊 M 個取樣都到了才能算
+      this._emitSample(this._filterOne(this.center, this.len));
+      this.center += 2;
+    }
+    // 丟掉不再需要的舊取樣（保留 center 左邊 M 個）
+    const drop = this.center - this.M;
+    if (drop > 8192) {
+      this.buf.copyWithin(0, drop, this.len);
+      this.len -= drop; this.center -= drop;
+    }
+    return this._takeMsgs(false);
+  }
+  // 結束：剩下的取樣（右邊當 0）與不滿一則的幀全部送出
+  flush() {
+    if (!this.decimate) { this._closeFrame(); return this._takeMsgs(true); }
+    const end = this.len;
+    while (this.center < end) {
+      this._emitSample(this._filterOne(this.center, end));
+      this.center += 2;
+    }
+    this._closeFrame();
+    return this._takeMsgs(true);
+  }
+  // 已收到的輸入長度（ms，16kHz）
+  inMs() { return Math.round(this.inSamples / 16); }
+}
+
+// ── 11-20 加：串流 μ-law 16kHz（無狀態；每則 8000 bytes＝0.5 秒）──
+export class StreamMulaw {
+  constructor() { this.buf = new Uint8Array(0); this.inSamples = 0; this.outMs = 0; this.bytes = 0; }
+  _take(all) {
+    const msgs = [];
+    let o = 0;
+    while (this.buf.length - o >= 8000 || (all && this.buf.length - o > 0)) {
+      const n = Math.min(8000, this.buf.length - o);
+      msgs.push(this.buf.slice(o, o + n).buffer);
+      this.outMs += n / 16; this.bytes += n; o += n;
+    }
+    this.buf = this.buf.slice(o);
+    return msgs;
+  }
+  push(pcm) {
+    this.inSamples += pcm.length;
+    const add = encodeMulaw(pcm);
+    const nb = new Uint8Array(this.buf.length + add.length);
+    nb.set(this.buf); nb.set(add, this.buf.length);
+    this.buf = nb;
+    return this._take(false);
+  }
+  flush() { return this._take(true); }
+  inMs() { return Math.round(this.inSamples / 16); }
+}
+
+// GPT 模式下載的串流編碼器（down＝adpcm8k／adpcm／mulaw）
+export function makeStreamEncoder(down) {
+  if (down === "mulaw") return new StreamMulaw();
+  if (down === "adpcm") return new StreamAdpcm8k(5, false);
+  return new StreamAdpcm8k(3, true);
+}

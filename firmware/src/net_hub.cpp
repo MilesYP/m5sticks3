@@ -37,6 +37,7 @@ struct CmdMsg {
   char up[8];
   char down[10];
   char pace[6];
+  char mode[6];   // B3c："gpt"／"echo"
 };
 QueueHandle_t s_cmdq = nullptr;
 TaskHandle_t s_task = nullptr;
@@ -153,6 +154,8 @@ net_hub::StateCb    s_state_cb = nullptr;
 net_hub::BinCb      s_bin_cb = nullptr;
 net_hub::AudioEndCb s_end_cb = nullptr;
 net_hub::FormatCb   s_fmt_cb = nullptr;
+net_hub::ErrorCb    s_err_cb = nullptr;
+net_hub::TextCb     s_text_cb = nullptr;
 net_hub::BinGate    s_gate = nullptr;
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -178,7 +181,7 @@ uint8_t s_tx[MSG_BYTES];
 struct Job {
   bool active = false, start_sent = false, stop_sent = false, finishing = false, resend = false, mulaw = true;
   uint32_t id = 0, gen = 0, pos = 0;
-  char start_json[128] = "";
+  char start_json[160] = "";
 } s_job;
 
 void jobOnLinkLost() {
@@ -266,8 +269,8 @@ void handleCmd(const CmdMsg& m) {
       s_job.mulaw = strcmp(m.up, "mulaw") == 0;
       s_job.pos = audio_io::recFrom();
       snprintf(s_job.start_json, sizeof(s_job.start_json),
-               "{\"t\":\"start\",\"id\":%lu,\"up\":\"%s\",\"down\":\"%s\",\"pace\":\"%s\"}",
-               (unsigned long)m.id, m.up, m.down, m.pace);
+               "{\"t\":\"start\",\"id\":%lu,\"up\":\"%s\",\"down\":\"%s\",\"pace\":\"%s\",\"mode\":\"%s\"}",
+               (unsigned long)m.id, m.up, m.down, m.pace, m.mode);
       s_job_sent.store(0);
       s_job_done.store(false);
       s_job_active.store(true);
@@ -444,6 +447,68 @@ bool getStr(const char* json, const char* key, char* out, size_t cap) {
   out[i] = '\0';
   return true;
 }
+// B4：取 JSON 字串值並解開跳脫（\" \\ \/ \n \t \r \b \f \uXXXX→UTF-8，含代理對）。中文本身是 UTF-8 原字。
+bool getStrJson(const char* json, const char* key, char* out, size_t cap) {
+  char pat[24];
+  snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+  const char* p = strstr(json, pat);
+  if (!p || cap < 5) return false;
+  p += strlen(pat);
+  size_t i = 0;
+  auto put = [&](uint32_t cp) {
+    if (cp < 0x80) { if (i + 1 < cap) out[i++] = (char)cp; }
+    else if (cp < 0x800) { if (i + 2 < cap) { out[i++] = 0xC0 | (cp >> 6); out[i++] = 0x80 | (cp & 0x3F); } }
+    else if (cp < 0x10000) { if (i + 3 < cap) { out[i++] = 0xE0 | (cp >> 12); out[i++] = 0x80 | ((cp >> 6) & 0x3F); out[i++] = 0x80 | (cp & 0x3F); } }
+    else { if (i + 4 < cap) { out[i++] = 0xF0 | (cp >> 18); out[i++] = 0x80 | ((cp >> 12) & 0x3F); out[i++] = 0x80 | ((cp >> 6) & 0x3F); out[i++] = 0x80 | (cp & 0x3F); } }
+  };
+  auto hex4 = [](const char* h, uint32_t* v) {
+    uint32_t r = 0;
+    for (int k = 0; k < 4; ++k) {
+      const char c = h[k];
+      r <<= 4;
+      if (c >= '0' && c <= '9') r |= c - '0';
+      else if (c >= 'a' && c <= 'f') r |= c - 'a' + 10;
+      else if (c >= 'A' && c <= 'F') r |= c - 'A' + 10;
+      else return false;
+    }
+    *v = r;
+    return true;
+  };
+  while (*p && *p != '"') {
+    if (*p != '\\') { if (i + 1 < cap) out[i++] = *p; ++p; continue; }
+    ++p;
+    switch (*p) {
+      case 'n': put('\n'); ++p; break;
+      case 't': put(' '); ++p; break;
+      case 'r': case 'b': case 'f': ++p; break;
+      case 'u': {
+        uint32_t cp;
+        if (!hex4(p + 1, &cp)) { ++p; break; }
+        p += 5;
+        uint32_t lo;
+        if (cp >= 0xD800 && cp < 0xDC00 && p[0] == '\\' && p[1] == 'u' && hex4(p + 2, &lo) && lo >= 0xDC00 && lo < 0xE000) {
+          cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+          p += 6;
+        }
+        put(cp);
+        break;
+      }
+      case '\0': break;
+      default: put((uint8_t)*p); ++p; break;   // \" \\ \/
+    }
+  }
+  // 截斷時不要留下半個 UTF-8 字元
+  if (i > 0) {
+    size_t lead = i - 1;
+    while (lead > 0 && ((uint8_t)out[lead] & 0xC0) == 0x80) --lead;   // 最後一個字的開頭
+    const uint8_t c = (uint8_t)out[lead];
+    const size_t need = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+    if (i - lead < need) i = lead;                                      // 不完整就整字拿掉
+  }
+  out[i] = '\0';
+  return true;
+}
+
 uint32_t getNum(const char* json, const char* key) {
   char pat[24];
   snprintf(pat, sizeof(pat), "\"%s\":", key);
@@ -459,6 +524,19 @@ void handleText(const char* js) {
     char fmt[12] = "";
     getStr(js, "fmt", fmt, sizeof(fmt));
     if (s_end_cb) s_end_cb(getNum(js, "n"), getNum(js, "pcm"), g, fmt);
+    return;
+  }
+  if (strstr(js, "\"t\":\"text\"")) {   // B4：逐字稿
+    char role[12] = "", s[400];
+    getStr(js, "role", role, sizeof(role));
+    if (getStrJson(js, "s", s, sizeof(s)) && s_text_cb) s_text_cb(role, s, getNum(js, "ms"));
+    return;
+  }
+  if (strstr(js, "\"t\":\"error\"")) {  // B3c：quota／openai…
+    char code[16] = "", s[200] = "";
+    getStr(js, "code", code, sizeof(code));
+    getStrJson(js, "s", s, sizeof(s));
+    if (s_err_cb) s_err_cb(code, s);
     return;
   }
   if (strstr(js, "\"t\":\"format\"")) {
@@ -522,7 +600,7 @@ void loop() {
       const size_t n = len < sizeof(js) - 1 ? len : sizeof(js) - 1;
       memcpy(js, d, n);
       js[n] = '\0';
-      Serial.printf("[hub] <- %s\n", js);
+      if (!strstr(js, "\"t\":\"text\"")) Serial.printf("[hub] <- %s\n", js);   // 逐字稿由 voice_turn 整理後印
       handleText(js);
     }
     rxPop(len);
@@ -535,15 +613,18 @@ void onState(StateCb cb) { s_state_cb = cb; }
 void onBinary(BinCb cb) { s_bin_cb = cb; }
 void onAudioEnd(AudioEndCb cb) { s_end_cb = cb; }
 void onFormat(FormatCb cb) { s_fmt_cb = cb; }
+void onError(ErrorCb cb) { s_err_cb = cb; }
+void onText(TextCb cb) { s_text_cb = cb; }
 void onBinGate(BinGate g) { s_gate = g; }
 
-void uploadBegin(uint32_t id, const char* up, const char* down, const char* pace) {
+void uploadBegin(uint32_t id, const char* up, const char* down, const char* pace, const char* mode) {
   CmdMsg m{};
   m.c = Cmd::UploadBegin;
   m.id = id;
   strncpy(m.up, up, sizeof(m.up) - 1);
   strncpy(m.down, down, sizeof(m.down) - 1);
   strncpy(m.pace, pace, sizeof(m.pace) - 1);
+  strncpy(m.mode, mode, sizeof(m.mode) - 1);
   s_job_done.store(false);   // 主迴圈馬上讀得到正確值，不用等網路 task 處理指令
   s_job_sent.store(0);
   post(m);

@@ -23,6 +23,10 @@ void setSpeakLevel(float level01);   // 說話中的嘴巴開合：0～1（M1-B 
 // B3b-4（Miles 選定方案 c）：斷線時表情定格（不呼吸、不眨眼、不過渡）、眼睛變灰、右上角 Wi-Fi 加斜線
 void setOffline(bool offline);
 bool offline();
+// B4：對話區（直式：畫面下方最多 5 行，表情往上縮、眼睛在剩下的區域置中；橫式併入 M1-A A4）
+void convBegin();                          // 按下 A：清掉上一輪、展開對話區
+void convText(bool assistant, const char* utf8);   // 加一段逐字稿（使用者／小S），自動換行、只留最後 5 行
+void convEnd();                            // 這輪結束：停留幾秒後收起、表情回滿版
 void debugNextMood();   // 測試用：循環切到下一種情緒（切片 3 接上 IMU 後移除）
 
 }  // namespace ui_expression

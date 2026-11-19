@@ -9,7 +9,7 @@
 #include "config.h"
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "20c-b3b5"
+#define AUDIO_BUILD_TAG "21-b3c"
 
 namespace {
 
@@ -129,6 +129,8 @@ constexpr size_t   RING_SAMPLES   = SAMPLE_RATE * 8;     // 8 秒（256KB，PSRA
 constexpr size_t   STREAM_BLOCK   = SAMPLE_RATE / 10;    // 每次交給喇叭 100ms
 constexpr uint32_t REBUFFER_MS    = 1000;                // 斷音後補到這麼多才繼續
 uint32_t s_prebuf_ms = 300;                              // 開始播之前先緩衝多少（b<ms> 可改）
+uint32_t s_turn_prebuf_ms = 0;                           // B3c：這一輪另外指定（0＝用 s_prebuf_ms）
+inline uint32_t prebufMs() { return s_turn_prebuf_ms ? s_turn_prebuf_ms : s_prebuf_ms; }
 
 int16_t* s_ring = nullptr;
 std::atomic<uint32_t> s_wr{0};       // 已寫入的取樣總數（只增不減，取餘數得位置）
@@ -136,6 +138,8 @@ std::atomic<uint32_t> s_rd{0};       // 已交給喇叭的取樣總數
 std::atomic<uint32_t> s_fr{0};       // 喇叭已讀完、可以覆寫的取樣總數
 std::atomic<uint8_t>  s_inflight{0}; // 交給喇叭還沒讀完的塊數（0～2）
 uint32_t s_q_len[4];                 // 在喇叭裡的各塊長度（單一生產者／單一消費者的小佇列）
+float    s_q_rms[4];                 // B4：各塊的 RMS（0～1，滿幅＝1），嘴巴開合用
+std::atomic<float> s_play_rms{0.0f}; // B4：喇叭正在播的那一塊的 RMS
 std::atomic<uint8_t> s_q_head{0}, s_q_tail{0};
 std::atomic<bool> s_feed_lock{false};
 volatile bool s_st_active = false, s_st_started = false, s_st_ended = false, s_st_starved = false;
@@ -163,6 +167,13 @@ void streamFeed() {
     if (!M5.Speaker.playRaw(s_ring + pos, len, SAMPLE_RATE, false, 1, STREAM_CH, false)) break;
     const uint8_t t = s_q_tail.load(std::memory_order_relaxed);
     s_q_len[t & 3] = len;
+    {   // B4：這一塊的 RMS（100ms＝1600 取樣，計算量很小）
+      const int16_t* b = s_ring + pos;
+      float acc = 0;
+      for (uint32_t k = 0; k < len; ++k) acc += (float)b[k] * b[k];
+      s_q_rms[t & 3] = len ? sqrtf(acc / len) / 32768.0f : 0.0f;
+      if (s_inflight.load() == 0) s_play_rms.store(s_q_rms[t & 3]);   // 喇叭原本是空的 → 這塊馬上開始播
+    }
     s_q_tail.store((uint8_t)(t + 1), std::memory_order_release);
     s_inflight.fetch_add(1);
     s_rd.store(rd + len, std::memory_order_release);
@@ -187,6 +198,8 @@ void onSpeakerRelease(void*, const void* data, uint8_t ch) {
     s_fr.fetch_add(s_q_len[h & 3]);
     s_q_head.store((uint8_t)(h + 1), std::memory_order_release);
     if (s_inflight.load() > 0) s_inflight.fetch_sub(1);
+    // B4：讀完一塊 → 下一塊（新的隊首）開始播
+    s_play_rms.store(s_inflight.load() > 0 ? s_q_rms[(uint8_t)(h + 1) & 3] : 0.0f);
   }
   if (!s_st_ended) {   // 收尾階段不算（本來就會見底）
     const uint32_t ahead = s_wr.load() - s_fr.load();
@@ -463,7 +476,7 @@ void loop() {
     const uint32_t unplayed = s_wr.load() - s_fr.load();          // 還沒播（含喇叭裡的）
     const uint32_t queued   = s_wr.load() - s_rd.load();          // 還沒交給喇叭
     if (!s_st_started) {
-      if (unplayed >= s_prebuf_ms * (SAMPLE_RATE / 1000) || (s_st_ended && unplayed > 0)) {
+      if (unplayed >= prebufMs() * (SAMPLE_RATE / 1000) || (s_st_ended && unplayed > 0)) {
         if (M5.Mic.isRunning()) M5.Mic.end();   // ES8311 同時只能麥克風或喇叭其一
         speakerOn();
         s_st_started = true;
@@ -665,10 +678,28 @@ bool streamActive() { return s_st_active; }
 bool streamStarted() { return s_st_active && s_st_started; }
 uint32_t streamStartedAt() { return s_st_t_started; }
 
+void setTurnPrebufferMs(uint32_t ms) { s_turn_prebuf_ms = ms; }
+
 void setPrebufferMs(uint32_t ms) {
   if (ms > 4000) ms = 4000;
   s_prebuf_ms = ms;
   Serial.printf("[diag] 預緩衝 → %lu ms（下一輪生效）\n", (unsigned long)ms);
+}
+
+// B4：這一輪已經「播完」的音訊長度（ms）＝喇叭讀完的取樣數（還沒開始播＝0）
+uint32_t streamPlayedMs() {
+  if (!s_st_started) return 0;
+  return s_fr.load() / (SAMPLE_RATE / 1000);
+}
+
+// B4：嘴巴開合用的播放音量（0～1）。RMS 轉 dBFS 後把 −45～−12 dBFS 線性對到 0～1；沒在播＝0。
+float playLevel() {
+  if (!s_st_active || !s_st_started) return 0.0f;
+  const float r = s_play_rms.load();
+  if (r <= 0.0f) return 0.0f;
+  const float db = 20.0f * log10f(r);
+  float v = (db + 45.0f) / 33.0f;
+  return v < 0 ? 0 : (v > 1 ? 1 : v);
 }
 
 size_t streamRoom() {
@@ -682,7 +713,7 @@ const char* streamReport() {
   snprintf(buf, sizeof(buf),
            "[stream] 收到 %lu ms 音訊｜送出 stop 後 %lu ms 開始播（預緩衝 %lu ms）｜播放中緩衝最低 %ld ms｜斷音 %lu 次共 %lu ms｜緩衝滿丟棄 %lu 取樣",
            (unsigned long)(s_st_written / ms_per),
-           s_st_t_started ? (unsigned long)(s_st_t_started - s_st_t_begin) : 0UL, (unsigned long)s_prebuf_ms,
+           s_st_t_started ? (unsigned long)(s_st_t_started - s_st_t_begin) : 0UL, (unsigned long)prebufMs(),
            s_st_min_buf == 0xFFFFFFFF ? -1L : (long)(s_st_min_buf / ms_per),
            (unsigned long)s_st_underruns, (unsigned long)s_st_starve_ms, (unsigned long)s_st_dropped);
   return buf;

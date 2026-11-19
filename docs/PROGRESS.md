@@ -17,8 +17,8 @@
 > ```
 
 ## 目前狀態（每次更新時順手改這一段）
-- **階段**：**M1-B 語音對話進行中**（M0、M1-A 切片 1–2、B1～B3b-5 完成）；**11-19 M1-B 範圍定案為 13 片、不再加片**：剩 B3c → B4，B5／B6 移待辦。全部里程碑的切片清單見 `docs/StickS3 執行計劃.md`「切片拆分」
-- **進行中**：下一片 **B3c 接 GPT-Live**（接手 prompt `docs/KICKOFF_B3c.md`；做法與先導測試的判定規則已先定案，照做即可）
+- **階段**：**M1-B 語音對話完成**（11-20；M0、M1-A 切片 1–2、M1-B 全 13 片完成）。助理 **Friday**（GPT-Live、聲音 meridian）會上網查天氣新聞、記得上下文與使用者記憶。下一步依 11-19 排序：**M1-A A3 IMU 互動**（接手 prompt `docs/KICKOFF_A3.md`）→ A4；G2 Grove 功能驗收可並行
+- **進行中**：無（下一片 A3）。語音待辦（未排期）：滾輪調音量（等 G2）、MCP＋skill、Hey Friday 喚醒詞、自訂聲音、新聞快報（見 `docs/StickS3 執行計劃.md` M1-B 之後的語音待辦）
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -36,6 +36,15 @@
 - 驗收結果：指令 `e` 實測 CardKB `5F`、Scroll `40`（兩種速度皆可）；5V 輸出 5.07～5.10V。重開機自動偵測、只用電池兩項待補測。
 - 遇到的坑／新規則：`isEnabled()` 只代表設過埠號，不代表已 begin（已寫入 `CLAUDE.md` 鐵則一）。`selftest/` 的 Grove `(none)` 同因，無參考價值。L3B 是否必要未單獨驗證。
 - 下一步：補測重開機偵測與電池供電 → 寫 `grove-test/` 做功能驗收（K1–K5、S1–S6）。語音主線不變（下一片 B3c）。
+
+### 2026-11-20｜M1-B / B3c＋B4 接 GPT-Live＋對話列文字（合併一片）｜Claude Code（Cowork 橋接）
+- 做了什麼：中控接 OpenAI GPT-Live（`cloud/src/gpt_live.js` 連線包裝、`gpt_turn.js` 一輪對話、`lab.js` 先導測試、`s2t.js` 簡轉繁、`adpcm.js` 串流編碼器 ADPCM 8k／16k／μ-law）。按 A 才開 session、回答完 30 秒關；上下文 50 輪存 DO、帶最近 10 輪；每日額度；Responses 委派＋web_search 上網查；助理改名 **Friday**、聲音 `meridian`；人設＋使用者記憶 `cloud/persona/`（`persona.sh` 上傳，`miles.local.md` 不進 repo）。韌體：`start` 帶 `mode`（`m1` gpt 預設／`m0` echo）、額度錯誤回待機、gpt 模式開口前等 20 秒、預緩衝 1.2 秒、下載預設 μ-law；B4 底部 5 行對話區（`efontTW_12`，Friday 開口後保留使用者前 2 行）、字幕依播放進度顯示、嘴巴依播放 RMS；`AUDIO_BUILD_TAG` 21-b3c。
+- 先導測試（`/lab`，Miles 終端機跑 `cloud/lab.sh`，不需裝置；約 $0.5）：第一輪全部作廢——GPT-Live 沒講話也一直送靜音 delta（原本以收到當開口）、素材是雜音、測試中途素材被換掉（加「鎖定素材」）。之後定出：A 開口 1.0～1.6 秒、B 4 倍速正常、C 會搶話且 mute 擋不住、D 長回答最長停頓 0.92 秒 → 安靜 1.5 秒算講完。數字與判定見 `docs/M1B-架構.md`。
+- 設計決議（Miles）：B3c、B4 合併一片省驗收；實機後送音**改回邊講邊送**（buffer 4 倍速開口 3～8 秒且長句逐字稿遺失）；這片就開上網查詢；下載選 μ-law（ADPCM 8kHz 有老電話聲）；增益 1（2.5 較爆）；聲音 meridian（Ember 與 GPT-Live-1.1 只有 ChatGPT App）；盡量全繁體顯示；喚醒詞之後用「Hey Friday」；工具改走 MCP＋skill、**不連自己的電腦**。
+- 驗收結果：**通過**。問天氣會先說「我查一下」再講真的天氣；「我剛剛問了什麼」答得出；30 秒以上長問題可答；字幕跟聲音同步、全繁體無方框；回答中 `x` 斷線已收到的播完、下一輪正常；`DAILY_MAX_TURNS=2` 被拒並印「今日額度已用完」；echo 回歸正常；問「你是誰」答得出 Friday 與規劃功能；μ-law 無斷音、聲音清楚。
+- 遇到的坑（寫入 `CLAUDE.md` 鐵則六第 11 點、鐵則七第 12 點）：(1) 回答中的停頓扣著不送 → 裝置斷音（改全送＋預緩衝 1.2 秒）。(2) 字幕跑在聲音前（字一產生就送；改帶 ms 播到才顯示）。(3) 使用者逐字稿有時是簡體 → `efontTW_12` 顯示方框（改 OpenCC 轉台灣繁體；單字一對一表會把皇后、頭髮轉錯，不用）。(4) 接著 USB 線待機有嗡嗡聲，拔線就沒有（電腦端雜訊）。(5) wrangler 變數 `VOICE` 和 DO 綁定撞名 → `GPT_VOICE`。(6) PlatformIO `log2file` 在 VS Code 內建 Serial Monitor 不生效（log 要用 PlatformIO 監看器或手貼）。
+- 下一步：M1-A A3 IMU 互動（`docs/KICKOFF_A3.md`）；G2 Grove 功能驗收可並行。
+- 待辦／未決：滾輪調音量（等 G2）、MCP＋skill、Hey Friday、prompt-to-voice 自訂聲音、新聞快報、GPT-Live-1.1 開放 API 後評估；**每完成一個功能要更新 `cloud/persona/friday.md` 並跑 `cloud/persona.sh`**。
 
 ### 2026-11-19｜M1-B / B3b-5 邊錄邊傳＋網路背景化｜Claude Code（Cowork 橋接）
 - 做了什麼：WebSocket 收送、重連全部移到網路 task（core 0、優先權 1、堆疊 10KB）；主迴圈↔網路 task 用指令佇列、收件佇列（PSRAM 1MB、保序、反壓）、log 佇列（主迴圈代印）交接。錄音改 4MB 環形緩衝（128 秒），**不設錄音上限**；網路 task 邊錄邊編 **μ-law** 上傳（每則 8000 bytes），`start` 帶 `id`，斷線重連後從頭重送。`voice_turn` 改四個狀態（Idle／Recording／Flushing／Receiving），每 0.5 秒印 `[up]` 進度，播完印「送出＝收到」核對。序列埠新增 `u0/u1`（上傳 PCM／μ-law）、`x`（只斷 WebSocket）。中控解 μ-law、每輪上限 64MB、存最近 60 秒錄音（B3c 先導測試用）。拿掉 `despike()`、本機整段播放（`playBuffer`）與 6 秒上限。

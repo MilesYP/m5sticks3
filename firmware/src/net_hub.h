@@ -28,16 +28,24 @@ void onState(StateCb cb);
 typedef void (*BinCb)(const uint8_t* data, size_t len);   // 中控回傳的音訊
 typedef void (*AudioEndCb)(uint32_t bytes, uint32_t pcm_bytes, float gain, const char* fmt);
 typedef void (*FormatCb)(const char* up, const char* down);
+// B3c：中控回報錯誤（code＝"quota" 今日額度用完、"openai" 連不上 OpenAI…；s＝說明）
+typedef void (*ErrorCb)(const char* code, const char* s);
+// B4：逐字稿片段（role＝"user"／"assistant"，s＝新增的文字，UTF-8，已解開 JSON 跳脫）
+// ms（B4 實機補）：小S 的字對應到這輪回覆音訊的第幾 ms（播到那裡才顯示）；沒有＝0
+typedef void (*TextCb)(const char* role, const char* s, uint32_t ms);
 typedef bool (*BinGate)(size_t len);   // B3b-5 反壓：現在收不收得下這則音訊；false → 留在佇列，下一圈再試
 void onBinary(BinCb cb);
 void onAudioEnd(AudioEndCb cb);
 void onFormat(FormatCb cb);
+void onError(ErrorCb cb);
+void onText(TextCb cb);
 void onBinGate(BinGate g);
 
 // ── B3b-5 上傳工作（網路 task 執行）──
 // uploadBegin：先呼叫 audio_io::startRecording() 再呼叫。中控沒連上也可以，連上後才送。
 // 斷線重連後網路 task 會用同一個 id 重送 start，再從頭重送整段（Miles 定案「甲」）。
-void uploadBegin(uint32_t id, const char* up, const char* down, const char* pace);
+// mode（B3c）："gpt"（接 GPT-Live）或 "echo"（B3b-5 原樣回傳，回歸測試用）
+void uploadBegin(uint32_t id, const char* up, const char* down, const char* pace, const char* mode);
 void uploadFinish();            // 放開 A（audio_io::stopRecording() 之後）：送完剩下的就送 stop
 void uploadAbort();             // 這輪不要了（不送 stop）
 bool uploadDone();              // stop 已送出

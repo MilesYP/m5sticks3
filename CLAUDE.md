@@ -17,7 +17,7 @@
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
-| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3b-5 完成（進度見 `docs/PROGRESS.md`） |
+| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、**M1-B 全部完成**（11-20，助理 Friday；進度見 `docs/PROGRESS.md`） |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
 
@@ -102,6 +102,8 @@
 
 10. **人聲判斷（VAD）與誤觸防護（2026-11-19 B3b-5 補強實測）**：每 100ms 一塊算一階差分 RMS（dBFS），門檻 `cfg::VOICE_VAD_DBFS`＝−55；連續 8 秒低於門檻自動當作放開 A，按住不到 0.6 秒當誤觸（不送 start）。**校準一律用每 100ms 一塊的逐塊實測值**（`[up]` 行印每 0.5 秒的最低／最高）：安靜 −58.2～−61.5、講話 −29.8～−55（輕聲、句尾約 −49～−55）。第一版用錄音量測行的「高頻底噪」（整段 2ms 格中位數、混了講話）推出 −48，把停頓後的輕聲當靜音、講話中被切 → 不可再用整段統計值推逐塊門檻。環境變吵（安靜也超過 −55）只會不自動結束，不會誤切。
 
+11. **接著 USB 線時待機有「日光燈管」般的嗡嗡聲，拔線就沒有**（2026-11-20 B3c 實測）：電腦端電源／接地雜訊進到喇叭放大器，不是韌體問題。**評估音質一律拔線聽**（序列埠會斷，先接線確認不斷音、再拔線聽）。
+
 ### 鐵則七：連網（Wi-Fi／中控 WebSocket）規則（2026-11-18 B3b-2 實測得出）
 1. **傳輸速度被往返時間（RTT）綁住**：iPhone 熱點下 ping→pong 約 290～400ms（含中控處理）。ESP32 Arduino 的 TCP 收發緩衝小，每送出約 8～12KB 就要等確認 → 實測上傳約 36KB/s（`sendBIN` 3200 bytes 平均 88ms、偶發 3 秒重傳卡住）、下載約 25KB/s（每次 `loop()` 只收 1 幀）。16kHz PCM16 是 32KB/s、OpenAI 輸出 24kHz PCM16 是 48KB/s → **原始 PCM 跟不上即時**，B3c 前必須壓縮（B3b-3）。
 2. **`sendBIN` 是阻塞的**，會卡住呼叫它的迴圈；在主迴圈送音訊時錄音緩衝（2 塊＝200ms）撐不住 → **B3b-5 已把網路移到獨立 task**（見第 11 點）：每則 8000 bytes 的 `sendBIN` 在網路 task 裡平均 200ms、最長約 0.5 秒，主迴圈不受影響（實測最長 22ms）。
@@ -121,6 +123,15 @@
    - **上傳**：μ-law 16kHz，每則 8000 bytes。網路 task 直接讀 `audio_io` 的錄音環形緩衝（4MB＝128 秒，錄音不設上限），頭 60ms 不送、尾 60ms 放開才切。`start` 帶 `id`；斷線重連後用同一個 id 從頭重送（Miles 定案「甲」）；放開後 15 秒連不回才放棄。實測邊講邊送跟得上（約 15.5KB/s＝即時速度），放開後 21～23ms 送完；`x` 斷線 3.7 秒後重送、追趕速度 30～46KB/s。
    - **長回放時 pong 可能晚到很久**（108 秒回放時 RTT 印 14 秒）：中控全速送的音訊在網路上排隊，pong 排在後面，不是斷線。
    - 已知：放開 A 時 `stopRecording()`（量測＋重開麥克風）讓主迴圈停約 0.6 秒，B3b-4 就存在；錄音已結束、上傳在網路 task，不影響聲音，只是畫面頓一下。
+
+12. **GPT-Live 規則（B3c＋B4，2026-11-20 先導測試＋實機定案；細節與數字見 `docs/M1B-架構.md` 第 4 節）**：
+   - **沒講話時也每 100ms 送一則靜音 `output_audio.delta`** → 開口／講完一律看每則 RMS（> −50 dBFS＝有聲），不能看有沒有收到。開口前的靜音不送裝置；開口後全送（扣住停頓會讓裝置斷音）；最後一則有聲後安靜 1.5 秒（`END_GAP_MS`）＝講完。
+   - **模型自己判斷輪替**，使用者句間換氣就可能開口，`mute` 擋不住 → 邊講邊送、stop 前的回覆音訊扣到放開才送（ES8311 不能同時錄放）。stop 後持續照真實速度送靜音到這輪結束。
+   - **照連線時間計費**（`session.closed` 的 `usage.seconds`）：回答完 30 秒沒新對話就 `session.close`；每日額度 `DAILY_MAX_TURNS`／`DAILY_MAX_AUDIO_SEC`（wrangler `[vars]`）。
+   - **上網查詢走 Responses 委派＋`web_search`**：委派進行中（`session.delegation.created` → `response.event` 的 `response.completed` 等）不算講完。
+   - 回覆照**即時速度**送來 → 裝置 gpt 模式預緩衝 1.2 秒；下載預設 μ-law 16kHz（ADPCM 8kHz 有老電話聲）。
+   - 字幕：Friday 的字帶回覆音訊 `ms`，播到才顯示；所有逐字稿經 OpenCC 轉台灣繁體（`efontTW_12` 沒有簡體字形會變方框）。
+   - wrangler 變數不能和綁定撞名（`VOICE` 是 DO 綁定 → 聲音用 `GPT_VOICE`）。官方事實會變：模型、聲音清單、價格，動到前先查 developers.openai.com。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
@@ -220,4 +231,5 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
   2. 新的設計決議或工程規則寫回本檔（`CLAUDE.md`）對應章節。
   3. `git commit` + `git push`。
 - 開始新工作前，先讀 `docs/PROGRESS.md` 最上面幾筆，掌握其他 Session 做到哪裡。
+- **Friday 的記憶要跟著功能更新**（11-20 Miles 要求）：每完成一個里程碑或使用者看得到的功能，更新 `cloud/persona/friday.md` 的「現在會做的事／規劃中」，並提醒 Miles 跑 `cloud/persona.sh` 上傳（不用重新部署）。使用者個人資料只放 `cloud/persona/miles.local.md`（git 忽略，repo 是公開的）。
 - 若在雲端環境作業：PlatformIO 套件伺服器可能連不上，編譯以 Miles 的 Mac 為準；寫入 Mac 的檔案後要用 checksum（如 `md5`）確認內容正確。

@@ -12,3 +12,13 @@ class_name = "VoiceSession"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["VoiceSession"]
+
+# B3c 每日額度（台北日期；一般變數不是 secret）：超過就不開 OpenAI session，回 {"t":"error","code":"quota"}
+# 輪數＝GPT 模式按 A 的次數；音訊秒數＝上傳＋回覆。echo 模式不計。改完要重新 deploy。
+[vars]
+DAILY_MAX_TURNS = "200"
+DAILY_MAX_AUDIO_SEC = "1800"
+# 回覆音量：GPT 聲音固定放大倍數（11-20 實聽：2.5 較大聲但更爆，1 比較清楚）。暫調：npx wrangler deploy --var OUT_GAIN:3
+OUT_GAIN = "1"
+# 聲音（API 清單見 docs/M1B-架構.md；ChatGPT App 的 Ember 不在 API 裡）：meridian＝英語北美口音男聲
+GPT_VOICE = "meridian"

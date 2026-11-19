@@ -12,3 +12,13 @@
 
 # 第三方網站的離線存檔：著作權屬原網站，不公開散布（本機保留參考即可）
 docs/M5Stack RF Wiki*.html
+
+# 序列埠 log（PlatformIO log2file，含逐字稿等個人內容）
+firmware/logs/
+firmware/platformio-device-monitor-*.log
+
+# Friday 的使用者記憶（個人資料，不進公開 repo）
+cloud/persona/*.local.md
+
+# B3c 先導測試報告（含使用者語音逐字稿，不進公開 repo；結論已寫進 docs/M1B-架構.md）
+docs/lab/

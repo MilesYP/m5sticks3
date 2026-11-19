@@ -2,6 +2,7 @@
 
 #include <M5Unified.h>
 #include <math.h>
+#include <string.h>
 
 #include "config.h"
 
@@ -56,6 +57,148 @@ constexpr float    EASE_PER_MS  = 0.010f;  // 過渡速度：越大換表情越�
 
 // B3b-4 斷線提示
 bool     s_offline = false;
+
+// ── B4 對話區 ──
+// 字型：M5GFX 內建繁中點陣 efontTW_12（12px）。一行約 10 個中文字（135px 扣左右邊界）。
+constexpr int      CONV_LINES   = 5;
+constexpr int      CONV_PAD     = 3;
+constexpr uint32_t CONV_HOLD_MS = 5000;     // 這輪結束後對話區再留多久
+constexpr size_t   USER_CAP     = 480;      // UTF-8 bytes
+constexpr size_t   BOT_CAP      = 1500;
+char     s_user[USER_CAP + 1] = "";
+char     s_bot[BOT_CAP + 1] = "";
+size_t   s_user_len = 0, s_bot_len = 0;
+bool     s_conv_on = false;                 // 這輪對話區要顯示
+uint32_t s_conv_hide_at = 0;                // convEnd 之後的收起時刻（0＝不收）
+float    s_conv_k = 0.0f;                   // 0＝收起、1＝展開（平滑過渡）
+bool     s_conv_dirty = false;
+// 換好行的結果：每行是 s_user 或 s_bot 的一段
+struct ConvLine { const char* p; uint16_t len; bool bot; };
+constexpr int MAX_LINES = 96;
+ConvLine s_lines[MAX_LINES];
+int      s_nlines = 0;
+
+size_t utf8Len(uint8_t lead) { return lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1; }
+
+// 追加文字；超過容量就從前面整字丟掉
+void appendText(char* buf, size_t& len, size_t cap, const char* add) {
+  size_t n = strlen(add);
+  if (n > cap) { add += n - cap; n = cap; while (n && (((uint8_t)*add) & 0xC0) == 0x80) { ++add; --n; } }
+  if (len + n > cap) {
+    size_t drop = len + n - cap;
+    while (drop < len && (((uint8_t)buf[drop]) & 0xC0) == 0x80) ++drop;
+    memmove(buf, buf + drop, len - drop);
+    len -= drop;
+  }
+  memcpy(buf + len, add, n);
+  len += n;
+  buf[len] = '\0';
+}
+
+// 把一段文字依像素寬度換行，加進 s_lines（prefix 只算進第一行的寬度）
+void wrapInto(const char* text, size_t len, bool bot, int maxw, int prefix_w) {
+  const char* line = text;
+  int w = prefix_w;
+  const char* p = text;
+  const char* end = text + len;
+  char ch[5];
+  while (p < end) {
+    if (*p == '\n') {
+      if (s_nlines < MAX_LINES) s_lines[s_nlines++] = {line, (uint16_t)(p - line), bot};
+      ++p; line = p; w = 0; continue;
+    }
+    const size_t n = utf8Len((uint8_t)*p);
+    memcpy(ch, p, n); ch[n] = '\0';
+    const int cw = s_cv.textWidth(ch);
+    if (w + cw > maxw && p > line) {
+      if (s_nlines < MAX_LINES) s_lines[s_nlines++] = {line, (uint16_t)(p - line), bot};
+      line = p; w = 0;
+    }
+    w += cw;
+    p += n;
+  }
+  if (p > line && s_nlines < MAX_LINES) s_lines[s_nlines++] = {line, (uint16_t)(p - line), bot};
+}
+
+const char* const PFX_USER = "你：";
+const char* const PFX_BOT  = "Friday：";   // 11-20：助理名 Friday（小S 是機器）
+
+void rewrap(int W) {
+  s_cv.setFont(&fonts::efontTW_12);
+  s_cv.setTextSize(1);
+  const int maxw = W - CONV_PAD * 2;
+  s_nlines = 0;
+  if (s_user_len) wrapInto(s_user, s_user_len, false, maxw, s_cv.textWidth(PFX_USER));
+  if (s_bot_len) wrapInto(s_bot, s_bot_len, true, maxw, s_cv.textWidth(PFX_BOT));
+  // 每段的第一行要畫前綴：記在 len 的最高位元不方便，改成畫的時候判斷「是不是該段開頭」
+  s_cv.setFont(&fonts::Font0);
+  s_conv_dirty = false;
+}
+
+int convHeight() {
+  return CONV_LINES * 14 + CONV_PAD * 2;   // efontTW_12 每行 12px＋行距 2px
+}
+
+void drawConv(int W, int H) {
+  const int ch = (int)(convHeight() * s_conv_k + 0.5f);
+  if (ch <= 0) return;
+  const int top = H - ch;
+  s_cv.fillRect(0, top, W, ch, TFT_BLACK);
+  s_cv.drawFastHLine(0, top, W, s_cv.color565(40, 52, 60));
+  if (s_conv_k < 0.95f) return;   // 展開過程中不畫字（避免字被切一半）
+  if (s_conv_dirty) rewrap(W);
+  s_cv.setFont(&fonts::efontTW_12);
+  s_cv.setTextSize(1);
+  s_cv.setTextDatum(top_left);
+  // 要畫哪幾行：小S 還沒有字 → 你的話捲動顯示最後 5 行；
+  // 小S 有字 → 你的話固定前 USER_KEEP 行（太長在結尾加「…」），其餘行數給小S 捲動顯示最新的
+  constexpr int USER_KEEP = 2;
+  int idx[CONV_LINES];
+  int nshow = 0, nuser = 0;
+  for (int i = 0; i < s_nlines; ++i) if (!s_lines[i].bot) ++nuser;
+  const int nbot = s_nlines - nuser;
+  bool user_cut = false;
+  if (nbot == 0) {
+    for (int i = (s_nlines > CONV_LINES ? s_nlines - CONV_LINES : 0); i < s_nlines; ++i) idx[nshow++] = i;
+  } else {
+    const int ku = nuser < USER_KEEP ? nuser : USER_KEEP;
+    user_cut = nuser > ku;
+    for (int i = 0; i < ku; ++i) idx[nshow++] = i;           // 使用者的行排在前面（rewrap 先排你的再排小S）
+    const int room = CONV_LINES - ku;
+    for (int i = (nbot > room ? s_nlines - room : nuser); i < s_nlines; ++i) idx[nshow++] = i;
+  }
+  char tmp[256];
+  for (int k = 0; k < nshow; ++k) {
+    const int i = idx[k];
+    const ConvLine& L = s_lines[i];
+    const int y = top + CONV_PAD + k * 14 + 1;
+    int x = CONV_PAD;
+    const bool seg_start = (L.p == (L.bot ? s_bot : s_user));
+    const uint16_t col = L.bot ? s_cv.color565(241, 250, 238) : s_cv.color565(120, 150, 160);
+    if (seg_start) {
+      s_cv.setTextColor(L.bot ? s_cv.color565(76, 240, 232) : s_cv.color565(90, 110, 120));
+      const char* pf = L.bot ? PFX_BOT : PFX_USER;
+      s_cv.drawString(pf, x, y);
+      x += s_cv.textWidth(pf);
+    }
+    size_t n = L.len < sizeof(tmp) - 5 ? L.len : sizeof(tmp) - 5;
+    if (user_cut && !L.bot && (k + 1 < nshow ? s_lines[idx[k + 1]].bot : true)) {
+      // 你的話被截掉：這一行去掉最後一個字、補「…」
+      size_t j = n;
+      while (j > 0 && (((uint8_t)L.p[j - 1]) & 0xC0) == 0x80) --j;
+      if (j > 0) --j;
+      memcpy(tmp, L.p, j);
+      memcpy(tmp + j, "\xE2\x80\xA6", 3);   // …
+      n = j + 3;
+    } else {
+      memcpy(tmp, L.p, n);
+    }
+    tmp[n] = '\0';
+    s_cv.setTextColor(col);
+    s_cv.drawString(tmp, x, y);
+  }
+  s_cv.setFont(&fonts::Font0);
+}
 uint32_t s_freeze_ms = 0;      // 定格那一刻；斷線期間所有動畫都用這個時間算
 constexpr uint8_t OFF_R = 95, OFF_G = 94, OFF_B = 90;   // 斷線時眼睛的灰色
 
@@ -101,6 +244,26 @@ void setOffline(bool off) {
 }
 bool offline() { return s_offline; }
 
+void convBegin() {
+  s_user_len = 0; s_user[0] = '\0';
+  s_bot_len = 0; s_bot[0] = '\0';
+  s_nlines = 0;
+  s_conv_on = true;
+  s_conv_hide_at = 0;
+  s_conv_dirty = false;
+}
+void convText(bool assistant, const char* utf8) {
+  if (!utf8 || !*utf8) return;
+  if (assistant) appendText(s_bot, s_bot_len, BOT_CAP, utf8);
+  else appendText(s_user, s_user_len, USER_CAP, utf8);
+  s_conv_on = true;
+  s_conv_dirty = true;
+}
+void convEnd() {
+  // 沒有任何字（誤觸、echo 模式）就馬上收起；有字就留幾秒
+  s_conv_hide_at = millis() + ((s_user_len || s_bot_len) ? CONV_HOLD_MS : 0) + 1;
+}
+
 void debugNextMood() {
   s_mood = static_cast<Mood>((static_cast<uint8_t>(s_mood) + 1) % kMoodCount);
 }
@@ -129,6 +292,20 @@ void render() {
   s_cur.listen     = approach(s_cur.listen, t.listen, k);
   s_cur.speak      = approach(s_cur.speak, t.speak, k);
 
+  // ── B4 對話區展開／收起（用真實時間，斷線定格時也照常收）──
+  {
+    const uint32_t rn = millis();
+    if (s_conv_on && s_conv_hide_at && (int32_t)(rn - s_conv_hide_at) >= 0) { s_conv_on = false; s_conv_hide_at = 0; }
+    const float tgt = s_conv_on ? 1.0f : 0.0f;
+    static uint32_t s_conv_last = 0;
+    const uint32_t cdt = s_conv_last ? rn - s_conv_last : 0;
+    s_conv_last = rn;
+    float kk = cdt * 0.012f;
+    if (kk > 1) kk = 1;
+    s_conv_k += (tgt - s_conv_k) * kk;
+    if (fabsf(tgt - s_conv_k) < 0.01f) s_conv_k = tgt;
+  }
+
   // ── 眨眼排程（睡著時不眨）──
   if (s_mood != Mood::Asleep) {
     if (!s_blinking && now - s_last_blink_end_ms >= s_next_gap_ms) {
@@ -148,7 +325,9 @@ void render() {
   const int W = s_cv.width();
   const int H = s_cv.height();
   const int cx = W / 2;
-  const int cy = (int)(H * 0.42f);
+  // B4：對話區展開時，表情在剩下的高度裡置中（嘴巴在眼睛下方 52px，要留在對話區上面）
+  const int Hf = H - (int)(convHeight() * s_conv_k);
+  const int cy = (int)(Hf * (0.42f + 0.06f * s_conv_k));
   const int gap = 28;                                  // 中心到各眼中心的距離
   const int ew = (int)(32 * s_cur.w_scale);            // 眼寬
   int eh = (int)(46 * s_cur.h_scale);                  // 眼高
@@ -251,6 +430,8 @@ void render() {
     s_cv.setTextSize(2);
     s_cv.drawString("Z", cx + gap + 14, cy - 46 - (int)(p * 14));
   }
+
+  drawConv(W, H);   // B4：最後畫，蓋住延伸到下方的漣漪
 
   if (s_offline) drawWifiOff(W - 16, 20);
 
