@@ -10,6 +10,8 @@
 | 2 核心自檢（`selftest/`） | ✅ 通過 | 2026-11-12 |
 | 3 RF Pack + Bruce 基準 | ❌ nRF24 通過；**CC1101 接收故障**（RSSI 恆定 -50～-55 dBm，拔天線、充飽電、重插皆不變）→ **申請換貨中** | 2026-11-13 |
 | 4 自有工具鏈讀寫 CC1101（`acceptance-test/` v5） | ✅ 通過 | 2026-11-12 |
+| 5a Grove 偵測（CardKB／Scroll，`firmware/` 指令 `e`） | ✅ 通過（修正 `Ex_I2C` 未 begin 後） | 2026-11-19 |
+| 5b Grove 功能測試（`grove-test/`：按鍵碼、滾輪格數、LED） | ⏳ 待寫 | — |
 
 **結論：StickS3 與 RF Pack S3 兩塊板子確認健康，可開始搭韌體骨架（`docs/KICKOFF_PROMPT.md` M0）。**
 
@@ -87,3 +89,22 @@
 
 ## 刷機策略說明
 先用廠商保證可用的 Bruce（已知正常）確認「硬體沒壞」，再換我們的工具鏈確認「我們也能驅動它」，把「板子壞了」與「我們寫錯」兩種問題切開。本次階段四的經驗正好印證此策略：手寫時序的錯誤一度看起來像硬體瑕疵，靠 Bruce 的基準與函式庫對照才確認硬體正常。
+
+---
+
+## 階段 5a：Grove 配件偵測 ✅（2026-11-19）
+- 配件：Unit CardKB（I2C `0x5F`）、Unit Scroll（I2C `0x40`），經 StickS3 側面 Grove 孔（官方標 PORT.CUSTOM：GND／5V／G9／G10）。
+- **第一次失敗**：兩個配件、換線都是 `(none)`；CardKB 按 Shift 燈會亮（有電）。Scroll 燈不亮不代表沒電（要主機下指令）。
+- 排除過程：M5Unified 腳位表（StickS3 Ex SCL=G10／SDA=G9）與官方腳位表一致 → 腳位沒錯；加開 M5PM1 GPIO2（L3B_EN）後仍 `(none)` → 不是 L3B。
+- **根因（軟體）**：`input_hal` 寫 `if (!M5.Ex_I2C.isEnabled()) begin()`，但 `isEnabled()` 在 M5Unified 開機 `setPort` 後就回 true → 從未 `begin()`。改為無條件 `begin()` 後即正常。規則寫入 `CLAUDE.md` 鐵則一。
+- 診斷工具：`firmware/` 序列埠指令 `e`＝重開 5V＋L3B、印電源狀態、`Ex_I2C` begin 結果、400k／100kHz 各掃一次（可不關機換配件）。
+
+| 項目 | 結果 |
+| :-- | :-- |
+| 電源狀態 | 5V boost ON、L3B ON、5Vout 5070～5100 mV |
+| `Ex_I2C` | begin=ok、port 0、SDA=G9、SCL=G10 |
+| CardKB | 400kHz／100kHz 皆 `5F` → CardKB |
+| Scroll | 400kHz／100kHz 皆 `40` → Scroll |
+| 開機自動偵測（重開機後報告） | 待補測 |
+| 只用電池 | 待補測 |
+

@@ -14,7 +14,7 @@ constexpr uint8_t PIN_BTN_B = 12;   // 側鍵：系統鍵（切模式／重印�
 // ── Grove I2C 配件位址（鐵則一：兩者二選一，可能都沒插）──
 constexpr uint8_t I2C_ADDR_CARDKB = 0x5F;
 constexpr uint8_t I2C_ADDR_SCROLL = 0x40;
-constexpr uint32_t GROVE_POWER_SETTLE_MS = 200;   // 開 EXT 5V 後等配件 MCU 開機
+constexpr uint32_t GROVE_POWER_SETTLE_MS = 300;   // 開 EXT 5V＋L3B 後等配件 MCU 開機（11-19：200→300）
 
 // ── 側鍵 B 的時間門檻（按鍵決議 2026-11-13）──
 constexpr uint32_t BTN_B_REPORT_MS = 1000;   // 按住 1～3 秒後放開 = 重印狀態報告

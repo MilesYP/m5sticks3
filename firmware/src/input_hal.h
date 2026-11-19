@@ -21,7 +21,8 @@ enum class InputEvent : uint8_t {
 
 namespace input_hal {
 
-void begin();                 // 開 Grove 供電 → 初始化 Ex_I2C → 掃描
+void begin();                 // 開 Grove 供電（5V＋L3B）→ 初始化 Ex_I2C → 掃描
+void rescan();                // 診斷用（序列埠指令 e）：重開供電、印電源狀態、100k/400kHz 各掃一次並更新偵測結果
 GroveDevice device();
 const char* deviceName();     // "CardKB" / "Scroll" / "None"
 const char* scanLine();       // Grove 掃描到的所有位址（例 "5F" 或 "(none)"），給報告用

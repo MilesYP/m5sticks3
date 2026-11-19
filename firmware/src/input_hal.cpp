@@ -13,9 +13,36 @@ char s_scan_line[64] = "(none)";
 uint32_t s_b_press_ms = 0;
 bool s_b_hold3_fired = false;
 
-void scanGrove() {
+// Grove 供電（2026-11-19 實測：只開 5V 時 CardKB 有電但 I2C 掃不到）
+//  - 5V 升壓：M5PM1 PWR_CFG 的 BOOST_EN（M5Unified 的 setExtOutput 只做這一步）
+//  - L3B：M5PM1 的 GPIO2 = L3B_EN（官方 StickS3 腳位表），M5Unified 0.3.0 不會打開它。
+//    做法與 HA 論壇 StickS3 Grove I2C 的解法相同。是否必要尚未證實（真正的問題是 Ex_I2C 沒 begin），
+//    官方腳位表標示為電源致能腳，打開無害，先保留。
+void powerGrove() {
+  auto& pm1 = M5.Power.M5pm1;
+  const bool ok5v = M5.Power.setExtOutput(true);
+  bool okL3b = pm1.setGPIOFunction(m5::M5PM1_Class::gpio2, m5::M5PM1_Class::gpio);
+  okL3b &= pm1.setGPIOMode(m5::M5PM1_Class::gpio2, m5::M5PM1_Class::output);
+  okL3b &= pm1.setGPIODrive(m5::M5PM1_Class::gpio2, m5::M5PM1_Class::push_pull);
+  okL3b &= pm1.setGPIOOutput(m5::M5PM1_Class::gpio2, true);
+  Serial.printf("[input] power: 5V set=%s  L3B set=%s\n", ok5v ? "ok" : "FAIL", okL3b ? "ok" : "FAIL");
+}
+
+void printPowerState() {
+  auto& pm1 = M5.Power.M5pm1;
+  bool l3b = false;
+  const bool l3bRead = pm1.getGPIOOutputLatch(m5::M5PM1_Class::gpio2, &l3b);
+  Serial.printf("[input] power state: 5V boost=%s  L3B=%s  5Vout=%u mV  battery=%d mV  usb=%s\n",
+                M5.Power.getExtOutput() ? "ON" : "off",
+                l3bRead ? (l3b ? "ON" : "off") : "read-fail",
+                (unsigned)pm1.get5VoutVoltage(),
+                (int)M5.Power.getBatteryVoltage(),
+                M5.Power.isCharging() ? "charging" : "-");
+}
+
+void scanGrove(uint32_t freq = 100000) {
   bool found[128] = {};
-  M5.Ex_I2C.scanID(found);
+  M5.Ex_I2C.scanID(found, freq);
 
   size_t pos = 0;
   s_scan_line[0] = '\0';
@@ -42,15 +69,34 @@ void scanGrove() {
 namespace input_hal {
 
 void begin() {
-  // Grove 孔的 5V 由 M5PM1 控制，M5Unified 預設關閉
-  M5.Power.setExtOutput(true);
+  // Grove 孔的 5V 與 L3B 都由 M5PM1 控制，M5Unified 預設只會（在呼叫時）開 5V
+  powerGrove();
   delay(cfg::GROVE_POWER_SETTLE_MS);   // 只在開機時等一次，不在 loop 內
+  printPowerState();
 
-  // M5Unified 只有在 cfg.external_imu/rtc 時才會初始化 Ex_I2C，這裡明確開啟
-  if (!M5.Ex_I2C.isEnabled()) M5.Ex_I2C.begin();
+  // M5Unified 開機只對 Ex_I2C 做 setPort（設埠號與腳位 G9/G10），沒有 begin。
+  // 注意：isEnabled() 只檢查「有沒有設過埠號」，setPort 之後就回 true，
+  // 不能拿來判斷要不要 begin（11-19 踩坑：因此跳過 begin，Grove 永遠掃不到）→ 一律 begin。
+  const bool exOk = M5.Ex_I2C.begin();
+  Serial.printf("[input] Ex_I2C begin=%s  port=%d SDA=G%d SCL=G%d\n", exOk ? "ok" : "FAIL",
+                (int)M5.Ex_I2C.getPort(), (int)M5.Ex_I2C.getSDA(), (int)M5.Ex_I2C.getSCL());
 
   scanGrove();
   Serial.printf("[input] Grove I2C: %s -> %s\n", s_scan_line, deviceName());
+}
+
+void rescan() {
+  // 診斷用：會阻塞約 0.5 秒（等配件開機），只由序列埠指令觸發，不在正常流程中呼叫
+  powerGrove();
+  delay(500);
+  printPowerState();
+  const bool exOk = M5.Ex_I2C.begin();   // 見 begin() 的說明：不可用 isEnabled() 判斷
+  Serial.printf("[input] Ex_I2C begin=%s  port=%d SDA=G%d SCL=G%d\n", exOk ? "ok" : "FAIL",
+                (int)M5.Ex_I2C.getPort(), (int)M5.Ex_I2C.getSDA(), (int)M5.Ex_I2C.getSCL());
+  scanGrove(400000);
+  Serial.printf("[input] rescan @400kHz: %s\n", s_scan_line);
+  scanGrove(100000);   // 以 100kHz 的結果為準（CardKB 的 ATmega 用 100kHz 最保險）
+  Serial.printf("[input] rescan @100kHz: %s -> %s\n", s_scan_line, deviceName());
 }
 
 GroveDevice device() { return s_device; }

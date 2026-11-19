@@ -40,7 +40,8 @@
 本體只有一個 Grove 孔、無分接線。**CardKB 和 Scroll Unit 永遠二選一，不會同時存在。**
 → 開機時先做 I2C 掃描，偵測到 `0x5F` 就啟用 CardKB 流程，偵測到 `0x40` 就啟用 Scroll 流程，都沒有就走純 RF/攜帶模式。**不要假設哪個一定在。**
 → Grove 匯流排是 `M5.Ex_I2C`（SDA=G9 / SCL=G10）；內部匯流排 `M5.In_I2C`（G47/G48）上固定有 `0x18` ES8311、`0x68` BMI270、`0x6E` M5PM1。Grove 供電要 `M5.Power.setExtOutput(true)`。
-→ **`M5.Ex_I2C` 要自己 `begin()`**：M5Unified 0.3.0 只有在 `cfg.external_imu/rtc`（預設皆 false）時才會呼叫 `Ex_I2C.begin()`（原始碼 `_begin_rtc_imu`）。`selftest/` 沒呼叫，未 begin 時掃描是否仍有效尚未確認 → 驗收時 Grove 的 `(none)` 不能當作配件偵測正常的證據，以 `firmware/` M0 插配件實測為準。
+→ **`M5.Ex_I2C` 一律無條件 `begin()`**（2026-11-19 實測定案）：M5Unified 0.3.0 開機只對 Ex_I2C 做 `setPort`（埠 0、G9/G10），不呼叫 `begin()`；而 `isEnabled()` 只檢查「設過埠號沒有」（`_port_num >= 0`），`setPort` 後就回 true → **不可寫 `if (!isEnabled()) begin()`**，那樣會跳過 begin，Grove 永遠掃不到（CardKB 有電、燈會亮，但 I2C 無回應）。`firmware/input_hal` 已改為無條件 begin 並印出結果，實測 CardKB `5F`、Scroll `40`，100k／400kHz 皆可。`selftest/` 的 Grove `(none)` 是同一個原因，無參考價值。
+→ **Grove 供電**：`setExtOutput(true)`（M5PM1 5V 升壓）＋把 M5PM1 GPIO2（官方腳位表 `L3B_EN`）設為推挽輸出拉高。L3B 是否必要尚未單獨驗證（真正的問題是上一點），官方標示為電源致能、打開無害，先保留。實測 5V 輸出約 5.07～5.10V。
 
 ### 鐵則二：互斥狀態機（Mutually Exclusive State Machine）
 8MB PSRAM 與中斷資源有限，**同一時間只有一個模式的重資源在運作**，切換模式時必須關閉前一個模式的資源再開新的。這是整個韌體的骨架。

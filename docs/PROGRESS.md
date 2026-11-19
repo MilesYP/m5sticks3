@@ -27,9 +27,15 @@
   - （已完成第 2 步即重現）分離測試（完整斷電後：MONITOR 靜置 3 分鐘 → SCAN 300-348 靜置 2 分鐘 → 遙控器 1 公尺 → 貼近 → 不按遙控器輕壓 RF Pack），記錄 drop／bad 與 checkMISO 錯誤何時出現
   - 回信 PINGEQUA：依分離測試結果決定內容（先前「撤回換貨」草稿作廢）
   - `rssi-test` 待修／M3 動工前要釐清：(1) SCAN 掃 ALL 時底噪約 -55 dBm，只掃 300-348 時約 -101 dBm（同樣 3 ms 穩定時間）→ 不是「RSSI 未穩定」，可能與跨頻段後驅動 `Calibrate()` 留下的 FSCAL2／TEST0 設定有關，未驗證；(2) `[regs]` 的 FREQ2 每次讀回值不同（1E／06／87，應為 10），MARCSTATE 開機頭幾秒偶有讀錯 → 狀態／暫存器讀取的可靠性要查；(3) PKTCTRL0 讀回 3F（預期 32）
-  - 插 CardKB／Scroll 確認 Grove 偵測
+  - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
+
+### 2026-11-19｜Grove 配件（CardKB／Scroll）偵測修正｜Cowork
+- 做了什麼：CardKB、Scroll 到貨。插上後兩者都掃不到（`(none)`），CardKB 有電。根因是 `input_hal` 用 `M5.Ex_I2C.isEnabled()` 判斷要不要 `begin()`，但 M5Unified 開機 `setPort` 後它就回 true → 從沒 begin。改為無條件 `begin()`；另加開 M5PM1 GPIO2（L3B_EN）、開機等待 200→300ms、序列埠指令 `e`（重開供電＋印電源狀態＋400k/100kHz 重掃）。
+- 驗收結果：指令 `e` 實測 CardKB `5F`、Scroll `40`（兩種速度皆可）；5V 輸出 5.07～5.10V。重開機自動偵測、只用電池兩項待補測。
+- 遇到的坑／新規則：`isEnabled()` 只代表設過埠號，不代表已 begin（已寫入 `CLAUDE.md` 鐵則一）。`selftest/` 的 Grove `(none)` 同因，無參考價值。L3B 是否必要未單獨驗證。
+- 下一步：補測重開機偵測與電池供電 → 寫 `grove-test/` 做功能驗收（K1–K5、S1–S6）。語音主線不變（下一片 B3c）。
 
 ### 2026-11-19｜M1-B / B3b-5 邊錄邊傳＋網路背景化｜Claude Code（Cowork 橋接）
 - 做了什麼：WebSocket 收送、重連全部移到網路 task（core 0、優先權 1、堆疊 10KB）；主迴圈↔網路 task 用指令佇列、收件佇列（PSRAM 1MB、保序、反壓）、log 佇列（主迴圈代印）交接。錄音改 4MB 環形緩衝（128 秒），**不設錄音上限**；網路 task 邊錄邊編 **μ-law** 上傳（每則 8000 bytes），`start` 帶 `id`，斷線重連後從頭重送。`voice_turn` 改四個狀態（Idle／Recording／Flushing／Receiving），每 0.5 秒印 `[up]` 進度，播完印「送出＝收到」核對。序列埠新增 `u0/u1`（上傳 PCM／μ-law）、`x`（只斷 WebSocket）。中控解 μ-law、每輪上限 64MB、存最近 60 秒錄音（B3c 先導測試用）。拿掉 `despike()`、本機整段播放（`playBuffer`）與 6 秒上限。

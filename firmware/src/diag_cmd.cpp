@@ -5,6 +5,7 @@
 #include <ctype.h>
 
 #include "audio_io.h"
+#include "input_hal.h"
 #include "net_hub.h"
 #include "voice_turn.h"
 
@@ -18,7 +19,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜? 目前設定");
+  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -66,6 +67,9 @@ void run(char* cmd) {
       break;
     case 'k':
       net_hub::pingNow();
+      break;
+    case 'e':   // 11-19 Grove 診斷：重開 5V＋L3B、印電源狀態、重掃 I2C
+      input_hal::rescan();
       break;
     case '?':
       printConfig();
