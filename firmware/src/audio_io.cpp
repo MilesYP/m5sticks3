@@ -9,7 +9,7 @@
 #include "config.h"
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "20b-b3b5"
+#define AUDIO_BUILD_TAG "20c-b3b5"
 
 namespace {
 
