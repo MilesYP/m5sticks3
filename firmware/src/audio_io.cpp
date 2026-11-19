@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <atomic>
 
+#include "config.h"
+
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "20-b3b5"
+#define AUDIO_BUILD_TAG "20b-b3b5"
 
 namespace {
 
@@ -77,6 +79,19 @@ std::atomic<uint32_t> s_rec_queued{0};   // = s_queued
 std::atomic<uint32_t> s_rec_done{0};     // 麥克風已寫完的取樣數
 std::atomic<uint32_t> s_rec_end{0};      // 放開後：切尾後的結尾
 std::atomic<bool>     s_rec_ended{true};
+// B3b-5 補：誤觸防護
+std::atomic<bool>     s_rec_armed{false};    // 已按滿最短時間，可以開始上傳
+std::atomic<uint32_t> s_silence_ms{0};       // 連續沒有人聲多久
+uint32_t s_vad_pos = 0;                      // 下一塊要做 VAD 的位置
+float    s_vad_lo = 0.0f, s_vad_hi = -120.0f;
+
+// 一塊（100ms）的人聲指標：一階差分 RMS（dBFS），與量測行的「高頻底噪」同一個算法
+float chunkLevelDb(const int16_t* p, size_t n) {
+  double e = 0;
+  for (size_t i = 1; i < n; ++i) { const int32_t d = (int32_t)p[i] - (int32_t)p[i - 1]; e += (double)d * d; }
+  const double rms = sqrt(e / (n - 1));
+  return rms < 1e-9 ? -120.0f : (float)(20.0 * log10(rms / 32768.0));
+}
 size_t   s_len = 0;
 uint32_t s_t0 = 0;          // 按下 A 的時刻，用來算實際按住多久
 // 切掉頭尾的按鍵聲：A 鍵就在麥克風旁，按下／放開的機械「喀」聲近距離錄進去
@@ -392,7 +407,11 @@ void startRecording() {
   // B3b-5：先換代（網路 task 的舊上傳工作看到就停），再重設進度。
   // 不再清零整個緩衝（4MB 約要 100ms）：只會送真的錄到的部分，尾端未寫完的那幾毫秒落在切掉的 60ms 內。
   s_rec_gen.fetch_add(1, std::memory_order_acq_rel);
+  s_rec_armed.store(false, std::memory_order_release);
   s_rec_ended.store(false, std::memory_order_release);
+  s_silence_ms.store(0);
+  s_vad_pos = 0;
+  s_vad_lo = 0.0f; s_vad_hi = -120.0f;
   s_rec_end.store(0);
   s_rec_done.store(0);
   s_rec_queued.store(0);
@@ -422,7 +441,20 @@ void loop() {
     // 已寫完＝已排的減掉還在隊列裡的塊（麥克風寫完一塊才把它移出隊列，見 Mic_Class.inl）
     const size_t inq = M5.Mic.isRecording();
     s_rec_queued.store((uint32_t)s_queued, std::memory_order_release);
-    s_rec_done.store((uint32_t)(s_queued > inq * CHUNK ? s_queued - inq * CHUNK : 0), std::memory_order_release);
+    const uint32_t done = (uint32_t)(s_queued > inq * CHUNK ? s_queued - inq * CHUNK : 0);
+    s_rec_done.store(done, std::memory_order_release);
+    // B3b-5 補：按滿最短時間才允許上傳
+    if (!s_rec_armed.load(std::memory_order_relaxed) && millis() - s_t0 >= cfg::VOICE_MIN_PRESS_MS)
+      s_rec_armed.store(true, std::memory_order_release);
+    // B3b-5 補：新寫完的每一塊做人聲判斷，累計連續靜音時間
+    while (s_vad_pos + CHUNK <= done) {
+      const float db = chunkLevelDb(s_rec + (s_vad_pos % REC_RING), CHUNK);
+      if (db < s_vad_lo) s_vad_lo = db;
+      if (db > s_vad_hi) s_vad_hi = db;
+      if (db >= cfg::VOICE_VAD_DBFS) s_silence_ms.store(0);
+      else s_silence_ms.store(s_silence_ms.load() + (uint32_t)(CHUNK * 1000 / SAMPLE_RATE));
+      s_vad_pos += CHUNK;
+    }
   }
 
   // B3b-4 邊收邊播：緩衝夠了開始播、斷音後補夠再繼續、播完切回麥克風
@@ -483,8 +515,9 @@ size_t stopRecording() {
   const size_t a = TRIM_START_MS * SAMPLE_RATE / 1000;
   const size_t cut = TRIM_END_MS * SAMPLE_RATE / 1000;
   const size_t b = (end > cut) ? end - cut : 0;
-  if (b <= a + FADE_IN + FADE_OUT) {         // 按太短，切完不剩
-    Serial.printf("[audio] 太短（%u ms），不送不播\n", (unsigned)held_ms);
+  if (held_ms < cfg::VOICE_MIN_PRESS_MS || b <= a + FADE_IN + FADE_OUT) {   // 誤觸：太短
+    Serial.printf("[audio] 太短（%u ms < %lu ms）→ 當誤觸，不上傳\n", (unsigned)held_ms,
+                  (unsigned long)cfg::VOICE_MIN_PRESS_MS);
     s_len = 0;
     s_rec_end.store((uint32_t)a, std::memory_order_release);
     s_rec_ended.store(true, std::memory_order_release);
@@ -492,6 +525,7 @@ size_t stopRecording() {
     return 0;
   }
   s_len = b - a;
+  s_rec_armed.store(true, std::memory_order_release);        // 夠長：按住時間剛好跨過門檻、主迴圈還沒標到時補標
   s_rec_end.store((uint32_t)b, std::memory_order_release);   // 先寫結尾，再標「已放開」（網路 task 依此順序讀）
   s_rec_ended.store(true, std::memory_order_release);
 
@@ -538,6 +572,14 @@ const int16_t* recPtr(uint32_t abs, size_t* contig) {
   if (contig) *contig = REC_RING - pos;
   return s_rec + pos;
 }
+bool recArmed() { return s_rec_armed.load(std::memory_order_acquire); }
+uint32_t silenceMs() { return s_silence_ms.load(); }
+void vadStats(float* lo, float* hi) {
+  *lo = s_vad_hi < -119.0f ? -120.0f : s_vad_lo;
+  *hi = s_vad_hi;
+  s_vad_lo = 0.0f; s_vad_hi = -120.0f;
+}
+
 size_t recWindow(const int16_t** p) {
   *p = nullptr;
   if (s_len == 0 || s_rec == nullptr) return 0;

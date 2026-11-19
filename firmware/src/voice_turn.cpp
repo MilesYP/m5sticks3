@@ -5,6 +5,7 @@
 #include <math.h>
 
 #include "adpcm.h"
+#include "config.h"
 #include "audio_io.h"
 #include "mode_manager.h"
 #include "net_hub.h"
@@ -85,8 +86,12 @@ void reportUp() {
   const uint32_t tx = net_hub::txBytesTotal();
   const uint32_t dt = now - s_t_report;
   const float rate = dt ? (tx - s_rep_tx) / 1024.0f / (dt / 1000.0f) : 0.0f;
-  Serial.printf("[up] 已錄 %.1f s｜已送 %.1f s｜待送 %.1f KB｜上傳 %.1f KB/s%s\n",
+  float lo = 0, hi = 0;
+  audio_io::vadStats(&lo, &hi);
+  Serial.printf("[up] 已錄 %.1f s｜已送 %.1f s｜待送 %.1f KB｜上傳 %.1f KB/s｜人聲指標 %.1f～%.1f dBFS（門檻 %.0f）｜靜音 %.1f s%s%s\n",
                 rec / (float)SR, sent / (float)SR, (rec > sent ? rec - sent : 0) * bps / 1024.0f, rate,
+                lo, hi, cfg::VOICE_VAD_DBFS, audio_io::silenceMs() / 1000.0f,
+                audio_io::recArmed() ? "" : "｜未滿最短時間，還沒上傳",
                 net_hub::linkUp() ? "" : "｜中控斷線中（連回後從頭重送）");
   s_t_report = now;
   s_rep_tx = tx;
@@ -296,7 +301,7 @@ void onRelease() {
   s_rec_samples = audio_io::stopRecording();
   s_t_release = millis();
   perfPrint("錄音");
-  if (s_rec_samples == 0) {             // 按太短
+  if (s_rec_samples == 0) {             // 誤觸（太短）：start 還沒送出，中控完全不知道
     net_hub::uploadAbort();
     toIdle();
     return;
@@ -332,6 +337,11 @@ void loop() {
   switch (s_st) {
     case St::Recording:
       if (now - s_t_report >= UP_REPORT_MS) reportUp();
+      // B3b-5 補：連續沒有人聲 → 自動當作放開 A（之後真的放開時 onRelease 會因狀態不是 Recording 而略過）
+      if (audio_io::silenceMs() >= cfg::VOICE_AUTO_END_SILENCE_MS) {
+        Serial.printf("[voice] 連續 %.1f 秒沒有人聲 → 自動結束這輪（當作放開 A）\n", audio_io::silenceMs() / 1000.0f);
+        onRelease();
+      }
       break;
     case St::Flushing:
       if (net_hub::uploadDone()) { enterReceiving(); break; }

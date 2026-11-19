@@ -35,6 +35,7 @@
 5. **回答結束**：輸出音訊停頓超過門檻（依先導測試）→ 送 `audio_end`（`pcm`＝這輪收到的上傳 PCM16 bytes、`g`=1、`ms`＝回覆長度）→ `state=idle`。
 6. **模式欄位**：`start` 新增 `mode`：`gpt`（裝置預設）／`echo`（保留 B3b-5 原樣回傳，回歸測試用）；裝置序列埠 `m0`＝echo、`m1`＝gpt。`gpt` 模式裝置不印 SNR（回覆不是原音），完整性核對照舊。
 7. **表情**：裝置維持本機決定（Listening → 放開 Thinking → 開始出聲 Speaking → 播完 Idle），不依中控 state。
+9. **每日額度（11-19 加）**：DO storage 記當天（Asia/Taipei 日期）`{turns, audioSec}`（音訊秒數＝上傳＋回覆）；上限讀 wrangler 變數 `DAILY_MAX_TURNS`（預設 200）、`DAILY_MAX_AUDIO_SEC`（預設 1800），寫進 `wrangler.toml` 的 `[vars]`（不是 secret）。`start` 時已超過 → 不開 OpenAI session，回 `{"t":"error","code":"quota"}` 再送 `audio_end` n=0；回答進行中才超過 → 這輪照常講完、下一輪才拒絕。echo 模式不計。裝置收到 `code=quota` 印「今日額度已用完」、表情回 Idle。
 8. 斷線重送（甲）在 gpt 模式：中控收到同一 `id` 的 `start` → 關掉舊 session、開新 session（帶上下文）、重收整段。
 
 【第一步：先導測試（只動中控，不需裝置）】
@@ -62,6 +63,7 @@
 4. 講 30 秒以上的長問題也能回答；`m0` echo 模式仍正常（回歸）。
 5. 回答中途 `x` 斷線：已收到的播完、這輪結束；下一輪正常。
 6. 印出這幾輪的 `session.usage.updated` 用量。
+7. 把 `DAILY_MAX_TURNS` 暫設 2：第 3 輪被拒絕、裝置印額度用完；改回後恢復。
 
 【收尾】
 通過後：CLAUDE.md 補 GPT-Live 規則（鐵則七新點）；PROGRESS.md 最上面加一筆、改「目前狀態」；執行計劃 md/html 把 B3c 標 ✅、下一片改 B4；寫 `docs/KICKOFF_B4.md`；git commit。

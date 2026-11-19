@@ -26,6 +26,10 @@ bool     recEnded();           // 已放開（recLimit 不會再長）
 uint32_t recOldest();          // 還沒被新錄音覆蓋的最舊位置
 const int16_t* recPtr(uint32_t abs, size_t* contig);   // 取樣位置 → 記憶體位址；*contig＝到緩衝尾端前連續幾個
 size_t   recWindow(const int16_t** p);                 // 放開後：切頭後前 ≤6 秒（量測與 SNR 用；已被覆蓋回 0）
+// ── B3b-5 補：誤觸防護 ──
+bool     recArmed();           // 已按滿 VOICE_MIN_PRESS_MS（網路 task 這時才送 start、開始上傳）
+uint32_t silenceMs();          // 錄音中連續沒有人聲多久（ms）；VAD 見 config.h
+void     vadStats(float* lo_db, float* hi_db);   // 上次呼叫以來每塊人聲指標的最低／最高（dBFS），呼叫後重設
 
 int16_t* rxBuffer();                  // 收中控回傳音訊用的 PSRAM 緩衝（只留前 6 秒，算 SNR）
 size_t rxCapacityBytes();

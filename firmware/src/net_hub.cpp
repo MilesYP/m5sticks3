@@ -316,6 +316,7 @@ void uploadStep() {
     return;
   }
   if (!j.start_sent) {
+    if (!audio_io::recArmed()) return;   // B3b-5 補（Miles 選 A）：按滿最短時間才送 start；誤觸時中控完全不知道
     if (!s_ws.sendTXT(j.start_json)) return;
     j.start_sent = true;
     j.pos = audio_io::recFrom();

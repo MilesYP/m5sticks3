@@ -32,6 +32,17 @@ constexpr uint32_t NET_TASK_STACK = 10240;
 constexpr int      NET_TASK_CORE  = 0;
 constexpr uint32_t NET_TASK_PRIO  = 1;
 
+// ── 語音誤觸防護（B3b-5 補，11-19 定案）──
+// 按住不到這麼久就放開 → 當誤觸：不上傳、不送 start/stop，直接回 Idle。
+// 做法（Miles 選 A）：一按就開始錄（存在裝置），按滿這個時間才送 start、開始上傳。
+constexpr uint32_t VOICE_MIN_PRESS_MS = 600;
+// 錄音中連續這麼久沒有人聲 → 自動當作放開 A（口袋裡壓住）。不是錄音上限：一直講話不會被切。
+constexpr uint32_t VOICE_AUTO_END_SILENCE_MS = 8000;
+// 人聲判斷（VAD）：每 100ms 一塊算「一階差分 RMS」（與錄音量測行的「高頻底噪」同一個指標）。
+// 校準：B3b-5 實測 4 輪安靜時的高頻底噪 −56.6～−57.6 dBFS（中位 −57.5）；
+// 門檻＝底噪 +9.5 dB（與脈衝偵測同一個 3 倍幅度判準）＝ −48 dBFS。[up] 行會印每 0.5 秒的最低／最高值供驗收核對。
+constexpr float VOICE_VAD_DBFS = -48.0f;
+
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔
 constexpr uint32_t LOOP_YIELD_MS = 1;        // loop 結尾讓出 CPU 的時間（非阻塞）
