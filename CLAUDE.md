@@ -17,7 +17,7 @@
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
-| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3b-4 完成（進度見 `docs/PROGRESS.md`） |
+| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–2、M1-B B1～B3b-5 完成（進度見 `docs/PROGRESS.md`） |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
 
@@ -101,15 +101,23 @@
 
 ### 鐵則七：連網（Wi-Fi／中控 WebSocket）規則（2026-11-18 B3b-2 實測得出）
 1. **傳輸速度被往返時間（RTT）綁住**：iPhone 熱點下 ping→pong 約 290～400ms（含中控處理）。ESP32 Arduino 的 TCP 收發緩衝小，每送出約 8～12KB 就要等確認 → 實測上傳約 36KB/s（`sendBIN` 3200 bytes 平均 88ms、偶發 3 秒重傳卡住）、下載約 25KB/s（每次 `loop()` 只收 1 幀）。16kHz PCM16 是 32KB/s、OpenAI 輸出 24kHz PCM16 是 48KB/s → **原始 PCM 跟不上即時**，B3c 前必須壓縮（B3b-3）。
-2. **`sendBIN` 是阻塞的**，會卡住呼叫它的迴圈；在主迴圈送音訊時錄音緩衝（2 塊＝200ms）撐不住 → 邊錄邊傳前要把網路移到獨立 task 或加大緩衝。
+2. **`sendBIN` 是阻塞的**，會卡住呼叫它的迴圈；在主迴圈送音訊時錄音緩衝（2 塊＝200ms）撐不住 → **B3b-5 已把網路移到獨立 task**（見第 11 點）：每則 8000 bytes 的 `sendBIN` 在網路 task 裡平均 200ms、最長約 0.5 秒，主迴圈不受影響（實測最長 22ms）。
 3. **Wi-Fi 沒連上就不要跑 `WebSocketsClient::loop()`**：它每 5 秒重連，走到 DNS 查詢時可能卡住主迴圈好幾秒（B3b-2 實測按 8 秒只錄到 2 秒）。`net_hub` 已處理。
 4. **逾時用「多久沒進展」，不要用固定總時長**：6 秒錄音在熱點上下載就要約 7.5 秒。
 5. **每則 WebSocket 訊息有固定成本**（B3b-3 實測）：ADPCM 每則 804 bytes 時下載只剩約 12KB/s；合併成每則約 8KB 後回到約 23～26KB/s（頻寬上限）。下載一律合併成 ≤8040 bytes 一則。
 6. **下載格式**：B3b-3 定 μ-law（16KB/s），**B3b-4 改預設 ADPCM 8kHz**（約 4KB/s，序列埠 `f3`；`f2` 切回 μ-law）。原因：11-19 熱點 RTT 升到 630～760ms 時下載只剩約 8.8KB/s，μ-law 跟不上即時。中控先低通（31 階、截止 3.6kHz）再降到 8kHz，裝置用 8 階半帶濾波器升回 16kHz（線性內插只有約 25dB，半帶約 42dB）；實測真人語音 SNR 約 20～22 dB（含 4kHz 以上的頻寬損失）。以下為 B3b-3 原紀錄——下載格式 μ-law（B3b-3，Miles 實聽選定）：16kHz、每取樣 8 bit、16KB/s，SNR 約 36.6 dB，與原音聽不出差；ADPCM（8KB/s，SNR 約 25 dB）聽得出較糊，留作弱網備案（序列埠 `f1`）。5～6 秒錄音的等待回傳：PCM 6.3～6.6 秒、μ-law 約 3.6 秒、ADPCM 約 2.0 秒。裝置↔中控格式由 `start` 的 `up`／`down` 協商，與中控↔OpenAI 的格式無關（中控轉碼）。
-7. **熱點連線會被重置**：`ssl_client (-80) Connection lost` 閒置時約每 40～80 秒一次、上傳中也發生過；前後 RTT 飆到 1～3 秒。會自動重連，原因未查。B3b-4 已加 `[link]` 斷線紀錄（連線維持多久、距上次 pong、收送量、RSSI、省電、Wi-Fi 層原因碼）與 `i<秒>` ping 間隔，中控 `wrangler tail` 印 `[ws] close code=…`；11-19 那晚連 185 秒都沒斷，資料待收。**重連（TLS 交握）會卡主迴圈約 2.3 秒**，錄音中發生會少錄 2 秒（B3b-5 網路背景化處理）。
+7. **熱點連線會被重置**：`ssl_client (-80) Connection lost` 閒置時約每 40～80 秒一次、上傳中也發生過；前後 RTT 飆到 1～3 秒。會自動重連，原因未查。B3b-4 已加 `[link]` 斷線紀錄（連線維持多久、距上次 pong、收送量、RSSI、省電、Wi-Fi 層原因碼）與 `i<秒>` ping 間隔，中控 `wrangler tail` 印 `[ws] close code=…`；11-19 那晚連 185 秒都沒斷，資料待收。**重連（TLS 交握）會卡主迴圈約 2.3 秒**，錄音中發生會少錄 2 秒（B3b-5 網路背景化處理）。**11-19 結案**：閒置 642 秒後的那次斷線是**熱點 Wi-Fi 層 Beacon Timeout**（原因碼 200→2、RSSI −67→−80、斷線前 RTT 爬到 2.5～3.4 秒），不是中控或 TLS；韌體只能做到「斷了不卡、不掉錄音」（B3b-5 已做到）。重連在網路 task 裡做（`ws.loop` 最長 1.4 秒），主迴圈不受影響。
 8. **量測先行**：每輪印 `[perf]`（主迴圈、`ws.loop`、送幀耗時、收幀數），ping 回來印 RTT；改傳輸前先看這些數字。
 9. **中控 Durable Object 閒置約 10 秒會休眠**（B3b-4 實測）：休眠式 WebSocket 下 DO 被移出記憶體，**連線不斷，但 `this.*` 記憶體全部清空**。按住 A 10 秒期間裝置沒送任何訊息 → 中控忘了這輪格式、照 pcm16 回傳 → 裝置當 ADPCM 解 → 大爆音。規則：**跨訊息要記住的東西一律存 `ws.serializeAttachment()`**（或 storage），不能只放記憶體。B3c 中控要開 OpenAI 連線時同樣要注意（有外連中的 DO 不會休眠，但開之前的設定要能找回）。
 10. **邊收邊播（B3b-4）**：中控 stop 後一則一則送（預設 `pace=fast` 全速，`r1` 改照真實速度＝壓力測試；只照真實速度送時緩衝永遠只有預緩衝那 0.3 秒，任何卡頓都會斷音）。**WebSocket 函式庫要等一整則訊息收完才放手，`ws.loop()` 實測最久卡 2.5 秒** → 喇叭不能靠主迴圈餵，改由 M5Unified 播放 task 的 `setBufferReleaseCallback` 自己從環形緩衝拿下一塊。M5Unified 0.3.0 `Speaker.playRaw` 規則（查原始碼）：每聲道只有 2 格隊列；**不指定聲道會挑空聲道 → 兩塊同時混音，一律指定聲道 0**；隊列滿時會原地等 → 先查 `isPlaying(0) < 2`；回呼裡可以 `playRaw`、不可 `begin()/end()`，回呼只能在 `begin()` 前或 `end()` 後設定。實測熱點（RTT 300～500ms）中控送完後 0.6～1.4 秒開始播、0 斷音，緩衝最低 1.6～2.5 秒。
+
+11. **網路 task 規則（B3b-5，2026-11-19 實測定案）**：
+   - **`WebSocketsClient` 的所有呼叫（`loop`／`sendTXT`／`sendBIN`／`disconnect`／`beginSSL`）只能在網路 task 裡**（函式庫不是執行緒安全的）。主迴圈要送東西 → `net_hub` 的指令佇列；收到的訊息 → 收件佇列（PSRAM 1MB，文字與音訊同一條、保持順序）由 `net_hub::loop()` 在主迴圈依序呼叫回呼。音訊放不進播放緩衝時停在那則（反壓），佇列剩不到 32KB 就暫停 `ws.loop()`，TCP 會讓中控等。
+   - **網路 task 不印序列埠**：log 先進佇列，由主迴圈代印（序列埠只有一個 task 在寫，USB 沒接電腦也不會卡住網路 task）。
+   - 參數：core 0、優先權 1（低於急停 task 與 M5Unified Mic／Speaker task 的 2）、堆疊 10KB（實測最少剩約 5.8KB）、每圈 `vTaskDelay(1)`。
+   - **上傳**：μ-law 16kHz，每則 8000 bytes。網路 task 直接讀 `audio_io` 的錄音環形緩衝（4MB＝128 秒，錄音不設上限），頭 60ms 不送、尾 60ms 放開才切。`start` 帶 `id`；斷線重連後用同一個 id 從頭重送（Miles 定案「甲」）；放開後 15 秒連不回才放棄。實測邊講邊送跟得上（約 15.5KB/s＝即時速度），放開後 21～23ms 送完；`x` 斷線 3.7 秒後重送、追趕速度 30～46KB/s。
+   - **長回放時 pong 可能晚到很久**（108 秒回放時 RTT 印 14 秒）：中控全速送的音訊在網路上排隊，pong 排在後面，不是斷線。
+   - 已知：放開 A 時 `stopRecording()`（量測＋重開麥克風）讓主迴圈停約 0.6 秒，B3b-4 就存在；錄音已結束、上傳在網路 task，不影響聲音，只是畫面頓一下。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
@@ -158,9 +166,9 @@ firmware/src/
   input_hal.*         // 開機 I2C 掃描，辨識 CardKB(0x5F)/Scroll(0x40)，統一輸入事件
   killswitch.*        // 正面按鈕急停，最高優先（鐵則三）
   ui_expression.*     // 模式1：幾何表情（M1-A 已建）
-  net_hub.*           // Wi-Fi＋中控 WebSocket（token、RTT、省電切換、二進位收送、格式協商、[link] 斷線紀錄）（M1-B 已建）
-  audio_io.*          // ES8311 錄放音、PGA、雜訊量測、邊收邊播環形緩衝（播放 task 自餵）（M1-B 已建）
-  voice_turn.*        // 一輪語音：錄→上傳→邊收邊解壓邊播；表情本機決定（M1-B 已建）
+  net_hub.*           // Wi-Fi＋中控 WebSocket：網路 task（core 0）、指令／收件／log 佇列、μ-law 邊錄邊傳、斷線重送、token、RTT、省電、[link]（M1-B 已建）
+  audio_io.*          // ES8311 錄放音、PGA、雜訊量測、4MB 錄音環形緩衝（不限長度）、邊收邊播環形緩衝（播放 task 自餵）（M1-B 已建）
+  voice_turn.*        // 一輪語音：錄（邊傳）→送尾巴→邊收邊解壓邊播；表情本機決定（M1-B 已建）
   adpcm.*             // IMA ADPCM／μ-law 解碼、8kHz→16kHz 升取樣（M1-B B3b-3／B3b-4 已建）
   diag_cmd.*          // 序列埠診斷指令 w/s/p/g/f/r/b/i/k/?（M1-B B3.6 已建）
   ui_grok.*           // 模式1：M5GFX 幾何表情 + 音量連動 + 跑馬燈
