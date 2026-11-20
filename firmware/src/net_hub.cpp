@@ -167,6 +167,7 @@ net_hub::BinGate    s_gate = nullptr;
 WebSocketsClient s_ws;
 bool     s_ws_started = false;
 bool     s_wifi_on = true;
+bool     s_need_pick = true;   // 11-21：網路 task 要重新掃描挑 Wi-Fi（家裡優先，見 wifiPickStep）
 bool     s_wifi_logged = false;
 uint32_t s_last_ping = 0, s_ping_sent = 0;
 uint32_t s_link_since = 0, s_last_pong = 0;
@@ -395,7 +396,6 @@ const WifiNet kNets[] = {
   {WIFI_SSID, WIFI_PASS, "熱點"},
 };
 constexpr int kNetCount = sizeof(kNets) / sizeof(kNets[0]);
-bool     s_need_pick = true;
 bool     s_scanning = false;
 int      s_net_idx = -1;
 uint32_t s_wifi_try_ms = 0, s_last_pref_scan = 0;
