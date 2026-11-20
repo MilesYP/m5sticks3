@@ -258,7 +258,7 @@ void wrapInto(const char* text, size_t len, bool bot, int maxw, int prefix_w) {
 
 int convHeight() { return CONV_LINES_PORTRAIT * 14 + CONV_PAD * 2; }   // efontTW_12：每行 12px＋行距 2px
 bool landscape() { return s_orient != Orient::Portrait; }
-int convExtent(bool eva) { return eva && landscape() ? EVA_CONV_LAND_WIDTH : convHeight(); }
+int convExtent(bool eva) { return eva && landscape() ? EVA_CONV_LAND_WIDTH : convHeight() + (eva ? 4 : 0); }   // +4：底邊警示斜紋（11-21）
 
 const char* convPrefix(bool bot, bool eva) {
   if (eva) return bot ? "F: " : "> ";
@@ -313,6 +313,17 @@ void pxWatermark(M5Canvas& g, int fx0, int top, int fw, int fy1, uint16_t col) {
   }
 }
 
+// 紅色警示斜紋（跟資訊頁上下邊同一款：6px 紅、6px 空、每列左移 1px）
+void convHazard(int x0, int x1, int y, int h) {
+  if (x1 <= x0) return;
+  const uint16_t red = s_cv.color565(0xFF, 0x29, 0x23);
+  for (int row = 0; row < h; ++row)
+    for (int left = x0 - row - 8; left < x1; left += 12) {
+      const int a = left < x0 ? x0 : left, b = left + 6 < x1 ? left + 6 : x1;
+      if (b > a) s_cv.drawFastHLine(a, y + row, b - a, red);
+    }
+}
+
 void drawEvaConvFrame(int x, int y, int w, int h, uint16_t amber) {
   // A7（11-21）：外框從頁籤下緣開始；左上凸出一塊實心頁籤寫「受信」（點陣圖，不糊）
   const int fy = y + EVA_CONV_TAB_H - 1;
@@ -326,7 +337,11 @@ void drawEvaConvFrame(int x, int y, int w, int h, uint16_t amber) {
   s_cv.setTextDatum(top_left);
   s_cv.setTextColor(amber);
   // 橫式直欄貼著狀態列（已寫 FRIDAY）→ 只有直式加副標
-  if (!landscape()) s_cv.drawString("// FRIDAY", x + tw + 3, y + (EVA_CONV_TAB_H - 8) / 2 + 1);
+  int sx0 = x + tw + 3;
+  if (!landscape()) { s_cv.drawString("// FRIDAY", sx0, y + (EVA_CONV_TAB_H - 8) / 2 + 1); sx0 += s_cv.textWidth("// FRIDAY") + 4; }
+  // 11-21 Miles：加資訊頁邊緣同款紅色警示斜紋（頁籤右邊一段＋外框底邊）
+  convHazard(sx0, x + w - 1, fy - 5, 4);
+  convHazard(x + 1, x + w - 1, y + h - 4, 3);
 }
 
 // 對話區：直式＝畫面下方橫條；橫式＝A 鍵側直欄
@@ -358,7 +373,7 @@ void drawConv(int W, int H, bool eva) {
   s_cv.setFont(&fonts::efontTW_12);
   const int pad = eva ? EVA_CONV_PAD : CONV_PAD;
   const int firstY = eva ? EVA_CONV_HEADER + 3 : CONV_PAD + 1;
-  const int nl = eva ? 1 + (rh - firstY - 13) / 14
+  const int nl = eva ? 1 + (rh - firstY - 13 - 4) / 14   // -4：底邊警示斜紋
                      : land ? (H - CONV_PAD * 2) / 14 : CONV_LINES_PORTRAIT;
   const int keep = land ? 3 : 2;   // Friday 開口後，你的話保留幾行（橫式含前綴那行）
   int idx[MAX_LINES];
