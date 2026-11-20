@@ -51,7 +51,6 @@ constexpr uint8_t BG_R = 0x00, BG_G = 0x00, BG_B = 0x00;   // A7：黑底
 constexpr uint8_t MG_R = 0xFF, MG_G = 0x2B, MG_B = 0xD6;   // 洋紅：網格、舌頭、符號
 constexpr uint8_t OFF_R = 95, OFF_G = 94, OFF_B = 90;      // 斷線灰
 constexpr uint8_t BLINK_RED_R = 226, BLINK_RED_G = 75, BLINK_RED_B = 74;
-constexpr uint8_t BLINK_YEL_R = 255, BLINK_YEL_G = 208, BLINK_YEL_B = 0;   // 11-21：<20% 黃紅閃的黃
 
 struct Rgb { float r, g, b; };
 inline uint16_t c565(float r, float g, float b) {
@@ -116,12 +115,12 @@ uint32_t s_freeze_ms = 0;
 // 休息臉電量色／低電量閃爍／看方向
 bool  s_tint_on = false;
 float s_tint_r = 0, s_tint_g = 0, s_tint_b = 0;
-int   s_low_blink = 0;   // 0 不閃、1 黃紅、2 紅灰
-// 低電量閃爍色：<20% 黃↔紅、<5% 紅↔灰（半週期 BAT_BLINK_MS）
-Rgb lowBlinkColor() {
+int   s_low_blink = 0;   // 0 不閃、1 原色紅閃、2 紅灰閃
+// 低電量閃爍色：<20% 原本顏色↔紅（11-21 Miles：黃色不好看，用原本的琥珀）、<5% 紅↔灰（半週期 BAT_BLINK_MS）
+Rgb lowBlinkColor(const Rgb& base) {
   const bool ph = ((millis() / cfg::BAT_BLINK_MS) % 2) == 0;
   if (s_low_blink >= 2) return ph ? Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B} : Rgb{OFF_R, OFF_G, OFF_B};
-  return ph ? Rgb{BLINK_YEL_R, BLINK_YEL_G, BLINK_YEL_B} : Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B};
+  return ph ? base : Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B};
 }
 float s_gaze_tx = 0, s_gaze_ty = 0, s_gaze_x = 0, s_gaze_y = 0;
 constexpr float GAZE_EASE_PER_MS = 0.006f;
@@ -1104,7 +1103,7 @@ void render() {
   Rgb c1 = s_c1, c2 = s_c2;
   if (s_offline) { c1 = {OFF_R, OFF_G, OFF_B}; c2 = {OFF_R * 0.6f, OFF_G * 0.6f, OFF_B * 0.6f}; }
   else if (s_low_blink && shown != Mood::Listening && shown != Mood::Thinking && shown != Mood::Speaking) {
-    c1 = lowBlinkColor();
+    c1 = lowBlinkColor(c1);
     c2 = PIXEL ? c1 : mixc(BG, c1, 0.6f);
   }
 
@@ -1186,7 +1185,7 @@ void render() {
   const int es = earSide();
   if (PIXEL) { c1 = th.eye; c2 = th.eye; }   // 像素臉：五官、符號一律淡琥珀（警報時框與格子變紅）
   if (PIXEL && !s_offline && s_low_blink && shown != Mood::Listening && shown != Mood::Thinking && shown != Mood::Speaking)
-    c1 = c2 = lowBlinkColor();   // 11-21：低電量五官閃爍（語音中不閃）
+    c1 = c2 = lowBlinkColor(th.eye);   // 11-21：低電量五官閃爍（語音中不閃）
   if (P(K_ED) > -40) {
     const float ex = X(es * (49 - P(K_ED)) + hx), ey = Y(3 + hy);
     const float wave_cx = X(es * (53 - P(K_ED)) + hx);

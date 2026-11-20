@@ -24,6 +24,8 @@
 #error "secrets.h 缺少 HUB_TOKEN：照 secrets.h.example 加一行 #define HUB_TOKEN \"...\"（值與 wrangler secret 的 HUB_TOKEN 相同）"
 #endif
 
+namespace net_hub { extern std::atomic<bool> s_voice_on; }   // 定義在下面（錄放音中）
+
 namespace {
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -303,7 +305,7 @@ void handleCmd(const CmdMsg& m) {
     case Cmd::WifiOn:
       s_wifi_on = true;
       WiFi.mode(WIFI_STA);
-      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      s_need_pick = true;   // 11-21：交給 wifiPickStep 掃描挑網路（家裡優先）
       netlog("[diag] Wi-Fi → 開（等 [hub] WS connected）\n");
       break;
     case Cmd::WifiOff:
@@ -382,6 +384,66 @@ void uploadStep() {
   }
 }
 
+// ── 11-21 Miles：多組 Wi-Fi，家裡優先 ──
+// secrets.h 有定義 WIFI_SSID_HOME／WIFI_PASS_HOME 時，家裡排第一、手機熱點（WIFI_SSID）第二。
+// 背景掃描（不卡）：開機、Wi-Fi 開、連不上 20 秒都重選；連在熱點上時每 60 秒掃一次，掃到家裡就換過去（錄放音中不換）。
+struct WifiNet { const char* ssid; const char* pass; const char* tag; };
+const WifiNet kNets[] = {
+#if defined(WIFI_SSID_HOME) && defined(WIFI_PASS_HOME)
+  {WIFI_SSID_HOME, WIFI_PASS_HOME, "家裡"},
+#endif
+  {WIFI_SSID, WIFI_PASS, "熱點"},
+};
+constexpr int kNetCount = sizeof(kNets) / sizeof(kNets[0]);
+bool     s_need_pick = true;
+bool     s_scanning = false;
+int      s_net_idx = -1;
+uint32_t s_wifi_try_ms = 0, s_last_pref_scan = 0;
+
+void wifiConnect(int i) {
+  s_net_idx = i;
+  s_wifi_try_ms = millis();
+  WiFi.disconnect(false);
+  WiFi.begin(kNets[i].ssid, kNets[i].pass);
+  netlog("[wifi] connecting to \"%s\"（%s）...\n", kNets[i].ssid, kNets[i].tag);
+}
+
+void wifiPickStep(bool wifi) {
+  if (!s_wifi_on) { s_scanning = false; return; }
+  const uint32_t now = millis();
+  if (s_scanning) {
+    const int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) return;
+    s_scanning = false;
+    int best = -1, rssi = 0;
+    for (int i = 0; i < kNetCount && best < 0; ++i)
+      for (int j = 0; j < n; ++j)
+        if (WiFi.SSID(j) == kNets[i].ssid) { best = i; rssi = WiFi.RSSI(j); break; }
+    WiFi.scanDelete();
+    if (best < 0) {   // 都沒掃到（可能隱藏或剛開熱點）：沒連線就照舊試最後一組（熱點）
+      if (!wifi) { netlog("[wifi] 掃描沒看到已知網路，直接試熱點\n"); wifiConnect(kNetCount - 1); }
+      return;
+    }
+    if (wifi && s_net_idx >= 0 && s_net_idx <= best) return;   // 已經連在一樣或更優先的網路
+    if (wifi) netlog("[wifi] 掃到「%s」%d dBm，優先順序較高 → 換過去\n", kNets[best].ssid, rssi);
+    wifiConnect(best);
+    return;
+  }
+  bool start = s_need_pick;
+  if (!start && !wifi && now - s_wifi_try_ms > 20000) start = true;   // 連不上 20 秒：重新挑
+  if (!start && wifi && kNetCount > 1 && s_net_idx > 0 && !net_hub::s_voice_on.load() &&
+      now - s_last_pref_scan > 60000) start = true;                    // 在熱點上：定期看家裡回來了沒
+  if (!start) return;
+  s_need_pick = false;
+  s_last_pref_scan = now;
+  s_wifi_try_ms = now;
+  if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {
+    if (!wifi) wifiConnect(kNetCount - 1);
+  } else {
+    s_scanning = true;
+  }
+}
+
 void netTask(void*) {
   for (;;) {
     if (s_perf_reset.exchange(false)) {
@@ -396,10 +458,11 @@ void netTask(void*) {
       s_wifi_logged = false;
     }
     const bool wifi = s_wifi_on && WiFi.status() == WL_CONNECTED;
+    wifiPickStep(wifi);
     if (wifi) {
       if (!s_wifi_logged) {
         s_wifi_logged = true;
-        netlog("[wifi] connected, IP %s\n", WiFi.localIP().toString().c_str());
+        netlog("[wifi] connected「%s」, IP %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
       }
       if (!s_ws_started) {
         // wss://HUB_HOST:443/ws?t=<token>（B3.5）。不要把這個網址印出來
@@ -616,8 +679,7 @@ namespace net_hub {
 void begin() {
   WiFi.onEvent(onWifiDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);   // B3b-4：記 Wi-Fi 層斷線原因
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[wifi] connecting to \"%s\" ...\n", WIFI_SSID);
+  Serial.printf("[wifi] 掃描中，挑選網路（共 %d 組，前面的優先）...\n", kNetCount);   // 網路 task 掃完才連
   s_rx = (uint8_t*)ps_malloc(RX_CAP);
   if (!s_rx) Serial.println("[net] ⚠ 收件佇列（PSRAM 1MB）配置失敗");
   s_cmdq = xQueueCreate(16, sizeof(CmdMsg));

@@ -41,7 +41,7 @@ void convEnd();                            // 這輪結束：停留幾秒後收�
 // A3：休息臉（待機／想睡／睡著）的眼睛顏色改用電量色；enabled=false 回情緒固定色
 void setRestTint(bool enabled, uint8_t r, uint8_t g, uint8_t b);
 // A3：低電量紅灰閃爍（蓋過所有情緒；聆聽／思考／說話時不閃）
-void setLowBatteryBlink(int mode);   // 0 不閃、1 黃紅閃（<20%）、2 紅灰閃（<5%）
+void setLowBatteryBlink(int mode);   // 0 不閃、1 原色紅閃（<20%）、2 紅灰閃（<5%）
 // A3：眼睛看向傾斜方向，x／y 各 −1～1（＋x 往畫面右、＋y 往畫面下；已依拿法換算）
 void setGaze(float x, float y);
 // A4 驚嚇彈珠台：每筆 IMU 的線性加速度（g，已換算成畫面 ＋右／＋下）；夠大就讓眼睛和嘴巴在螢幕裡撞來撞去
