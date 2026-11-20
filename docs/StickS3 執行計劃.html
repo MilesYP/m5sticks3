@@ -235,7 +235,7 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
     <span><i class="dot st-todo"></i>排隊中</span>
   </div>
 
-  <div class="notice" style="margin:10px 0 0"><b>2026-11-20 更新</b>：<b>M1-B 完成</b>——B3c＋B4 合併一片通過：助理 Friday 接 GPT-Live，會上網查天氣新聞、記得上下文與使用者記憶、字幕對齊聲音且全繁體、下載改 μ-law 16kHz（無電話感）、每日額度。待辦：滾輪音量、MCP＋skill、Hey Friday、自訂聲音。<br><b>2026-11-19 更新</b>：B3b-5 完成——網路移到背景 task、邊錄邊傳 μ-law、錄音不設上限、斷線從頭重送；M1-B 範圍收斂為 13 片（剩 B3c、B4，B5／B6 移待辦），B3c 的做法與先導測試判定規則已先定案。<br><b>2026-11-18 更新</b>：M1-B 完成 B3b-1（本機錄放音音質定案：噠聲來自 A 鍵機械聲，頭尾各切 60ms）；B3.5 連線 token 驗證完成；B3.6 Wi-Fi 滋滋聲定案（原因是 Wi-Fi 省電模式，錄放音期間關掉）；B3b-2 音訊來回中控通過（熱點上傳輸偏慢），B3b-3 下載壓縮定案；<b>11-19 B3b-4 完成</b>（下載改 ADPCM 8kHz、邊收邊播不斷音、斷線畫面），下一片是 <b>B3b-5 上傳邊錄邊傳＋網路背景化</b>，再 B3c（GPT-Live 端點已更正為 <code>/v1/live/sessions</code>、用 16kHz 不需重取樣）。RF Pack 重新判定：<b>CC1101 接收正常</b>（11-17 <code>rssi-test/</code> 掃到 315／333 MHz），先前「收訊故障」撤回；但 SPI 單筆讀取約 0.5% 會錯，韌體須依 <code>CLAUDE.md</code> 鐵則五第 7 點防錯，換貨未定。畫面細節見 <a href="StickS3 介面規格.html">介面規格</a>，語音架構見 <code>docs/M1B-架構.md</code>。</div>
+  <div class="notice" style="margin:10px 0 0"><b>2026-11-20 更新（下午）</b>：<b>M1-A / A4 完成</b>——直式、橫式（A 鍵在左／右）都正著看，對話區永遠在 A 鍵側；表情改版為合成波風格、每種表情都有嘴巴與彈簧動畫，聆聽改側耳傾聽，驚嚇改彈珠台；拍打規則改版。下一片 <b>A5-1 資訊頁</b>，充電表情拆成 A4b（資訊頁做完再實測充電）。手感體感留待整體完工後細調。<br><b>2026-11-20 更新</b>：<b>M1-B 完成</b>——B3c＋B4 合併一片通過：助理 Friday 接 GPT-Live，會上網查天氣新聞、記得上下文與使用者記憶、字幕對齊聲音且全繁體、下載改 μ-law 16kHz（無電話感）、每日額度。待辦：滾輪音量、MCP＋skill、Hey Friday、自訂聲音。<br><b>2026-11-19 更新</b>：B3b-5 完成——網路移到背景 task、邊錄邊傳 μ-law、錄音不設上限、斷線從頭重送；M1-B 範圍收斂為 13 片（剩 B3c、B4，B5／B6 移待辦），B3c 的做法與先導測試判定規則已先定案。<br><b>2026-11-18 更新</b>：M1-B 完成 B3b-1（本機錄放音音質定案：噠聲來自 A 鍵機械聲，頭尾各切 60ms）；B3.5 連線 token 驗證完成；B3.6 Wi-Fi 滋滋聲定案（原因是 Wi-Fi 省電模式，錄放音期間關掉）；B3b-2 音訊來回中控通過（熱點上傳輸偏慢），B3b-3 下載壓縮定案；<b>11-19 B3b-4 完成</b>（下載改 ADPCM 8kHz、邊收邊播不斷音、斷線畫面），下一片是 <b>B3b-5 上傳邊錄邊傳＋網路背景化</b>，再 B3c（GPT-Live 端點已更正為 <code>/v1/live/sessions</code>、用 16kHz 不需重取樣）。RF Pack 重新判定：<b>CC1101 接收正常</b>（11-17 <code>rssi-test/</code> 掃到 315／333 MHz），先前「收訊故障」撤回；但 SPI 單筆讀取約 0.5% 會錯，韌體須依 <code>CLAUDE.md</code> 鐵則五第 7 點防錯，換貨未定。畫面細節見 <a href="StickS3 介面規格.html">介面規格</a>，語音架構見 <code>docs/M1B-架構.md</code>。</div>
   <div class="road">
     <ol class="tl">
       <li><i class="pin st-done"></i>
@@ -249,13 +249,13 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
         <div class="ttl"><span class="code">G</span><b>Grove 配件驗收（CardKB／Scroll）</b><span class="pill st-doing">1／2 片</span></div>
         <p>11-19 到貨。G1 偵測通過（CardKB <code>5F</code>、Scroll <code>40</code>）；G2 功能驗收（<code>grove-test/</code>）待確認。可與 B3c 並行。</p></li>
       <li class="is-doing"><i class="pin st-doing"></i>
-        <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-doing">3／6 片</span></div>
-        <p>圓角眼睛＋情緒，固定配色、平滑過渡。<b>A3 IMU 互動 11-20 通過</b>：搖、拍、靜置會反應，睡著聽到聲音會醒，休息臉顏色跟電量。下一片 A4 直橫雙版面，再來 A5 資訊頁。</p>
+        <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-doing">4／7 片</span></div>
+        <p>合成波風格表情（漸層眼、嘴巴、彈簧動畫、冒符號），直式與兩種橫式都正著看。<b>A3 IMU 互動、A4 直橫雙版面＋表情改版 11-20 通過</b>。下一片 A5-1 資訊頁，再 A5-2 雲端資料、A4b 充電表情。</p>
         <ul class="slices">
           <li class="ok"><span class="sc">A1</span>離線 Idle 臉：呼吸＋眨眼</li>
           <li class="ok"><span class="sc">A2</span>九種表情定案、固定配色</li>
           <li class="ok"><span class="sc">A3</span>IMU 互動：搖晃／拍打／睡著＋休息臉電量色</li>
-          <li><span class="sc">A4</span>直橫雙版面（下一片）</li>
+          <li><span class="sc">A4</span>直橫雙版面＋表情改版 ✅</li><li><span class="sc">A5-1</span>資訊頁本機資料（下一片）</li><li><span class="sc">A4b</span>充電表情（A5 之後）</li>
           <li><span class="sc">A5-1</span>資訊頁（本機資料，短按 A）</li>
           <li><span class="sc">A5-2</span>資訊頁（天氣、快訊）</li>
         </ul></li>
@@ -390,8 +390,9 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
       <tr class="ok"><td class="c">A1</td><td>離線 Idle 臉：PSRAM sprite 畫圓角青色眼睛，上下呼吸（±9px／約 2 秒）＋隨機眨眼</td><td>開機即見表情，不連網</td><td class="s">✅ 11-16</td></tr>
       <tr class="ok"><td class="c">A2</td><td>九種表情：Idle／Listening／Thinking／Speaking／Happy／Angry／Scared／Sleepy／Asleep，固定配色、眼型與過渡</td><td>實機逐一確認九種</td><td class="s">✅ 11-16</td></tr>
       <tr class="ok"><td class="c">A3</td><td>IMU 互動：靜置 6 秒想睡、11 秒睡著，拿起或按 A 醒；用力搖→驚嚇；拍機身→開心／生氣（睡著時→生氣）；睡著聽到拍手或講話→驚嚇／生氣；傾斜→眼睛看過去；語音優先。休息臉顏色跟電量（≥60 藍、40–59 綠、20–39 黃、10–19 紅、&lt;10 紅灰閃爍）。門檻先量測再定（<code>CLAUDE.md</code> 鐵則八）</td><td>放著不動、搖、拍、睡著拍手、語音中搖拍、B 急停、<code>c</code> 假裝電量看五色、傾斜看方向</td><td class="s">✅ 11-20</td></tr>
-      <tr><td class="c">A4</td><td>直橫雙版面：文字條物理位置固定在藍鍵側，只有文字方向跟著轉；橫式支援兩個傾斜方向。<b>一併待辦（11-20）</b>：新增「充電中 → 充電完成」表情樣式（先出方案給 Miles 選、偵測方式先查證）</td><td>轉動裝置，文字始終可讀</td><td class="s">🟠 下一片</td></tr>
-      <tr><td class="c">A5-1</td><td>資訊頁（本機資料）：Desktop 短按 A（&lt;0.6 秒）切換，按住仍是說話；時間、電量、IMU、CPU、記憶體、Wi-Fi、配件；直式＋橫式。版面照介面規格第 3 節</td><td>短按 A 進出、數值正確、轉向重排、長按照常說話</td><td class="s">⏳ A4 之後</td></tr>
+      <tr><td class="c">A4</td><td>直橫雙版面＋表情改版：三種拿法（實測門檻、死區、0.5 秒停留）、畫布轉向、對話區在 A 鍵側；合成波風格、每種表情加嘴巴與彈簧動畫、側耳聆聽、說話嘴型依音節、驚嚇彈珠台；拍打規則改版</td><td>三種拿法正著看、45° 不閃、9 種表情×3 拿法、迴圈 ≤25ms、橫拿講話、B 急停</td><td class="s">✅ 11-20</td></tr>
+      <tr><td class="c">A5-1</td><td>資訊頁（本機資料）：Desktop 短按 A（&lt;0.6 秒）切換，按住仍是說話；時間、電量、IMU、CPU、記憶體、Wi-Fi、配件；直式＋橫式。版面照介面規格第 3 節</td><td>短按 A 進出、數值正確、轉向重排、長按照常說話</td><td class="s">🟠 下一片</td></tr>
+      <tr><td class="c">A4b</td><td>充電表情（B 閃電眼）：充飽要用 USB＋CHG_STAT 持續未充電＋電壓推；韌體已有充電紀錄器（<code>h</code>），先實測充一次</td><td>插線充電中、充滿充飽、拔線回電量色、不閃爍</td><td class="s">⏳ A5 之後</td></tr>
       <tr><td class="c">A5-2</td><td>資訊頁（雲端資料）：天氣、快訊、已存訊號數由中控定時送來</td><td>天氣快訊顯示且會更新、斷線顯示上次資料</td><td class="s">⏳ A5-1 之後</td></tr>
     </tbody>
   </table></div>

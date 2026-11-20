@@ -34,6 +34,7 @@ struct Window {
   float max_jerk = 0;          // 相鄰兩筆加速度向量差的大小（衝擊量）最大值
   float max_gyro = 0;          // 角速度大小最大值（°/s）
   float sx = 0, sy = 0, sz = 0;  // 加速度加總（算平均＝傾斜方向）
+  float mot_r = 0, mot_d = 0;    // A4：這一窗絕對值最大的線性加速度（畫面右／下，g，帶正負號）
 };
 Window s_w;
 uint32_t s_win_start = 0;
@@ -47,6 +48,11 @@ int  s_hist_pos = 0;
 int  s_hist_n = 0;
 bool s_tap_pending = false;    // 上一窗是拍打候選，等這一窗確認「拍完馬上停」
 bool s_tap_was_asleep = false;
+uint32_t s_win_idx = 0;        // A4：窗的流水號（拍打間隔用）
+uint32_t s_last_tap_win = 0;
+// A4 彈珠台：每筆 IMU 的重力低通（扣掉後＝線性加速度）
+float s_fgx = 0, s_fgy = 0, s_fgz = 1;
+bool  s_fg_init = false;
 
 // 低通後的重力方向（看向傾斜方向用）
 float s_gx = 0, s_gy = 0, s_gz = 1;
@@ -59,6 +65,41 @@ uint32_t s_react_until = 0;
 bool     s_was_busy = false;
 bool     s_listening = false;  // 已為「睡著聽聲音」打開待機收音
 
+// A4 拿法
+Orient s_orient = Orient::Portrait;
+Orient s_cand = Orient::Portrait;
+int    s_cand_n = 0;
+int    s_orient_override = -1;
+
+// 這一窗屬於哪個拿法區；平放、斜放、死區、倒拿、用力搖 → false（維持原版面）
+bool zoneOf(float ax, float ay, float da, Orient* out) {
+  if (sqrtf(ax * ax + ay * ay) < cfg::ORIENT_PLANE_MIN || da >= cfg::ORIENT_SHAKE_DEV_G) return false;
+  const float a = atan2f(ax, ay) * 57.29578f;
+  if (fabsf(a) <= cfg::ORIENT_PORTRAIT_DEG) { *out = Orient::Portrait; return true; }
+  if (a >= cfg::ORIENT_LAND_MIN_DEG && a <= cfg::ORIENT_LAND_MAX_DEG) { *out = Orient::LandARight; return true; }
+  if (a <= -cfg::ORIENT_LAND_MIN_DEG && a >= -cfg::ORIENT_LAND_MAX_DEG) { *out = Orient::LandALeft; return true; }
+  return false;
+}
+
+void applyOrient(Orient o, const char* why) {
+  if (o == s_orient) return;
+  Serial.printf("[orient] %s → %s%s\n", ui_expression::orientName(s_orient), ui_expression::orientName(o), why);
+  s_orient = o;
+  ui_expression::setOrientation(o);
+}
+
+void updateOrient(float ax, float ay, float da) {
+  if (s_orient_override >= 0) return;
+  Orient z;
+  if (zoneOf(ax, ay, da, &z) && z != s_orient) {
+    if (z == s_cand) ++s_cand_n;
+    else { s_cand = z; s_cand_n = 1; }
+    if (s_cand_n >= cfg::ORIENT_DWELL_WINDOWS) { applyOrient(z, ""); s_cand_n = 0; }
+  } else {
+    s_cand_n = 0;
+  }
+}
+
 const Hist& histAgo(int k) {   // k=0 最新一窗
   return s_hist[(s_hist_pos - 1 - k + HIST * 2) % HIST];
 }
@@ -67,6 +108,7 @@ void printBattery() {
   Serial.printf("[bat] %d%% %dmV %s｜平滑 %d%% 休息臉%s\n", (int)M5.Power.getBatteryLevel(),
                 (int)M5.Power.getBatteryVoltage(), M5.Power.isCharging() ? "充電中" : "未充電",
                 battery_ui::level(), battery_ui::tierName());
+  battery_ui::printChargeNow();   // A4 量測：VBUS、CHG_STAT、電源來源
 }
 
 void printWindow(uint32_t now, float snd_lo, float snd_hi, uint32_t snd_n) {
@@ -78,9 +120,18 @@ void printWindow(uint32_t now, float snd_lo, float snd_hi, uint32_t snd_n) {
                     (unsigned)s_w.max_loop_ms);
     } else {
       const float k = 1.0f / s_w.n;
-      Serial.printf("[imu] n=%u 間隔≤%.1fms 迴圈≤%ums｜偏離1g≤%.3fg 衝擊≤%.3fg 轉速≤%.1f°/s｜平均(%+.2f,%+.2f,%+.2f)g｜%s\n",
+      // A4 量測：重力在螢幕平面上的分量（平放≈0、直拿／橫拿≈1）與角度（直拿≈0°、橫拿≈±90°）
+      const float ax = s_w.sx * k, ay = s_w.sy * k;
+      const float plane = sqrtf(ax * ax + ay * ay);
+      const float ang = atan2f(ax, ay) * 57.29578f;
+      char cand[48] = "";
+      if (s_cand_n > 0 && s_orient_override < 0)
+        snprintf(cand, sizeof(cand), "（候選 %s %d/%d）", ui_expression::orientName(s_cand), s_cand_n,
+                 (int)cfg::ORIENT_DWELL_WINDOWS);
+      Serial.printf("[imu] n=%u 間隔≤%.1fms 迴圈≤%ums｜偏離1g≤%.3fg 衝擊≤%.3fg 轉速≤%.1f°/s｜平均(%+.2f,%+.2f,%+.2f)g｜平面 %.2fg 角 %+4.0f°｜甩 右%+.1f 下%+.1f｜%s%s%s｜%s\n",
                     (unsigned)s_w.n, s_w.max_gap_us / 1000.0f, (unsigned)s_w.max_loop_ms,
-                    s_w.max_da, s_w.max_jerk, s_w.max_gyro, s_w.sx * k, s_w.sy * k, s_w.sz * k,
+                    s_w.max_da, s_w.max_jerk, s_w.max_gyro, ax, ay, s_w.sz * k, plane, ang, s_w.mot_r, s_w.mot_d,
+                    ui_expression::orientName(s_orient), s_orient_override >= 0 ? "（手動）" : "", cand,
                     ui_expression::moodName());
     }
   }
@@ -130,9 +181,18 @@ void evaluate(uint32_t now, float snd_hi, uint32_t snd_n) {
     s_gx += (ax - s_gx) * GAZE_LPF;
     s_gy += (ay - s_gy) * GAZE_LPF;
     s_gz += (az - s_gz) * GAZE_LPF;
-    // 左右看 x 軸；直立時（y 是主要重力方向）前後傾看 z 軸
-    const float gx = cfg::PET_GAZE_SIGN_X * s_gx / cfg::PET_GAZE_FULL_G;
-    const float gy = (s_gy > 0.5f) ? cfg::PET_GAZE_SIGN_Y * s_gz / cfg::PET_GAZE_FULL_G : 0.0f;
+    // A4：拿法判斷（每個模式都追蹤；只有 Desktop 表情頁會轉）
+    updateOrient(ax, ay, s_w.max_da);
+    // 看方向：先換算成「目前畫面」的右方向與上方向（裝置軸：直拿 右＝+x 上＝+y；A 右 上＝+x 右＝−y；A 左 上＝−x 右＝+y）
+    float right, up;
+    switch (s_orient) {
+      case Orient::LandARight: right = -s_gy; up = s_gx; break;
+      case Orient::LandALeft:  right = s_gy;  up = -s_gx; break;
+      default:                 right = s_gx;  up = s_gy; break;
+    }
+    // 左右看「畫面右方向」的分量；畫面正立時（上方向是主要重力方向）前後傾看 z 軸
+    const float gx = cfg::PET_GAZE_SIGN_X * right / cfg::PET_GAZE_FULL_G;
+    const float gy = (up > 0.5f) ? cfg::PET_GAZE_SIGN_Y * s_gz / cfg::PET_GAZE_FULL_G : 0.0f;
     ui_expression::setGaze(gx, gy);
   }
 
@@ -146,11 +206,15 @@ void evaluate(uint32_t now, float snd_hi, uint32_t snd_n) {
     s_tap_pending = false;
     tap = !shake && s_w.max_jerk < cfg::PET_TAP_AFTER_G;
   }
-  if (!s_tap_pending && s_hist_n >= 4 && s_w.max_jerk >= cfg::PET_TAP_JERK_G) {
-    float before = 0;
-    for (int i = 1; i <= 3; ++i) if (histAgo(i).jerk > before) before = histAgo(i).jerk;
-    if (before < cfg::PET_TAP_QUIET_G) {
+  ++s_win_idx;
+  if (!s_tap_pending && s_hist_n >= 4 && s_w.max_jerk >= cfg::PET_TAP_JERK_G &&
+      s_w.max_gyro < cfg::PET_TAP_MAX_DPS && histAgo(1).jerk < s_w.max_jerk &&
+      s_win_idx - s_last_tap_win >= cfg::PET_TAP_GAP_WINDOWS) {
+    // A4：跳過緊鄰的上一窗（一下拍打可能分在兩窗），再往前 2 窗只要「相對安靜」
+    const float before = fmaxf(histAgo(2).jerk, histAgo(3).jerk);
+    if (before < fmaxf(cfg::PET_TAP_QUIET_G, s_w.max_jerk * cfg::PET_TAP_QUIET_RATIO)) {
       s_tap_pending = true;
+      s_last_tap_win = s_win_idx;
       const Mood m = ui_expression::mood();
       s_tap_was_asleep = (m == Mood::Sleepy || m == Mood::Asleep);
     }
@@ -246,6 +310,23 @@ void loop() {
     s_prev_us = us;
     s_have_prev = true;
     s_w.sx += ax; s_w.sy += ay; s_w.sz += az;
+
+    // A4 彈珠台：線性加速度（讀數 − 低通重力）換算成目前畫面的右／下方向，每筆交給畫面
+    if (!s_fg_init) { s_fgx = ax; s_fgy = ay; s_fgz = az; s_fg_init = true; }
+    s_fgx += (ax - s_fgx) * cfg::PIN_GRAVITY_LPF;
+    s_fgy += (ay - s_fgy) * cfg::PIN_GRAVITY_LPF;
+    s_fgz += (az - s_fgz) * cfg::PIN_GRAVITY_LPF;
+    const float lx = ax - s_fgx, ly = ay - s_fgy;
+    float right, up;
+    switch (s_orient) {
+      case Orient::LandARight: right = -ly; up = lx; break;
+      case Orient::LandALeft:  right = ly;  up = -lx; break;
+      default:                 right = lx;  up = ly; break;
+    }
+    if (fabsf(right) > fabsf(s_w.mot_r)) s_w.mot_r = right;
+    if (fabsf(up) > fabsf(s_w.mot_d)) s_w.mot_d = -up;
+    const bool on = mode_manager::current() == Mode::Desktop && !voice_turn::busy();   // 語音優先：講話時不甩
+    ui_expression::setMotion(on ? right : 0.0f, on ? -up : 0.0f);
   }
 
   if (now - s_win_start >= cfg::PET_WINDOW_MS) {
@@ -269,6 +350,17 @@ void setMeasureSound(bool on) {
   s_m_snd = on;
   audio_io::setStandbyListen(on || s_listening);
   Serial.printf("[snd] 待機聲音量測 %s\n", on ? "開（每 100ms 一行，v 關閉）" : "關");
+}
+
+void setOrientOverride(int o) {
+  if (o < 0 || o > 2) {
+    s_orient_override = -1;
+    s_cand_n = 0;
+    Serial.println("[orient] 恢復自動判斷");
+    return;
+  }
+  s_orient_override = o;
+  applyOrient(static_cast<Orient>(o), "（手動）");
 }
 
 bool measureImu() { return s_m_imu; }

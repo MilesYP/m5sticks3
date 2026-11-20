@@ -9,7 +9,7 @@
 #include "config.h"
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "22-a3"
+#define AUDIO_BUILD_TAG "23-a4"
 
 namespace {
 
@@ -84,6 +84,7 @@ std::atomic<bool>     s_rec_armed{false};    // 已按滿最短時間，可以�
 std::atomic<uint32_t> s_silence_ms{0};       // 連續沒有人聲多久
 uint32_t s_vad_pos = 0;                      // 下一塊要做 VAD 的位置
 float    s_vad_lo = 0.0f, s_vad_hi = -120.0f;
+float    s_vad_last = -120.0f;                // A4：最新一塊的人聲指標（聆聽表情的嘴巴、聲波）
 
 // A3：待機收音（睡著時聽聲音、量測用）。一次只排一塊 50ms：按 A 時最多擋住正式錄音 50ms，
 // 落在本來就會切掉的開頭 60ms 內。抓到的聲音只算指標，不存、不上傳。
@@ -474,6 +475,7 @@ void loop() {
       const float db = chunkLevelDb(s_rec + (s_vad_pos % REC_RING), CHUNK);
       if (db < s_vad_lo) s_vad_lo = db;
       if (db > s_vad_hi) s_vad_hi = db;
+      s_vad_last = db;
       if (db >= cfg::VOICE_VAD_DBFS) s_silence_ms.store(0);
       else s_silence_ms.store(s_silence_ms.load() + (uint32_t)(CHUNK * 1000 / SAMPLE_RATE));
       s_vad_pos += CHUNK;
@@ -733,6 +735,12 @@ uint32_t streamPlayedMs() {
 }
 
 // B4：嘴巴開合用的播放音量（0～1）。RMS 轉 dBFS 後把 −45～−12 dBFS 線性對到 0～1；沒在播＝0。
+float recLevel() {
+  if (!s_recording) return 0.0f;
+  const float v = (s_vad_last - cfg::VOICE_VAD_DBFS) / 30.0f;
+  return v < 0 ? 0 : (v > 1 ? 1 : v);
+}
+
 float playLevel() {
   if (!s_st_active || !s_st_started) return 0.0f;
   const float r = s_play_rms.load();

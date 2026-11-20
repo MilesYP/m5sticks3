@@ -10,6 +10,8 @@
 //  只在 Desktop 模式反應。非阻塞，IMU 在主迴圈讀（內部 I2C 只有主迴圈在用）。
 //
 //  量測（v22-a3m 留著）：序列埠 j 開關 IMU 量測行、v 開關待機聲音量測行。
+//  A4：拿法判斷（直式／橫式 A 左／橫式 A 右，規則與實測見 config.h ORIENT_*）→ ui_expression::setOrientation；
+//      看方向依目前拿法換算成畫面的左右上下。序列埠 o 假裝拿法。
 // ─────────────────────────────────────────────────────────────────────────
 #pragma once
 
@@ -18,6 +20,7 @@ void begin();                  // M5.begin() 之後呼叫：確認 IMU 在、印
 void loop();                   // 每圈呼叫：讀 IMU、每 100ms 判斷一次並驅動表情
 void setMeasureImu(bool on);   // 序列埠 j：每 100ms 印 IMU 量測行
 void setMeasureSound(bool on); // 序列埠 v：開待機收音，每 100ms 印聲音量測行
+void setOrientOverride(int o); // 序列埠 o：0 直式、1 橫式 A 左、2 橫式 A 右；<0＝恢復自動判斷
 bool measureImu();
 bool measureSound();
 }

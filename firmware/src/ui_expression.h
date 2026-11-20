@@ -1,16 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────
-//  ui_expression：模式 1 離線表情（M1-A）
+//  ui_expression：模式 1 表情（M1-A）
 //
-//  A3：IMU 互動由 imu_pet 呼叫 setMood；休息臉顏色跟電量；傾斜看方向。
-//  切片 1：Idle 待機臉 — 圓角青色眼睛，上下呼吸＋隨機眨眼。
-//  切片 2：六種情緒（固定配色、眼型），切換時顏色與形狀平滑過渡。
-//  之後切片再疊 IMU 互動、直橫雙版面。畫面規格見 docs/StickS3 介面規格.html。
+//  A4（11-20，Miles 選定）：
+//   - 合成波風格：深藍紫底、眼睛上下雙色漸層＋光暈、下方霓虹透視網格（速度跟情緒）
+//   - 每種表情都有嘴巴；聆聽改「側耳傾聽」（只有耳朵，聲波和 o 嘴跟你的音量）
+//   - 彈簧動畫（衝過頭再彈回）、跟節奏點頭、眼神亂瞄、不對稱（wink／單邊挑眉／歪嘴）、冒小符號
+//   - 直式／橫式（A 鍵在左）／橫式（A 鍵在右）：畫布自己轉（M5Canvas::setRotation），螢幕維持 rotation 0、
+//     不重新配置記憶體；對話區永遠在 A 鍵側（直式＝下方 5 行；橫式＝直欄，寬＝直式對話列高）
+//  A3：休息臉顏色跟電量、低電量閃爍、看向傾斜方向。B4：對話區。B3b-4：斷線定格。
 //  以 sprite（先畫在記憶體再整張推上螢幕）避免閃爍；非阻塞，每圈畫一幀。
 // ─────────────────────────────────────────────────────────────────────────
 #pragma once
 #include <stdint.h>
 
 enum class Mood : uint8_t { Idle, Listening, Thinking, Speaking, Happy, Angry, Scared, Sleepy, Asleep };
+// A4：拿法（對話區永遠靠 A 鍵側）
+enum class Orient : uint8_t { Portrait, LandALeft, LandARight };
 
 namespace ui_expression {
 
@@ -18,21 +23,32 @@ void begin();    // 建立畫布（需在 ui_status::begin 設好螢幕方向之
 void render();   // 畫一張動畫幀；非阻塞
 
 void setMood(Mood m);
-Mood mood();
+Mood mood();                 // 邏輯上的表情（imu_pet／voice_turn 用）；不受 y 預覽影響
 const char* moodName();
-void setSpeakLevel(float level01);   // 說話中的嘴巴開合：0～1（M1-B 接喇叭音量）；傳負值＝用內建模擬
-// B3b-4（Miles 選定方案 c）：斷線時表情定格（不呼吸、不眨眼、不過渡）、眼睛變灰、右上角 Wi-Fi 加斜線
+const char* moodNameOf(Mood m);
+void setSpeakLevel(float level01);   // 說話中的嘴巴開合：0～1（喇叭播放音量）；負值＝用內建模擬
+void setListenLevel(float level01);  // A4：聆聽中你的音量 0～1（每 100ms 人聲指標）；負值＝用內建模擬
+// B3b-4：斷線時表情定格（不呼吸、不眨眼、不過渡）、眼睛變灰、右上角 Wi-Fi 加斜線
 void setOffline(bool offline);
 bool offline();
-// B4：對話區（直式：畫面下方最多 5 行，表情往上縮、眼睛在剩下的區域置中；橫式併入 M1-A A4）
+// B4：對話區（直式＝下方最多 5 行；橫式＝A 鍵側直欄，約 9 行）
 void convBegin();                          // 按下 A：清掉上一輪、展開對話區
-void convText(bool assistant, const char* utf8);   // 加一段逐字稿（使用者／Friday），自動換行、只留最後 5 行
+void convText(bool assistant, const char* utf8);   // 加一段逐字稿（使用者／Friday），自動換行、往下滾
 void convEnd();                            // 這輪結束：停留幾秒後收起、表情回滿版
-// A3：休息臉（待機／想睡／睡著）的眼睛顏色改用電量色（Miles 11-20 方案一）；enabled=false 回規格固定色
+// A3：休息臉（待機／想睡／睡著）的眼睛顏色改用電量色；enabled=false 回情緒固定色
 void setRestTint(bool enabled, uint8_t r, uint8_t g, uint8_t b);
 // A3：低電量紅灰閃爍（蓋過所有情緒；聆聽／思考／說話時不閃）
 void setLowBatteryBlink(bool on);
-// A3：眼睛看向傾斜方向，x／y 各 −1～1（＋x 往右、＋y 往下）；平滑移動
+// A3：眼睛看向傾斜方向，x／y 各 −1～1（＋x 往畫面右、＋y 往畫面下；已依拿法換算）
 void setGaze(float x, float y);
+// A4 驚嚇彈珠台：每筆 IMU 的線性加速度（g，已換算成畫面 ＋右／＋下）；夠大就讓眼睛和嘴巴在螢幕裡撞來撞去
+void setMotion(float right_g, float down_g);
+// A4：版面方向（imu_pet 判斷後呼叫）
+void setOrientation(Orient o);
+Orient orientation();
+const char* orientName(Orient o);
+// A4 驗收：序列埠 y<0～8> 只改「畫面上」的表情（不影響互動邏輯），y 單獨＝結束預覽
+void setPreview(int moodIndex);
+int  preview();
 
 }  // namespace ui_expression

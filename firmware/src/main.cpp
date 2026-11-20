@@ -51,7 +51,7 @@ void setup() {
   auto m5cfg = M5.config();
   M5.begin(m5cfg);
   Serial.begin(115200);
-  Serial.println("\n===== M5StickS3 firmware M1-A / A3 =====");
+  Serial.println("\n===== M5S3Pack firmware M1-A / A4 =====");
 
   input_hal::begin();
   killswitch::begin();

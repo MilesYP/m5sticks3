@@ -47,7 +47,7 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
 <div class="row">
  <div class="unit">
   <div class="dev"><div class="sc p">
-    <div style="position:absolute;left:5px;top:5px;font-size:9px;color:#5a6672">小S</div>
+    <div style="position:absolute;left:5px;top:5px;font-size:9px;color:#5a6672">Friday</div>
     <div style="position:absolute;right:5px;top:5px;font-size:9px;color:#5a6672">78%</div>
     <div style="position:absolute;left:0;right:0;top:150px;display:flex;justify-content:center;gap:24px"><div class="eye" style="width:40px;height:54px"></div><div class="eye" style="width:40px;height:54px"></div></div>
     <div style="position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:10px;color:#3a4550">長按 A 跟我說話</div>
@@ -60,7 +60,7 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
     <div style="position:absolute;left:5px;top:5px;font-size:9px;color:#4cc9f0">LISTENING</div>
     <div style="position:absolute;left:0;right:0;top:112px;display:flex;justify-content:center;gap:22px"><div class="eye" style="width:36px;height:48px;background:#4cc9f0"></div><div class="eye" style="width:36px;height:48px;background:#4cc9f0"></div></div>
     <div style="position:absolute;left:8px;right:8px;top:270px;border-top:1px solid #1d6f8c"></div>
-    <div style="position:absolute;left:0;right:0;top:272px;bottom:0;background:#071a20;padding:6px 9px;font-size:11px;line-height:1.55"><span style="color:#4cc9f0">小S：</span>明天台北下午降雨七成，記得帶傘。九點有會議。</div>
+    <div style="position:absolute;left:0;right:0;top:272px;bottom:0;background:#071a20;padding:6px 9px;font-size:11px;line-height:1.55"><span style="color:#4cc9f0">Friday：</span>明天台北下午降雨七成，記得帶傘。九點有會議。</div>
   </div><div class="btnA">A</div></div>
   <div class="cap"><b>語音中</b><br>表情占上方大部分、置中<br>對話區 ≤ 5 行、往下滾</div>
  </div>
@@ -69,7 +69,7 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
   <div class="dev land"><div class="sc l">
     <div style="position:absolute;left:0;right:88px;top:0;bottom:0;display:flex;align-items:center;justify-content:center;gap:18px"><div class="eye" style="width:34px;height:46px;background:#4cc9f0"></div><div class="eye" style="width:34px;height:46px;background:#4cc9f0"></div></div>
     <div style="position:absolute;right:88px;top:0;bottom:0;border-left:1px solid #1d6f8c"></div>
-    <div style="position:absolute;right:0;width:88px;top:0;bottom:0;background:#071a20;padding:6px 7px;font-size:11px;line-height:1.55"><span style="color:#4cc9f0">小S：</span>明天台北降雨七成，帶傘；九點開會。</div>
+    <div style="position:absolute;right:0;width:88px;top:0;bottom:0;background:#071a20;padding:6px 7px;font-size:11px;line-height:1.55"><span style="color:#4cc9f0">Friday：</span>明天台北降雨七成，帶傘；九點開會。</div>
   </div><div class="btnA">A</div></div>
   <div class="cap"><b>橫拿</b><br>對話欄寬＝直式對話列高（同比例）<br>靠 A 鍵側、文字由左至右換行往下滾</div>
  </div>
@@ -77,7 +77,7 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
 <div class="note">兩種情境是版面重排，不是浮層。空中滑鼠與 HID 佔用藍牙／USB，啟動語音前會先暫停它們。</div>
 
 <h2>2. 表情狀態（M1-A · RoboEyes 風）</h2>
-<p class="lede">放著不動 6 秒想睡、11 秒睡著；搖晃、拍打、聲音觸發反應。<b>每種情緒固定一個顏色</b>（待機青、聆聽綠、思考藍、說話白、開心黃、生氣紅、驚嚇紫、睡眠灰藍），不是隨機；其中聆聽/思考/說話是語音對話（M1-B）時的狀態。</p>
+<p class="lede"><b>2026-11-20 A4 改版（實作見 <code>firmware/src/ui_expression.cpp</code>，下方圖示為 A2 舊版示意）</b>：合成波風格——深藍紫底、眼睛上下雙色漸層＋光暈、下方霓虹透視網格（捲動速度跟情緒）。每種表情固定一組上下兩色：待機 青→紫、聆聽 綠→青、思考 紫→洋紅、說話 白→青、開心 黃→橙、生氣 紅→洋紅、驚嚇 洋紅→紫、想睡 青綠→靛、睡著 靛→深靛；休息臉（待機／想睡／睡著）改用電量色。<b>每種表情都有嘴巴</b>（待機微笑、思考波浪、說話依音節換啊／喔／咿／嗯、開心大 U、生氣鋸齒、驚嚇顫抖波浪、想睡打哈欠、睡著小 o＋鼻涕泡泡），彈簧動畫、跟節奏點頭、眼神亂瞄、wink、冒符號（♪ ！ ？ # …）。<b>聆聽＝側耳傾聽</b>：耳朵朝 A 鍵側、聲波與 o 嘴跟你的音量。<b>驚嚇＝彈珠台</b>：甩的時候眼嘴在螢幕裡撞來撞去，停手彈簧歸位再發抖。放著不動 6 秒想睡、11 秒睡著；搖晃、拍打、聲音觸發反應。</p>
 <div class="row" style="gap:14px">
  <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:0;right:0;top:56px;display:flex;justify-content:center;gap:14px"><div class="eye" style="width:22px;height:30px"></div><div class="eye" style="width:22px;height:30px"></div></div></div><div class="cap"><b>待機</b> 青・呼吸眨眼</div></div>
  <div class="unit"><div class="sc p" style="width:112px;height:150px;box-shadow:0 0 0 4px #3f444a"><div style="position:absolute;left:50%;top:71px;transform:translate(-50%,-50%);width:50px;height:50px;border:1.5px solid #57cc99;border-radius:50%;opacity:.85"></div><div style="position:absolute;left:50%;top:71px;transform:translate(-50%,-50%);width:76px;height:76px;border:1.5px solid #57cc99;border-radius:50%;opacity:.5"></div><div style="position:absolute;left:50%;top:71px;transform:translate(-50%,-50%);width:102px;height:102px;border:1.5px solid #57cc99;border-radius:50%;opacity:.25"></div><div style="position:absolute;left:0;right:0;top:55px;display:flex;justify-content:center;gap:14px"><div class="eye" style="width:24px;height:32px;background:#57cc99"></div><div class="eye" style="width:24px;height:32px;background:#57cc99"></div></div></div><div class="cap"><b>聆聽</b> 綠・漣漪（你講話時）</div></div>

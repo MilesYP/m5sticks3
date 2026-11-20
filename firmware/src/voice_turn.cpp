@@ -123,6 +123,7 @@ void toIdle() {
   capRelease(true);   // B4：還沒顯示的字一次補上
   s_st = St::Idle;
   ui_expression::setSpeakLevel(-1.0f);
+  ui_expression::setListenLevel(-1.0f);
   ui_expression::convEnd();      // B4：對話區過幾秒收起
   ui_expression::setMood(Mood::Idle);
   net_hub::voiceActive(false);   // B3.6：一輪結束才開回 Wi-Fi 省電
@@ -436,6 +437,7 @@ void loop() {
   const uint32_t now = millis();
   switch (s_st) {
     case St::Recording:
+      ui_expression::setListenLevel(audio_io::recLevel());   // A4：聆聽表情的 o 嘴與聲波跟你的音量
       if (now - s_t_report >= UP_REPORT_MS) reportUp();
       // B3b-5 補：連續沒有人聲 → 自動當作放開 A（之後真的放開時 onRelease 會因狀態不是 Recording 而略過）
       if (audio_io::silenceMs() >= cfg::VOICE_AUTO_END_SILENCE_MS) {

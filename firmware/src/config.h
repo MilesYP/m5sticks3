@@ -54,9 +54,18 @@ constexpr float    PET_ACTIVE_DPS     = 5.0f;   // 轉速超過＝有人在動�
 constexpr float    PET_ACTIVE_JERK_G  = 0.03f;  // 衝擊超過＝有人在動它（桌上 ≤0.017）
 constexpr float    PET_SHAKE_DEV_G    = 0.5f;   // 搖晃：偏離 1g ≥ 這個值的窗…
 constexpr uint8_t  PET_SHAKE_WINDOWS  = 5;      // …最近 10 窗裡有幾窗（用力搖 44 次觸發；輕搖、拿起、快速翻轉 0 次）
-constexpr float    PET_TAP_JERK_G     = 0.7f;   // 拍打：這一窗衝擊 ≥ 0.7（輕搖最高 0.52）…
-constexpr float    PET_TAP_QUIET_G    = 0.2f;   // …前 3 窗都 < 0.2（拍之前是靜的）…
-constexpr float    PET_TAP_AFTER_G    = 0.5f;   // …下一窗 < 0.5（拍完馬上停；拿起晃動的機身不算）
+// 拍打（A4 11-20 改，v23-a4 橫拿實測）：手拿著連拍 3 下（間隔約 0.3 秒）舊規則 0 次觸發——
+//   拍的衝擊 0.67／1.21／1.03g，但「前 3 窗 < 0.2」被上一下拍打（0.67）與手握餘震（0.15～0.22）擋掉；有一下的力道分在相鄰兩窗（0.48→0.67）。
+// 新規則：這一窗衝擊 ≥ 0.6、轉速 < 400°/s、比上一窗大（上升沿）；
+//   再往前 2 窗（跳過緊鄰的那窗）< max(0.2, 這一窗×0.6)（相對安靜即可，連拍不互擋）；距上次拍打 ≥ 3 窗；下一窗 < 0.5（拍完馬上停）。
+// 重播 11-20 三份 log：橫拿連拍 3 下 → 3 次；先前兩次單拍照樣中；轉向、拿起翻轉（衝擊 0.65、轉速 472）、用力搖、放下都不中。
+// 拿起來衝擊 ≤ 0.40（A3）本來就到不了 0.6。
+constexpr float    PET_TAP_JERK_G     = 0.6f;
+constexpr float    PET_TAP_QUIET_G    = 0.2f;
+constexpr float    PET_TAP_QUIET_RATIO = 0.6f;
+constexpr float    PET_TAP_MAX_DPS    = 400.0f;
+constexpr uint8_t  PET_TAP_GAP_WINDOWS = 3;
+constexpr float    PET_TAP_AFTER_G    = 0.5f;   // 下一窗 < 0.5（拍完馬上停；拿起晃動的機身不算）
 constexpr uint32_t PET_SLEEPY_MS      = 6000;   // 沒互動多久想睡（介面規格第 2 節）
 constexpr uint32_t PET_ASLEEP_MS      = 11000;  // 沒互動多久睡著
 constexpr uint32_t PET_REACT_MS       = 2500;   // 驚嚇／開心／生氣持續多久回待機
@@ -65,10 +74,47 @@ constexpr uint32_t PET_REACT_MS       = 2500;   // 驚嚇／開心／生氣持�
 constexpr float    PET_SOUND_DBFS     = -41.0f;
 // 傾斜看方向：平均加速度（低通後）÷ 這個值＝眼睛偏移比例；最大偏移像素
 constexpr float    PET_GAZE_FULL_G    = 0.6f;
-constexpr int      PET_GAZE_MAX_X_PX  = 7;
+constexpr int      PET_GAZE_MAX_X_PX  = 7;   // 直式的最大位移（px）
 constexpr int      PET_GAZE_MAX_Y_PX  = 5;
+// A4（11-20 實機：橫式看方向幅度不明顯）：橫式臉縮成 0.8 倍、位移也跟著縮；橫式左右空間較大 → 左右放大到直式的 1.6 倍（約 11px），
+// 上下維持直式的像素量；嘴巴跟著眼睛移一半，整張臉看起來是轉過去而不只是眼珠動
+constexpr float    PET_GAZE_LAND_X_GAIN = 1.6f;
+constexpr float    PET_GAZE_MOUTH_FOLLOW = 0.5f;
 constexpr float    PET_GAZE_SIGN_X    = -1.0f;  // 實機驗收若方向相反就改正負號
 constexpr float    PET_GAZE_SIGN_Y    = 1.0f;
+
+// ── A4 拿法判斷（直式／橫式 A 左／橫式 A 右）── 11-20 v23-a4m 實測（每 100ms 一窗的平均加速度）
+// 「平面」＝重力落在螢幕平面上的大小 √(x²+y²)；「角」＝atan2(x, y)：直拿 0°、A 鍵在右 +90°、A 鍵在左 −90°、倒拿 ±180°。
+// 實測：直拿 平面 0.95～1.05、角 −9～+2°｜A 右 平面 0.93～1.01、角 +84～+87°｜A 左 平面 1.00～1.01、角 −86～−88°
+//       斜靠桌上 平面 0.33～0.56｜倒拿 角 −171～−176°（維持原版面）
+// 規則：平面 ≥ 0.70 才判斷（斜靠最高 0.56）；|角| ≤ 30° 直式、60°～120° 橫式，30°～60° 是死區（維持原版面，45° 附近不會來回翻）；
+// 新方向連續 5 窗（0.5 秒）才切；偏離 1g ≥ 0.3 的窗（用力搖）不算。兩份 log 重播：每次轉向只切 1 次、斜靠與倒拿不翻。
+constexpr float    ORIENT_PLANE_MIN      = 0.70f;
+constexpr float    ORIENT_PORTRAIT_DEG   = 30.0f;
+constexpr float    ORIENT_LAND_MIN_DEG   = 60.0f;
+constexpr float    ORIENT_LAND_MAX_DEG   = 120.0f;
+constexpr uint8_t  ORIENT_DWELL_WINDOWS  = 5;
+constexpr float    ORIENT_SHAKE_DEV_G    = 0.30f;
+// 畫布轉向（M5Canvas::setRotation）：A 鍵在右＝裝置逆時針轉 90° → 畫面要順時針轉 90°（LGFX rotation 1）。
+// 推論值，第 2 輪實機以 o1／o2 確認；若畫面上下顛倒就把兩個值對調。
+constexpr uint8_t  ORIENT_ROT_A_RIGHT    = 1;
+constexpr uint8_t  ORIENT_ROT_A_LEFT     = 3;
+
+// ── A4 驚嚇彈珠台（Miles 11-20）：搖的當下眼睛、嘴巴像彈珠在螢幕裡撞來撞去，停手後彈簧歸位、再發抖 ──
+// 推力來源＝每筆 IMU 的「線性加速度」（讀數扣掉低通後的重力），換算成畫面左右／上下（g）。
+// 門檻參考 A3：拿起來每窗偏離 ≤0.29、輕搖 ≤0.54、用力搖 0.5～7 → 線性加速度 ≥0.7g 才開始甩。下列手感參數待實機微調。
+constexpr float    PIN_START_G   = 1.20f;   // 開始甩（11-20 實機：0.7 太容易觸發）
+constexpr float    PIN_QUIET_G   = 0.35f;   // 低於這個算「沒在搖」
+constexpr uint32_t PIN_QUIET_MS  = 400;     // 沒在搖多久 → 彈簧歸位
+constexpr float    PIN_GAIN      = 5000.0f; // 1g 的推力（設計單位／秒²）（11-20 實機：900 太弱太慢、撞不到牆）
+constexpr float    PIN_SIGN      = 1.0f;    // 11-20 實機：−1 方向相反 → 改 +1
+constexpr float    PIN_DRAG      = 0.6f;    // 空氣阻力（每秒速度衰減比例）
+constexpr float    PIN_REST      = 0.85f;   // 撞牆反彈保留的速度比例
+constexpr float    PIN_RETURN_K  = 140.0f;  // 歸位彈簧（阻尼不足 → 衝過頭再回來）
+constexpr float    PIN_RETURN_C  = 9.0f;
+constexpr float    PIN_SQUASH    = 0.62f;   // 撞牆瞬間被撞方向壓成幾倍
+constexpr float    PIN_GRAVITY_LPF = 0.08f; // 每筆 IMU 的重力低通權重（約 0.25 秒）
+constexpr float    PIN_VMAX      = 2200.0f; // 速度上限（設計單位／秒）
 
 // ── A3 休息臉顏色跟電量（Miles 11-20 選方案一）──
 // 待機／想睡／睡著的眼睛顏色：≥60% 藍、40–59 綠、20–39 黃、10–19 紅、<10 紅灰閃爍（語音中不閃、充電中不閃）
@@ -78,6 +124,14 @@ constexpr float    BAT_SMOOTH         = 0.2f;   // 每次讀數的權重（約 2
 constexpr int      BAT_HYST_PCT       = 3;
 constexpr uint32_t BAT_CHARGE_HOLD_MS = 30000;  // 讀數「充電中／未充電」會來回跳 → 30 秒內見過充電就當充電中
 constexpr uint32_t BAT_BLINK_MS       = 500;    // 紅灰閃爍半週期
+
+// ── A4 量測：充電紀錄（v23-a4m；A4b 定「充飽」門檻用）──
+// M5Unified 0.3.0 對 StickS3 的 isCharging()／getChargeState() 只讀 M5PM1 GPIO0 的 CHG_STAT 腳（低＝充電中），
+// 只分得出「充電中／未充電」、沒有「充飽」；getBatteryCurrent() 固定 0（無電流感測）；VBUS 與電池電壓讀得到。
+// → 每秒讀一次 CHG_STAT（算這 10 秒裡充電中幾秒、切換幾次），每 10 秒存一筆 VBUS／電池電壓／電量／電源來源。
+constexpr uint32_t BAT_CHG_POLL_MS    = 1000;   // CHG_STAT 讀取間隔
+constexpr uint8_t  BAT_LOG_EVERY_POLLS = 10;    // 幾次讀取存一筆（＝10 秒）
+constexpr int      BAT_LOG_SAMPLES    = 2160;   // 環形紀錄筆數（10 秒一筆 ＝ 6 小時，PSRAM 約 26KB）
 
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔

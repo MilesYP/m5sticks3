@@ -79,6 +79,56 @@ void readAndApply(bool first) {
   apply(charging);
 }
 
+// ── A4 量測：充電紀錄 ──
+struct ChgLog {
+  uint32_t sec;       // 開機後秒數
+  uint16_t vbus_mv;   // USB 輸入電壓
+  uint16_t vbat_mv;   // 電池電壓
+  int8_t   level;     // 電量讀數 %（未平滑）
+  uint8_t  chg_s;     // 這 10 秒裡 CHG_STAT＝充電中的次數（每秒一次）
+  uint8_t  flips;     // 這 10 秒裡 CHG_STAT 切換幾次
+  uint8_t  src;       // M5PM1 電源來源位元：bit0 5VIN、bit1 5VINOUT、bit2 VBAT
+};
+ChgLog*  s_log = nullptr;
+int      s_log_head = 0;        // 下一筆寫哪裡
+int      s_log_n = 0;
+uint32_t s_last_poll = 0;
+uint8_t  s_acc_chg = 0, s_acc_flips = 0, s_acc_polls = 0;
+int      s_last_state = -99;
+
+uint8_t readSource() {
+  m5::M5PM1_Class::pwr_src_t src = m5::M5PM1_Class::none;
+  if (!M5.Power.M5pm1.getPowerSource(&src)) return 0xFF;
+  return (uint8_t)src;
+}
+
+void pollCharge() {
+  const uint32_t now = millis();
+  if (now - s_last_poll < cfg::BAT_CHG_POLL_MS) return;
+  s_last_poll = now;
+  const int st = (int)M5.Power.getChargeState();
+  if (s_last_state != -99 && st != s_last_state) ++s_acc_flips;
+  s_last_state = st;
+  if (st == 1) ++s_acc_chg;
+  if (++s_acc_polls < cfg::BAT_LOG_EVERY_POLLS) return;
+  if (s_log) {
+    const int16_t vbus = M5.Power.getVBUSVoltage();
+    const int16_t vbat = M5.Power.getBatteryVoltage();
+    const int32_t lv = M5.Power.getBatteryLevel();
+    ChgLog& e = s_log[s_log_head];
+    e.sec = now / 1000;
+    e.vbus_mv = vbus > 0 ? (uint16_t)vbus : 0;
+    e.vbat_mv = vbat > 0 ? (uint16_t)vbat : 0;
+    e.level = (lv >= 0 && lv <= 100) ? (int8_t)lv : -1;
+    e.chg_s = s_acc_chg;
+    e.flips = s_acc_flips;
+    e.src = readSource();
+    s_log_head = (s_log_head + 1) % cfg::BAT_LOG_SAMPLES;
+    if (s_log_n < cfg::BAT_LOG_SAMPLES) ++s_log_n;
+  }
+  s_acc_chg = s_acc_flips = s_acc_polls = 0;
+}
+
 }  // namespace
 
 namespace battery_ui {
@@ -86,12 +136,86 @@ namespace battery_ui {
 void begin() {
   s_last_read = millis();
   readAndApply(true);
+  s_log = (ChgLog*)ps_malloc(sizeof(ChgLog) * cfg::BAT_LOG_SAMPLES);
+  Serial.printf("[bat] 充電紀錄 %s（每 10 秒一筆、最多 %d 筆，序列埠 h 印出）\n", s_log ? "就緒" : "記憶體不足",
+                cfg::BAT_LOG_SAMPLES);
 }
 
 void loop() {
+  pollCharge();
   if (millis() - s_last_read < cfg::BAT_READ_MS) return;
   s_last_read = millis();
   readAndApply(false);
+}
+
+const char* chargeStateName(int s) {
+  switch (s) {
+    case -3: return "未初始化";
+    case -2: return "讀取失敗";
+    case -1: return "不確定";
+    case 0:  return "不支援";
+    case 1:  return "充電中";
+    case 2:  return "未充電";
+    case 3:  return "充飽";
+    case 4:  return "停用";
+    case 5:  return "放電";
+    case 6:  return "閒置";
+    default: return "?";
+  }
+}
+
+void printChargeNow() {
+  const uint8_t src = readSource();
+  Serial.printf("[chg] VBUS %dmV｜電池 %dmV %d%%｜CHG_STAT %s｜電源來源 0x%02X（5VIN%s 5VINOUT%s VBAT%s）\n",
+                (int)M5.Power.getVBUSVoltage(), (int)M5.Power.getBatteryVoltage(),
+                (int)M5.Power.getBatteryLevel(), chargeStateName((int)M5.Power.getChargeState()), src,
+                (src != 0xFF && (src & 1)) ? "✓" : "✗", (src != 0xFF && (src & 2)) ? "✓" : "✗",
+                (src != 0xFF && (src & 4)) ? "✓" : "✗");
+}
+
+void printLog() {
+  printChargeNow();
+  if (!s_log || s_log_n == 0) {
+    Serial.println("[chg] 還沒有紀錄（每 10 秒存一筆）");
+    return;
+  }
+  Serial.printf("[chg] 紀錄 %d 筆（10 秒一筆），每分鐘一行：時間（開機後 時:分）｜VBUS 最低～最高 mV｜電池平均 mV｜電量 %%｜充電中秒數/總秒數｜CHG_STAT 切換次數｜電源來源\n",
+                s_log_n);
+  const int start = (s_log_head - s_log_n + cfg::BAT_LOG_SAMPLES) % cfg::BAT_LOG_SAMPLES;
+  int i = 0;
+  while (i < s_log_n) {
+    const ChgLog& f = s_log[(start + i) % cfg::BAT_LOG_SAMPLES];
+    const uint32_t minute = f.sec / 60;
+    uint16_t vmin = 0xFFFF, vmax = 0;
+    uint32_t vbat_sum = 0, chg = 0, flips = 0;
+    uint8_t src_or = 0;
+    int cnt = 0;
+    int8_t lv = -1;
+    while (i < s_log_n) {
+      const ChgLog& e = s_log[(start + i) % cfg::BAT_LOG_SAMPLES];
+      if (e.sec / 60 != minute) break;
+      if (e.vbus_mv < vmin) vmin = e.vbus_mv;
+      if (e.vbus_mv > vmax) vmax = e.vbus_mv;
+      vbat_sum += e.vbat_mv;
+      chg += e.chg_s;
+      flips += e.flips;
+      if (e.src != 0xFF) src_or |= e.src;
+      lv = e.level;
+      ++cnt;
+      ++i;
+    }
+    Serial.printf("[chg] %02u:%02u｜VBUS %u～%u｜電池 %u｜%d%%｜充電 %u/%u｜切換 %u｜來源 0x%02X\n",
+                  (unsigned)(minute / 60), (unsigned)(minute % 60), (unsigned)vmin, (unsigned)vmax,
+                  (unsigned)(vbat_sum / cnt), (int)lv, (unsigned)chg,
+                  (unsigned)(cnt * cfg::BAT_LOG_EVERY_POLLS), (unsigned)flips, src_or);
+  }
+  Serial.println("[chg] 結束");
+}
+
+void clearLog() {
+  s_log_head = 0;
+  s_log_n = 0;
+  Serial.println("[chg] 充電紀錄已清空");
 }
 
 void setOverride(int pct) {
