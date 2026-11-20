@@ -26,3 +26,4 @@ docs/lab/
 # 本機角色素材（ui_persona）：只在自己的電腦，不進公開 repo（docs/persona-swap.md）
 firmware/persona_local/
 firmware/src/persona_assets.h
+tools/sim/.out/

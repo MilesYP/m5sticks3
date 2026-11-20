@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# 畫面模擬器：用真的 M5GFX 核心（-DLGFX_LINUX_FB）在電腦上畫表情頁／資訊頁，輸出 PPM 圖檔。
+# 需求：Linux 或 macOS 的 g++/gcc（有 AddressSanitizer）、先在 firmware/ 跑過一次 pio（才有 .pio/libdeps/M5GFX）。
+# 用法：tools/sim/build.sh [face|info|anim|lowbat|bench|all]   產物在 tools/sim/.out/，圖在 tools/sim/.out/ex|an|lb|out
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
+SRC="$ROOT/firmware/src"
+LIB="$ROOT/firmware/.pio/libdeps/m5sticks3/M5GFX/src"
+[ -d "$LIB" ] || { echo "找不到 $LIB：先在 firmware/ 跑一次 pio run"; exit 1; }
+OUT="$HERE/.out"; OBJ="$OUT/obj"; mkdir -p "$OBJ"
+F="-O1 -g -fsanitize=address -DLGFX_LINUX_FB -I$LIB"
+# 1) M5GFX 核心（只編一次）
+for c in "$LIB"/lgfx/utility/*.c "$LIB"/lgfx/Fonts/efont/*.c "$LIB"/lgfx/Fonts/IPA/*.c; do
+  o="$OBJ/$(basename "$c" .c).o"; [ -f "$o" ] || gcc $F -c "$c" -o "$o" &
+done; wait
+for c in "$LIB"/lgfx/v1/*.cpp; do
+  o="$OBJ/$(basename "$c" .cpp).o"; [ -f "$o" ] || g++ -std=gnu++17 $F -c "$c" -o "$o" &
+done; wait
+CF="-std=gnu++17 $F -I$HERE/mock -I$SRC -w"
+cd "$OUT"; mkdir -p ex an lb out
+build() { g++ $CF "$HERE/$1" "${@:2}" "$OBJ"/*.o -o "$OUT/${1%.cpp}" -lpthread; echo "built ${1%.cpp}"; }
+case "${1:-all}" in
+  face)   build sim_face.cpp "$SRC/ui_expression.cpp" && ./sim_face ;;
+  anim)   build sim_anim.cpp "$SRC/ui_expression.cpp" && mkdir -p ex && ./sim_anim ;;
+  lowbat) build sim_lowbat.cpp "$SRC/ui_expression.cpp" && mkdir -p ex && ./sim_lowbat ;;
+  bench)  g++ -std=gnu++17 -O2 -fsanitize=address -DLGFX_LINUX_FB -I$LIB -I$HERE/mock -I$SRC -w "$HERE/bench_face.cpp" "$SRC/ui_expression.cpp" "$OBJ"/*.o -o bench_face -lpthread && ./bench_face ;;
+  info)   g++ $CF -DINFO_SIM "$HERE/sim_info.cpp" "$SRC/ui_info.cpp" "$SRC/info_data.cpp" "$OBJ"/*.o -o sim_info -lpthread && mkdir -p out && ./sim_info ;;
+  all)    "$0" face; "$0" info ;;
+esac

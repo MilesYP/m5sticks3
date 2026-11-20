@@ -19,6 +19,7 @@
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
+| `tools/sim/` | 畫面模擬器：真 M5GFX 核心在電腦上畫表情頁／資訊頁、輸出圖檔（`bash tools/sim/build.sh face|info|anim|lowbat|bench`，見該資料夾 README） | 11-21 |
 | `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–5（A4 直橫雙版面＋合成波表情、**A5-1 資訊頁** 11-20、A5-2 雲端資料實作完待驗收）、**M1-B 全部完成**（11-20，助理 Friday；進度見 `docs/PROGRESS.md`） |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
