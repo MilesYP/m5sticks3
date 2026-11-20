@@ -27,6 +27,7 @@
   - （已完成第 2 步即重現）分離測試（完整斷電後：MONITOR 靜置 3 分鐘 → SCAN 300-348 靜置 2 分鐘 → 遙控器 1 公尺 → 貼近 → 不按遙控器輕壓 RF Pack），記錄 drop／bad 與 checkMISO 錯誤何時出現
   - 回信 PINGEQUA：依分離測試結果決定內容（先前「撤回換貨」草稿作廢）
   - `rssi-test` 待修／M3 動工前要釐清：(1) SCAN 掃 ALL 時底噪約 -55 dBm，只掃 300-348 時約 -101 dBm（同樣 3 ms 穩定時間）→ 不是「RSSI 未穩定」，可能與跨頻段後驅動 `Calibrate()` 留下的 FSCAL2／TEST0 設定有關，未驗證；(2) `[regs]` 的 FREQ2 每次讀回值不同（1E／06／87，應為 10），MARCSTATE 開機頭幾秒偶有讀錯 → 狀態／暫存器讀取的可靠性要查；(3) PKTCTRL0 讀回 3F（預期 32）
+  - **充電表情（Miles 11-20 新增，排在 A4 一起討論）**：一組「充電中 → 充電完成」的表情樣式；樣式先出 2～3 案給 Miles 選，偵測方式先查證（`isCharging()` 會來回跳），細節見 `docs/KICKOFF_A4.md`
   - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
