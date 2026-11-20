@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 畫面模擬器：用真的 M5GFX 核心（-DLGFX_LINUX_FB）在電腦上畫表情頁／資訊頁，輸出 PPM 圖檔。
 # 需求：Linux 或 macOS 的 g++/gcc（有 AddressSanitizer）、先在 firmware/ 跑過一次 pio（才有 .pio/libdeps/M5GFX）。
-# 用法：tools/sim/build.sh [face|info|anim|lowbat|bench|all]   產物在 tools/sim/.out/，圖在 tools/sim/.out/ex|an|lb|out
+# 用法：tools/sim/build.sh [face|info|anim|lowbat|motion|bench|all]   產物在 tools/sim/.out/，圖在 tools/sim/.out/ex|an|lb|out
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -24,6 +24,7 @@ case "${1:-all}" in
   face)   build sim_face.cpp "$SRC/ui_expression.cpp" && ./sim_face ;;
   anim)   build sim_anim.cpp "$SRC/ui_expression.cpp" && mkdir -p ex && ./sim_anim ;;
   lowbat) build sim_lowbat.cpp "$SRC/ui_expression.cpp" && mkdir -p ex && ./sim_lowbat ;;
+  motion) build sim_motion.cpp "$SRC/ui_expression.cpp" && mkdir -p mo && ./sim_motion 0 && ./sim_motion 2 ;;
   bench)  g++ -std=gnu++17 -O2 -fsanitize=address -DLGFX_LINUX_FB -I$LIB -I$HERE/mock -I$SRC -w "$HERE/bench_face.cpp" "$SRC/ui_expression.cpp" "$OBJ"/*.o -o bench_face -lpthread && ./bench_face ;;
   info)   g++ $CF -DINFO_SIM "$HERE/sim_info.cpp" "$SRC/ui_info.cpp" "$SRC/info_data.cpp" "$OBJ"/*.o -o sim_info -lpthread && mkdir -p out && ./sim_info ;;
   all)    "$0" face; "$0" info ;;

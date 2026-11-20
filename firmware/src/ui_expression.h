@@ -46,6 +46,9 @@ void setLowBatteryBlink(int mode);   // 0 不閃、1 原色紅閃（<20%）、2 
 void setGaze(float x, float y);
 // A4 驚嚇彈珠台：每筆 IMU 的線性加速度（g，已換算成畫面 ＋右／＋下）；夠大就讓眼睛和嘴巴在螢幕裡撞來撞去
 void setMotion(float right_g, float down_g);
+// A8：視重力（g，畫面 ＋右／＋下；靜置直拿約 (0, 1)，搖晃時含慣性）。碎片（與 A4b 充電液體）往這個方向掉
+void setGravity(float right_g, float down_g);
+bool shattered();            // A8：五官目前是碎片狀態（甩碎中或拼回中）
 // A4：版面方向（imu_pet 判斷後呼叫）
 void setOrientation(Orient o);
 Orient orientation();

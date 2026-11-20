@@ -134,6 +134,7 @@ struct Body { float ox, oy, vx, vy, sx, sy; };
 Body     s_bd[3] = {{0, 0, 0, 0, 1, 1}, {0, 0, 0, 0, 1, 1}, {0, 0, 0, 0, 1, 1}};
 const float kMass[3] = {1.0f, 0.75f, 1.35f};   // 推力倍率不同 → 三顆甩得不一樣
 float    s_mot_x = 0, s_mot_y = 0;             // 最新線性加速度（g，畫面方向）
+float    s_gr_x = 0, s_gr_y = 1;               // A8：視重力（g，畫面方向）
 bool     s_pin = false;                        // 正在甩
 uint32_t s_pin_last = 0;                       // 最近一次「有在搖」的時刻
 
@@ -566,6 +567,91 @@ bool pxBackground(int W, int H, int fx0, int top, int fw, int fy1, uint16_t grid
   memcpy(s_cv.getBuffer(), s_bg.getBuffer(), s_bg_bytes);
   return true;
 }
+// ═════ A8 甩碎（Miles 11-21）：彈珠台一觸發，眼睛、嘴巴、符號炸成小六角，像骰子／彈珠在臉的框裡滾、互撞；
+//       彈珠台結束（停手 0.4 秒）後彈簧拉回原位、拼回臉 ═════
+// 碎片 feat：0 左眼、1 右眼、2 嘴巴（有家，拼回）；3 符號（沒有家，拼回時淡出）
+struct Frag { float x, y, vx, vy, ang, va, ox, oy, b; uint8_t feat; };
+Frag     s_fr[cfg::FR_MAX];
+int      s_fr_n = 0;
+bool     s_fr_on = false, s_fr_back = false;
+uint32_t s_fr_back_t = 0;
+float    s_fr_home[3][2];                 // 三個有家的部位目前的中心（每幀更新，跟著表情與看方向）
+float    s_fr_wl = 0, s_fr_wr = 135, s_fr_wt = 0, s_fr_wb = 240;   // 牆＝臉的區域
+// 把一塊矩形切成小六角格，每格一顆碎片（記住相對位置，拼回時用）
+void frSpawn(uint8_t feat, float cx, float cy, float w, float h, bool ell) {
+  const float a = cfg::FR_A, dx = a * 1.5f, dy = a * 1.732f;
+  for (float x = -w / 2 + a; x <= w / 2 - a * 0.3f; x += dx) {
+    const int col = (int)lroundf((x + w / 2) / dx);
+    for (float y = -h / 2 + a * 0.866f + ((col & 1) ? dy / 2 : 0); y <= h / 2 - a * 0.3f; y += dy) {
+      if (ell && (x * x) / (w * w / 4) + (y * y) / (h * h / 4) > 1.05f) continue;
+      if (s_fr_n >= cfg::FR_MAX) return;
+      s_fr[s_fr_n++] = {cx + x, cy + y, rnd(-60, 60), rnd(-90, 30), 0, 0, x, y, rnd(0.85f, 1.0f), feat};
+    }
+  }
+}
+void frBadge(float x, float y) { badgeFit(x, y); frSpawn(3, x, y, BADGE_A * 1.6f, BADGE_HH * 2, true); }
+void frPhysics(float dt) {
+  if (dt <= 0) return;
+  const float r = cfg::FR_A * 0.9f;
+  for (int i = 0; i < s_fr_n; ++i) {
+    Frag& f = s_fr[i];
+    if (!s_fr_back) {
+      f.vx += (cfg::FR_GRAVITY * s_gr_x + cfg::FR_PUSH * s_mot_x) * dt;
+      f.vy += (cfg::FR_GRAVITY * s_gr_y + cfg::FR_PUSH * s_mot_y) * dt;
+      const float d = fmaxf(0, 1 - cfg::FR_DRAG * dt);
+      f.vx *= d; f.vy *= d;
+    } else if (f.feat < 3) {
+      const float hx = s_fr_home[f.feat][0] + f.ox, hy = s_fr_home[f.feat][1] + f.oy;
+      f.vx += (cfg::FR_RETURN_K * (hx - f.x) - cfg::FR_RETURN_C * f.vx) * dt;
+      f.vy += (cfg::FR_RETURN_K * (hy - f.y) - cfg::FR_RETURN_C * f.vy) * dt;
+      f.va += (-120 * f.ang - 12 * f.va) * dt;
+    }
+    f.vx = fmaxf(-900, fminf(900, f.vx));
+    f.vy = fmaxf(-900, fminf(900, f.vy));
+    f.x += f.vx * dt; f.y += f.vy * dt; f.ang += f.va * dt;
+    if (s_fr_back) continue;
+    // 撞牆：反彈；貼牆那一下把切向速度變成轉速（像骰子滾）
+    if (f.x - r < s_fr_wl) { f.x = s_fr_wl + r; if (f.vx < 0) f.vx = -f.vx * cfg::FR_REST; f.va = f.vy / r; f.vy *= 0.9f; }
+    if (f.x + r > s_fr_wr) { f.x = s_fr_wr - r; if (f.vx > 0) f.vx = -f.vx * cfg::FR_REST; f.va = -f.vy / r; f.vy *= 0.9f; }
+    if (f.y - r < s_fr_wt) { f.y = s_fr_wt + r; if (f.vy < 0) f.vy = -f.vy * cfg::FR_REST; f.va = -f.vx / r; f.vx *= 0.9f; }
+    if (f.y + r > s_fr_wb) { f.y = s_fr_wb - r; if (f.vy > 0) f.vy = -f.vy * cfg::FR_REST; f.va = f.vx / r; f.vx *= 0.9f; }
+  }
+  if (s_fr_back) return;
+  // 互撞（當成圓，兩輪）：推開重疊、法向速度交換一部分（60 顆約 3600 次比對，ESP32 不到 1ms）
+  for (int it = 0; it < 2; ++it)
+    for (int i = 0; i < s_fr_n; ++i)
+      for (int j = i + 1; j < s_fr_n; ++j) {
+        Frag &a = s_fr[i], &b = s_fr[j];
+        const float dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy, m = 2 * r;
+        if (d2 >= m * m || d2 < 1e-4f) continue;
+        const float d = sqrtf(d2), nx = dx / d, ny = dy / d, ov = (m - d) * 0.5f;
+        a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
+        const float rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (rv < 0) {
+          const float imp = -1.3f * rv * 0.5f;
+          a.vx -= imp * nx; a.vy -= imp * ny; b.vx += imp * nx; b.vy += imp * ny;
+        }
+      }
+}
+// 每顆畫成會轉的實心小六角（4 個三角形）
+void frDraw(uint16_t eyeC, uint16_t mouthC, const Rgb& acc, float badgeAlpha) {
+  for (int i = 0; i < s_fr_n; ++i) {
+    const Frag& f = s_fr[i];
+    const uint16_t c = f.feat == 2 ? mouthC : f.feat == 3 ? fade(acc, badgeAlpha * f.b) : eyeC;
+    if (f.feat == 3 && badgeAlpha <= 0) continue;
+    float px[6], py[6];
+    for (int k = 0; k < 6; ++k) {
+      const float an = f.ang + k * 1.0472f;
+      px[k] = f.x + cfg::FR_A * cosf(an);
+      py[k] = f.y + cfg::FR_A * sinf(an);
+    }
+    s_cv.fillTriangle((int)px[0], (int)py[0], (int)px[1], (int)py[1], (int)px[2], (int)py[2], c);
+    s_cv.fillTriangle((int)px[0], (int)py[0], (int)px[2], (int)py[2], (int)px[3], (int)py[3], c);
+    s_cv.fillTriangle((int)px[0], (int)py[0], (int)px[3], (int)py[3], (int)px[5], (int)py[5], c);
+    s_cv.fillTriangle((int)px[3], (int)py[3], (int)px[4], (int)py[4], (int)px[5], (int)py[5], c);
+  }
+}
+
 // 掃描線眼睛：切角矩形（八角）、每 3 列畫 2 列；生氣／想睡斜切、開心下方弧形挖掉，算每一列的左右界（不用底色遮，六角格才不會被塗掉）
 void pxEye(float ex, float ey, float w, float h, int side, float ang, float slp, float hap, float sc, uint16_t c) {
   if (w < 3) w = 3;
@@ -1038,6 +1124,8 @@ void setGaze(float x, float y) {
 }
 
 void setMotion(float right_g, float down_g) { s_mot_x = right_g; s_mot_y = down_g; }
+void setGravity(float right_g, float down_g) { s_gr_x = right_g; s_gr_y = down_g; }
+bool shattered() { return s_fr_on; }
 
 void setOrientation(Orient o) {
   if (o == s_orient) return;
@@ -1229,18 +1317,57 @@ void render() {
   const float lw = P(K_LW) * sc * s_bd[0].sx, rw = P(K_RW) * sc * s_bd[1].sx;
   const float lh = (blink ? 4 : fmaxf(4, P(K_LH))) * sc * s_bd[0].sy;
   const float rh = ((blink || wink) ? 4 : fmaxf(4, P(K_RH))) * sc * s_bd[1].sy;
-  if (PIXEL) {
+  // ── A8 甩碎：彈珠台一觸發就炸開（用這一幀的五官位置）；彈珠台結束就拼回 ──
+  {
+    const float fmx = X(mhx + s_bd[2].ox), fmy = Y(mhy + s_bd[2].oy);
+    s_fr_home[0][0] = lx; s_fr_home[0][1] = ly;
+    s_fr_home[1][0] = rx; s_fr_home[1][1] = ry;
+    s_fr_home[2][0] = fmx; s_fr_home[2][1] = fmy;
+    s_fr_wl = fx0 + 3; s_fr_wr = fx0 + fw - 3; s_fr_wt = top + 2; s_fr_wb = fy1 - 2;
+    if (PIXEL && s_pin && !s_fr_on && !s_offline) {
+      s_fr_n = 0; s_fr_on = true; s_fr_back = false;
+      frSpawn(0, lx, ly, lw, lh, false);
+      frSpawn(1, rx, ry, rw, rh, false);
+      frSpawn(2, fmx, fmy, P(K_MW) * sc, fmaxf(4, P(K_MH)) * sc + 4, false);
+      for (int i = 0; i < MAX_PARTS; ++i) {   // 畫面上的符號一起炸
+        Part& p = s_parts[i];
+        if (!p.on || p.kind == PK::Dot) continue;
+        frBadge(X(p.x), Y(p.y));
+        p.on = false;
+      }
+      if (shown == Mood::Angry) frBadge(X(symX()), Y(symY() + 4 + hy));
+    }
+    if (s_fr_on) {
+      if (s_pin) s_fr_back = false;                                   // 又開始甩
+      else if (!s_fr_back) { s_fr_back = true; s_fr_back_t = now; }
+      frPhysics(dt);
+      if (s_fr_back) {
+        float worst = 0;
+        for (int i = 0; i < s_fr_n; ++i) {
+          const Frag& f = s_fr[i];
+          if (f.feat < 3) worst = fmaxf(worst, fabsf(f.x - s_fr_home[f.feat][0] - f.ox) + fabsf(f.y - s_fr_home[f.feat][1] - f.oy));
+        }
+        if ((worst < 3.0f && now - s_fr_back_t > 250) || now - s_fr_back_t > cfg::FR_RETURN_MAX_MS) s_fr_on = false;
+      }
+    }
+    if (s_fr_on) {
+      Rgb ec = c1;
+      if (shown == Mood::Asleep) ec = mixc(BG, ec, 0.55f);
+      frDraw(c565(ec), c565(c2), th.accent, s_fr_back ? 1.0f - (now - s_fr_back_t) / 300.0f : 1.0f);
+    }
+  }
+  if (PIXEL && !s_fr_on) {
     Rgb ec = c1;   // 平常＝th.eye；低電量時＝閃爍色（眼睛、嘴巴一起閃）
     if (shown == Mood::Asleep) ec = mixc(BG, ec, 0.55f);
     pxEye(lx, ly, lw, lh, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));
     pxEye(rx, ry, rw, rh, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));
-  } else {
+  } else if (!PIXEL) {
     drawEye(lx, ly, lw, lh, c1, c2, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
     drawEye(rx, ry, rw, rh, c1, c2, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
   }
 
   // 眉毛
-  if (P(K_BRA) > 0.05f && fr.brows) {
+  if (P(K_BRA) > 0.05f && fr.brows && !s_fr_on) {
     const uint16_t bc = fade(c1, fminf(1, P(K_BRA)));
     if (fr.brows == 1) {   // 聆聽：只有遠側那隻挑起來
       const bool far_right = es < 0;
@@ -1260,8 +1387,8 @@ void render() {
 
 
 
-  // 嘴巴（像素臉：一樣的嘴型，畫完再挖掃描線縫）
-  {
+  // 嘴巴（像素臉：一樣的嘴型，畫完再挖掃描線縫）；甩碎中不畫
+  if (!s_fr_on) {
     const float mx = X(mhx + s_bd[2].ox), my = Y(mhy + s_bd[2].oy);
     const float mw = P(K_MW) * sc * s_bd[2].sx, mh = fmaxf(2, P(K_MH)) * sc * s_bd[2].sy, mc = P(K_MC), sk = P(K_SK) * sc;
     const uint16_t mcol = c565(c2);
@@ -1335,7 +1462,7 @@ void render() {
     }
   }
 
-  if (PIXEL) {   // 嘴巴挖掃描線縫（只挖嘴巴顏色的像素，六角格不受影響）
+  if (PIXEL && !s_fr_on) {   // 嘴巴挖掃描線縫（只挖嘴巴顏色的像素，六角格不受影響）
     const float mx = X(mhx + s_bd[2].ox), my = Y(mhy + s_bd[2].oy);
     const float mw = P(K_MW) * sc * s_bd[2].sx + 12 * sc, mh = fmaxf(2, P(K_MH)) * sc * s_bd[2].sy + 16 * sc;
     const uint16_t mc = c565(c2);
@@ -1368,7 +1495,7 @@ void render() {
   }
 
   // 生氣：# 青筋跳動
-  if (shown == Mood::Angry) {   // A7：紅色六角「! WARNING」，跟節奏一閃一閃
+  if (shown == Mood::Angry && !s_fr_on) {   // A7：紅色六角「! WARNING」，跟節奏一閃一閃
     float ax = X(symX()), ay = Y(symY() + 4 + hy);
     badgeFit(ax, ay);
     const float beat = fmaxf(0, sinf(t * 9));
@@ -1392,6 +1519,11 @@ void render() {
     const float px0 = X(p.x), py0 = Y(p.y), py = py0, px = px0;
     switch (p.kind) {
       case PK::Text: case PK::Heart: case PK::Spark: case PK::Note: case PK::Dots: {
+        if (PIXEL && s_fr_on) {   // A8：甩碎中冒出來的符號直接炸成碎片（拼回中就不冒）
+          if (!s_fr_back) frBadge(px0, py0);
+          p.on = false;
+          break;
+        }
         if (PIXEL) {
           HB b = p.kind == PK::Heart ? HB::Heart : p.kind == PK::Spark ? HB::Spark : p.kind == PK::Note ? HB::Note
                : p.kind == PK::Dots ? HB::Dots : p.ch == '?' ? HB::Ques : p.ch == 'z' ? HB::Zed : p.ch == 'd' ? HB::Drop : HB::Bang;

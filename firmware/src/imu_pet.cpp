@@ -332,6 +332,16 @@ void loop() {
     if (fabsf(up) > fabsf(s_w.mot_d)) s_w.mot_d = -up;
     const bool on = mode_manager::current() == Mode::Desktop && !voice_turn::busy();   // 語音優先：講話時不甩
     ui_expression::setMotion(on ? right : 0.0f, on ? -up : 0.0f);
+    // A8：視重力（畫面方向）。靜置時加速度計讀到「往上」1g → 碎片往畫面下掉；搖晃時讀數含慣性，碎片會被甩
+    {
+      float gr, gu;
+      switch (s_orient) {
+        case Orient::LandARight: gr = -ay; gu = ax; break;
+        case Orient::LandALeft:  gr = ay;  gu = -ax; break;
+        default:                 gr = ax;  gu = ay; break;
+      }
+      ui_expression::setGravity(-cfg::FR_GRAV_SIGN_X * gr, gu);
+    }
   }
 
   if (now - s_win_start >= cfg::PET_WINDOW_MS) {

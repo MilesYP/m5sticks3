@@ -119,6 +119,21 @@ constexpr float    PIN_SQUASH    = 0.62f;   // 撞牆瞬間被撞方向壓成幾
 constexpr float    PIN_GRAVITY_LPF = 0.08f; // 每筆 IMU 的重力低通權重（約 0.25 秒）
 constexpr float    PIN_VMAX      = 2200.0f; // 速度上限（設計單位／秒）
 
+// ── A8 甩碎（Miles 11-21）：彈珠台觸發時，眼睛、嘴巴、符號炸成小六角，像骰子／彈珠在臉的框裡滾、互撞；
+//    停手（彈珠台結束）後彈簧拉回原位、拼回臉。重力方向用 IMU 即時算（imu_pet 每筆送 setGravity）。
+constexpr float    FR_A          = 5.0f;    // 碎片六角邊長（px）；模擬：3.4 太碎像沙，5 像骰子
+constexpr int      FR_MAX        = 110;     // 碎片上限（兩眼＋嘴＋符號實際約 40～60 顆）
+constexpr float    FR_GRAVITY    = 900.0f;  // 1g 視重力 → px/s²
+constexpr float    FR_PUSH       = 2600.0f; // 1g 線性加速度的推力 → px/s²
+constexpr float    FR_REST       = 0.55f;   // 撞牆反彈保留的速度比例
+constexpr float    FR_DRAG       = 0.6f;    // 空氣阻力（每秒速度衰減比例）
+constexpr float    FR_RETURN_K   = 220.0f;  // 拼回彈簧（阻尼不足 → 衝過頭一點點）
+constexpr float    FR_RETURN_C   = 16.0f;
+constexpr uint32_t FR_RETURN_MAX_MS = 900;  // 拼回最多多久（到了直接換回正常五官）
+// 視重力左右方向：推導值（靜置時加速度計讀到「往上」1g；右邊低 → 讀數右分量為負 → 碎片往右）。
+// 實機往右傾若碎片往左跑，改 −1。
+constexpr float    FR_GRAV_SIGN_X = 1.0f;
+
 // ── A3 休息臉顏色跟電量（Miles 11-20 選方案一）──
 // 待機／想睡／睡著的眼睛顏色：≥60% 螢光綠（11-20 改，原藍）、40–59 薄荷綠、20–39 黃、10–19 紅、<10 紅灰閃爍（語音中不閃、充電中不閃）
 // 實測電量讀數充電中會在 17～26% 間跳（v22-a3m）→ 每 5 秒讀一次、指數平滑、升級要多 3% 才升
