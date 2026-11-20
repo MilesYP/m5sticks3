@@ -9,7 +9,8 @@
 #include "config.h"
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "23-a4"
+#define AUDIO_BUILD_TAG "24-a5"
+namespace audio_io { const char* buildTag() { return AUDIO_BUILD_TAG; } }
 
 namespace {
 
@@ -542,6 +543,21 @@ size_t stopRecording() {
   const size_t done = s_rec_done.load();
   if (end < done) end = done;
   if (end > s_queued) end = s_queued;
+  const size_t a = TRIM_START_MS * SAMPLE_RATE / 1000;
+  const size_t cut = TRIM_END_MS * SAMPLE_RATE / 1000;
+  const size_t b = (end > cut) ? end - cut : 0;
+  if (held_ms < cfg::VOICE_MIN_PRESS_MS || b <= a + FADE_IN + FADE_OUT) {   // 誤觸：太短
+    // A5-1（11-20 實機：短按切資訊頁「好遲鈍」）：誤觸不關麥克風、不重開。
+    // 原本 Mic.end()＋micOn()（I2S 重裝、ES8311 重設、讀回）會卡主迴圈，切頁要等它做完才畫得出來。
+    // 麥克風本來就該停在待機（對講機式），還在飛的 1～2 塊（≤200ms）寫完就停，資料不用；
+    // 下一輪 startRecording 會等它們寫完才排新的塊（isRecording() < 2）。
+    Serial.printf("[audio] 太短（%u ms < %lu ms）→ 當誤觸，不上傳\n", (unsigned)held_ms,
+                  (unsigned long)cfg::VOICE_MIN_PRESS_MS);
+    s_len = 0;
+    s_rec_end.store((uint32_t)a, std::memory_order_release);
+    s_rec_ended.store(true, std::memory_order_release);
+    return 0;
+  }
   M5.Mic.end();
   // 量測：按住的時間比實際排進去的錄音長很多 → 主迴圈中途被卡住、錄音停了
   {
@@ -553,18 +569,6 @@ size_t stopRecording() {
     }
   }
 
-  const size_t a = TRIM_START_MS * SAMPLE_RATE / 1000;
-  const size_t cut = TRIM_END_MS * SAMPLE_RATE / 1000;
-  const size_t b = (end > cut) ? end - cut : 0;
-  if (held_ms < cfg::VOICE_MIN_PRESS_MS || b <= a + FADE_IN + FADE_OUT) {   // 誤觸：太短
-    Serial.printf("[audio] 太短（%u ms < %lu ms）→ 當誤觸，不上傳\n", (unsigned)held_ms,
-                  (unsigned long)cfg::VOICE_MIN_PRESS_MS);
-    s_len = 0;
-    s_rec_end.store((uint32_t)a, std::memory_order_release);
-    s_rec_ended.store(true, std::memory_order_release);
-    micOn();
-    return 0;
-  }
   s_len = b - a;
   s_rec_armed.store(true, std::memory_order_release);        // 夠長：按住時間剛好跨過門檻、主迴圈還沒標到時補標
   s_rec_end.store((uint32_t)b, std::memory_order_release);   // 先寫結尾，再標「已放開」（網路 task 依此順序讀）

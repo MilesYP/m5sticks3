@@ -10,7 +10,7 @@ namespace {
 struct Tier { const char* name; int low; uint8_t r, g, b; };
 // 由高到低；low＝這一級的下限（%）
 const Tier kTiers[] = {
-  {"藍",   60,  70, 150, 255},
+  {"螢光綠", 60,  57, 255,  20},   // 11-20 Miles：霓虹綠 #39FF14（原本藍→#00FF41 偏青不夠綠），比下一級的薄荷綠更亮更飽和
   {"綠",   40,  87, 220, 140},
   {"黃",   20, 255, 209, 102},
   {"紅",   10, 255,  90,  90},
@@ -20,6 +20,8 @@ constexpr int kTierCount = sizeof(kTiers) / sizeof(kTiers[0]);
 constexpr int TIER_BLINK = kTierCount - 1;
 
 float    s_level = -1.0f;      // 平滑後的電量
+int      s_vbat_mv = 0;        // A5-1：上次讀到的電池電壓
+bool     s_charging = false;   // A5-1：上次判斷的充電中
 int      s_tier = -1;
 int      s_override = -1;
 uint32_t s_last_read = 0;
@@ -63,9 +65,12 @@ void readAndApply(bool first) {
     if (s_tier != before) Serial.printf("[bat] 假裝 %d%% → %s\n", s_override, kTiers[s_tier].name);
   } else {
     const int raw = (int)M5.Power.getBatteryLevel();
+    const int mv = (int)M5.Power.getBatteryVoltage();   // A5-1：資訊頁顯示電壓（同一輪讀，不另外讀）
+    if (mv > 0) s_vbat_mv = mv;
     if (M5.Power.isCharging()) { s_last_charging = now; s_seen_charging = true; }
     charging = s_seen_charging && (now - s_last_charging < cfg::BAT_CHARGE_HOLD_MS);
     if (raw < 0 || raw > 100) {        // 讀不到：維持原狀
+      s_charging = charging;
       apply(charging);
       return;
     }
@@ -76,6 +81,7 @@ void readAndApply(bool first) {
       Serial.printf("[bat] 電量 %.0f%%（讀數 %d%%）%s → 休息臉%s\n", s_level, raw,
                     charging ? "充電中" : "", kTiers[s_tier].name);
   }
+  s_charging = charging;
   apply(charging);
 }
 
@@ -231,5 +237,7 @@ void setOverride(int pct) {
 
 int level() { return s_level < 0 ? -1 : (int)(s_level + 0.5f); }
 const char* tierName() { return s_tier < 0 ? "-" : kTiers[s_tier].name; }
+int voltageMv() { return s_vbat_mv; }
+bool charging() { return s_charging; }
 
 }  // namespace battery_ui

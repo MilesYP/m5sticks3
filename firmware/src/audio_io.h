@@ -68,6 +68,7 @@ const char* streamReport();                          // 一行統計（播完時
 size_t streamRoom();                                 // B3b-5：串流緩衝還能寫幾個取樣（收件反壓用）
 uint32_t streamPlayedMs();                           // B4：這一輪已播完幾 ms（字幕對齊聲音用）
 float recLevel();                                    // A4：錄音中最新一塊的人聲指標換成 0～1（−55 dBFS＝0、−25＝1）；沒在錄＝0
-float playLevel();                                   // B4：正在播的那塊音量（0～1，嘴巴開合用）；沒在播＝0
+float playLevel();
+const char* buildTag();                              // A5-1：韌體版本標記（AUDIO_BUILD_TAG），資訊頁顯示                                   // B4：正在播的那塊音量（0～1，嘴巴開合用）；沒在播＝0
 
 }  // namespace audio_io

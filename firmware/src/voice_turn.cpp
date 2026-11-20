@@ -355,6 +355,19 @@ void setGptMode(bool gpt) {
 bool gptMode() { return s_gpt; }
 
 bool busy() { return s_st != St::Idle; }
+bool faceWanted() {
+  if (s_st == St::Idle) return false;
+  if (s_st == St::Recording && !audio_io::recArmed()) return false;   // 可能只是短按（切頁），先不搶畫面
+  return true;
+}
+const char* stateName() {
+  switch (s_st) {
+    case St::Recording: return "REC";
+    case St::Flushing:  return "SEND";
+    case St::Receiving: return "PLAY";
+    default:            return "IDLE";
+  }
+}
 
 void setDownFormat(int f) {
   s_want = f == 1 ? Fmt::Adpcm : (f == 2 ? Fmt::Mulaw : (f == 3 ? Fmt::Adpcm8k : Fmt::Pcm16));
@@ -397,21 +410,22 @@ void onPress() {
   perfReset();
 }
 
-void onRelease() {
-  if (s_st != St::Recording) return;
+bool onRelease() {
+  if (s_st != St::Recording) return false;
   s_rec_samples = audio_io::stopRecording();
   s_t_release = millis();
   perfPrint("錄音");
   if (s_rec_samples == 0) {             // 誤觸（太短）：start 還沒送出，中控完全不知道
     net_hub::uploadAbort();
     toIdle();
-    return;
+    return true;
   }
   net_hub::uploadFinish();
   ui_expression::setMood(Mood::Thinking);
   s_t_link_lost = 0;
   s_st = St::Flushing;
   reportUp();
+  return false;
 }
 
 void loop() {

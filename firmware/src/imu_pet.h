@@ -22,5 +22,7 @@ void setMeasureImu(bool on);   // 序列埠 j：每 100ms 印 IMU 量測行
 void setMeasureSound(bool on); // 序列埠 v：開待機收音，每 100ms 印聲音量測行
 void setOrientOverride(int o); // 序列埠 o：0 直式、1 橫式 A 左、2 橫式 A 右；<0＝恢復自動判斷
 bool measureImu();
+// A5-1 資訊頁：低通後的重力（g），已換算成目前畫面的「右」「上」與螢幕法線 z（≈ 每 100ms 更新）；還沒讀到 IMU 回 false
+bool tilt(float* right, float* up, float* z);
 bool measureSound();
 }

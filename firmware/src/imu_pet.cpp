@@ -158,6 +158,15 @@ void react(Mood m, uint32_t now, const char* why) {
   setMoodIfChanged(m, why);
 }
 
+// 低通重力換算成目前畫面的右方向／上方向（裝置軸：直拿 右＝+x 上＝+y；A 右 上＝+x 右＝−y；A 左 上＝−x 右＝+y）
+void screenAxes(float* right, float* up) {
+  switch (s_orient) {
+    case Orient::LandARight: *right = -s_gy; *up = s_gx; break;
+    case Orient::LandALeft:  *right = s_gy;  *up = -s_gx; break;
+    default:                 *right = s_gx;  *up = s_gy; break;
+  }
+}
+
 // 睡著時才開待機收音（量測 v 開著時由量測決定）
 void updateListening(bool want) {
   if (s_m_snd) return;
@@ -185,11 +194,7 @@ void evaluate(uint32_t now, float snd_hi, uint32_t snd_n) {
     updateOrient(ax, ay, s_w.max_da);
     // 看方向：先換算成「目前畫面」的右方向與上方向（裝置軸：直拿 右＝+x 上＝+y；A 右 上＝+x 右＝−y；A 左 上＝−x 右＝+y）
     float right, up;
-    switch (s_orient) {
-      case Orient::LandARight: right = -s_gy; up = s_gx; break;
-      case Orient::LandALeft:  right = s_gy;  up = -s_gx; break;
-      default:                 right = s_gx;  up = s_gy; break;
-    }
+    screenAxes(&right, &up);
     // 左右看「畫面右方向」的分量；畫面正立時（上方向是主要重力方向）前後傾看 z 軸
     const float gx = cfg::PET_GAZE_SIGN_X * right / cfg::PET_GAZE_FULL_G;
     const float gy = (up > 0.5f) ? cfg::PET_GAZE_SIGN_Y * s_gz / cfg::PET_GAZE_FULL_G : 0.0f;
@@ -364,6 +369,12 @@ void setOrientOverride(int o) {
 }
 
 bool measureImu() { return s_m_imu; }
+bool tilt(float* right, float* up, float* z) {
+  if (!s_g_init) return false;
+  screenAxes(right, up);
+  *z = s_gz;
+  return true;
+}
 bool measureSound() { return s_m_snd; }
 
 }  // namespace imu_pet

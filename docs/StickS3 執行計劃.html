@@ -250,12 +250,12 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
         <p>11-19 到貨。G1 偵測通過（CardKB <code>5F</code>、Scroll <code>40</code>）；G2 功能驗收（<code>grove-test/</code>）待確認。可與 B3c 並行。</p></li>
       <li class="is-doing"><i class="pin st-doing"></i>
         <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-doing">4／7 片</span></div>
-        <p>合成波風格表情（漸層眼、嘴巴、彈簧動畫、冒符號），直式與兩種橫式都正著看。<b>A3 IMU 互動、A4 直橫雙版面＋表情改版 11-20 通過</b>。下一片 A5-1 資訊頁，再 A5-2 雲端資料、A4b 充電表情。</p>
+        <p>合成波風格表情（漸層眼、嘴巴、彈簧動畫、冒符號），直式與兩種橫式都正著看。<b>A3 IMU 互動、A4 直橫雙版面＋表情改版 11-20 通過</b>。<b>A5-1 資訊頁 11-20 完成</b>。下一片 A5-2 雲端資料（天氣、快訊、語音額度美金），再 A4b 充電表情。</p>
         <ul class="slices">
           <li class="ok"><span class="sc">A1</span>離線 Idle 臉：呼吸＋眨眼</li>
           <li class="ok"><span class="sc">A2</span>九種表情定案、固定配色</li>
           <li class="ok"><span class="sc">A3</span>IMU 互動：搖晃／拍打／睡著＋休息臉電量色</li>
-          <li><span class="sc">A4</span>直橫雙版面＋表情改版 ✅</li><li><span class="sc">A5-1</span>資訊頁本機資料（下一片）</li><li><span class="sc">A4b</span>充電表情（A5 之後）</li>
+          <li><span class="sc">A4</span>直橫雙版面＋表情改版 ✅</li><li><span class="sc">A5-1</span>資訊頁本機資料 ✅</li><li><span class="sc">A5-2</span>資訊頁雲端資料（下一片）</li><li><span class="sc">A4b</span>充電表情（A5 之後）</li>
           <li><span class="sc">A5-1</span>資訊頁（本機資料，短按 A）</li>
           <li><span class="sc">A5-2</span>資訊頁（天氣、快訊）</li>
         </ul></li>
@@ -391,9 +391,9 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
       <tr class="ok"><td class="c">A2</td><td>九種表情：Idle／Listening／Thinking／Speaking／Happy／Angry／Scared／Sleepy／Asleep，固定配色、眼型與過渡</td><td>實機逐一確認九種</td><td class="s">✅ 11-16</td></tr>
       <tr class="ok"><td class="c">A3</td><td>IMU 互動：靜置 6 秒想睡、11 秒睡著，拿起或按 A 醒；用力搖→驚嚇；拍機身→開心／生氣（睡著時→生氣）；睡著聽到拍手或講話→驚嚇／生氣；傾斜→眼睛看過去；語音優先。休息臉顏色跟電量（≥60 藍、40–59 綠、20–39 黃、10–19 紅、&lt;10 紅灰閃爍）。門檻先量測再定（<code>CLAUDE.md</code> 鐵則八）</td><td>放著不動、搖、拍、睡著拍手、語音中搖拍、B 急停、<code>c</code> 假裝電量看五色、傾斜看方向</td><td class="s">✅ 11-20</td></tr>
       <tr><td class="c">A4</td><td>直橫雙版面＋表情改版：三種拿法（實測門檻、死區、0.5 秒停留）、畫布轉向、對話區在 A 鍵側；合成波風格、每種表情加嘴巴與彈簧動畫、側耳聆聽、說話嘴型依音節、驚嚇彈珠台；拍打規則改版</td><td>三種拿法正著看、45° 不閃、9 種表情×3 拿法、迴圈 ≤25ms、橫拿講話、B 急停</td><td class="s">✅ 11-20</td></tr>
-      <tr><td class="c">A5-1</td><td>資訊頁（本機資料）：Desktop 短按 A（&lt;0.6 秒）切換，按住仍是說話；時間、電量、IMU、CPU、記憶體、Wi-Fi、配件；直式＋橫式。版面照介面規格第 3 節</td><td>短按 A 進出、數值正確、轉向重排、長按照常說話</td><td class="s">🟠 下一片</td></tr>
-      <tr><td class="c">A4b</td><td>充電表情（B 閃電眼）：充飽要用 USB＋CHG_STAT 持續未充電＋電壓推；韌體已有充電紀錄器（<code>h</code>），先實測充一次</td><td>插線充電中、充滿充飽、拔線回電量色、不閃爍</td><td class="s">⏳ A5 之後</td></tr>
-      <tr><td class="c">A5-2</td><td>資訊頁（雲端資料）：天氣、快訊、已存訊號數由中控定時送來</td><td>天氣快訊顯示且會更新、斷線顯示上次資料</td><td class="s">⏳ A5-1 之後</td></tr>
+      <tr><td class="c">A5-1</td><td>資訊頁（本機資料）：Desktop 短按 A（&lt;0.6 秒）切換，按住仍是說話；時間、電量、IMU、CPU、記憶體、Wi-Fi、配件；直式＋橫式。版面照介面規格第 3 節</td><td>短按 A 進出、數值正確、轉向重排、長按照常說話</td><td class="s">✅ 11-20</td></tr>
+      <tr><td class="c">A4b</td><td>充電表情（B 閃電眼）：充飽要用 USB＋CHG_STAT 持續未充電＋電壓推；韌體已有充電紀錄器（<code>h</code>），先實測充一次</td><td>插線充電中、充滿充飽、拔線回電量色、不閃爍</td><td class="s">⏳ A5-2 之後（充電實測完成）</td></tr>
+      <tr><td class="c">A5-2</td><td>資訊頁（雲端資料）：天氣、快訊、已存訊號數由中控定時送來</td><td>天氣快訊顯示且會更新、斷線顯示上次資料</td><td class="s">🟠 下一片</td></tr>
     </tbody>
   </table></div>
 

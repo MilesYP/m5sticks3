@@ -79,6 +79,9 @@ constexpr int      PET_GAZE_MAX_Y_PX  = 5;
 // A4（11-20 實機：橫式看方向幅度不明顯）：橫式臉縮成 0.8 倍、位移也跟著縮；橫式左右空間較大 → 左右放大到直式的 1.6 倍（約 11px），
 // 上下維持直式的像素量；嘴巴跟著眼睛移一半，整張臉看起來是轉過去而不只是眼珠動
 constexpr float    PET_GAZE_LAND_X_GAIN = 1.6f;
+// A5-1（11-20 Miles：直轉橫時臉突然變小、不協調）：橫式臉的比例 0.8 → 1.0（跟直式一樣大）。
+// 橫式高 135：臉中心 y≈54、眼睛連最外圈光暈約 21～87、地平線 116，放得下。
+constexpr float    FACE_LAND_SCALE    = 1.0f;
 constexpr float    PET_GAZE_MOUTH_FOLLOW = 0.5f;
 constexpr float    PET_GAZE_SIGN_X    = -1.0f;  // 實機驗收若方向相反就改正負號
 constexpr float    PET_GAZE_SIGN_Y    = 1.0f;
@@ -117,7 +120,7 @@ constexpr float    PIN_GRAVITY_LPF = 0.08f; // 每筆 IMU 的重力低通權重�
 constexpr float    PIN_VMAX      = 2200.0f; // 速度上限（設計單位／秒）
 
 // ── A3 休息臉顏色跟電量（Miles 11-20 選方案一）──
-// 待機／想睡／睡著的眼睛顏色：≥60% 藍、40–59 綠、20–39 黃、10–19 紅、<10 紅灰閃爍（語音中不閃、充電中不閃）
+// 待機／想睡／睡著的眼睛顏色：≥60% 螢光綠（11-20 改，原藍）、40–59 薄荷綠、20–39 黃、10–19 紅、<10 紅灰閃爍（語音中不閃、充電中不閃）
 // 實測電量讀數充電中會在 17～26% 間跳（v22-a3m）→ 每 5 秒讀一次、指數平滑、升級要多 3% 才升
 constexpr uint32_t BAT_READ_MS        = 5000;
 constexpr float    BAT_SMOOTH         = 0.2f;   // 每次讀數的權重（約 25 秒的平滑）
@@ -132,6 +135,25 @@ constexpr uint32_t BAT_BLINK_MS       = 500;    // 紅灰閃爍半週期
 constexpr uint32_t BAT_CHG_POLL_MS    = 1000;   // CHG_STAT 讀取間隔
 constexpr uint8_t  BAT_LOG_EVERY_POLLS = 10;    // 幾次讀取存一筆（＝10 秒）
 constexpr int      BAT_LOG_SAMPLES    = 2160;   // 環形紀錄筆數（10 秒一筆 ＝ 6 小時，PSRAM 約 26KB）
+
+// ── A5-1 資訊頁（Desktop 短按 A 進出；版面見 docs/StickS3 介面規格.html 第 3 節，Miles 11-20 選方案一＋合成波）──
+// 數值每秒更新一次（時間跳秒時重畫）；歷史資料不論在哪一頁都持續收，切過去圖表就是滿的。
+constexpr int      INFO_HIST_SEC      = 60;     // CHIP 波形：最近 60 秒、每秒一點（該秒內主迴圈最長一圈的 ms）
+constexpr int      INFO_HEAP_BARS     = 30;     // MEM 長條：最近 30 根
+constexpr uint32_t INFO_HEAP_EVERY_MS = 2000;   // 每 2 秒一根（＝60 秒）
+constexpr float    INFO_LOOP_FULL_MS  = 40.0f;  // 波形頂端＝40ms
+constexpr float    INFO_LOOP_LIMIT_MS = 25.0f;  // 虛線＝每幀上限 25ms（鐵則八第 11 點）
+constexpr float    INFO_TILT_FULL_G   = 0.6f;   // IMU 氣泡：傾斜這麼多 g 就到圓邊（與看方向同一個尺度）
+// 對時：Wi-Fi 連上後呼叫一次 configTzTime（SNTP 在背景跑，不等待）。台北 UTC+8、無夏令時間。
+constexpr const char* NTP_TZ      = "CST-8";
+constexpr const char* NTP_SERVER1 = "time.stdtime.gov.tw";   // 國家時間與頻率標準實驗室
+constexpr const char* NTP_SERVER2 = "pool.ntp.org";
+// Wi-Fi 訊號格（dBm）：≥ −55 四格、≥ −65 三格、≥ −75 兩格、其餘一格；沒連上＝打叉
+constexpr int      WIFI_BARS_4 = -55, WIFI_BARS_3 = -65, WIFI_BARS_2 = -75;
+
+// 換整頁（切頁、轉向）時舊畫面溶解成新畫面的時間（交叉淡化，遮住由上而下刷新）；序列埠 t 開關
+// 11-20 第一版「背光關掉再亮回 140ms」Miles 實機：遮住了刷新，但黑一下看起來更慢 → 改交叉淡化
+constexpr uint32_t UI_XFADE_MS = 120;
 
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔

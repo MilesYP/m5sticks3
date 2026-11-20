@@ -16,9 +16,11 @@
 namespace voice_turn {
 void begin();        // 掛上 net_hub 的回呼（音訊、audio_end、format、收件反壓）
 void onPress();      // Desktop 按下 A
-void onRelease();    // Desktop 放開 A
+bool onRelease();    // Desktop 放開 A；回傳 true＝誤觸（按不到 VOICE_MIN_PRESS_MS，這輪直接取消）→ A5-1 拿來當「短按切頁」
 void loop();         // 每圈呼叫：印上傳進度、逾時、播完收尾；離開 Desktop 時中止
 bool busy();         // 這一輪還沒結束
+bool faceWanted();   // A5-1：該看表情頁了（這輪忙碌中，但「剛按下、還不滿 0.6 秒」不算 → 資訊頁短按不會閃回表情）
+const char* stateName();   // A5-1 資訊頁：IDLE／REC／SEND／PLAY
 void setDownFormat(int f);      // 下載格式 0=pcm16、1=adpcm、2=mulaw、3=adpcm8k（預設），序列埠 f0～f3
 void setUpFormat(int f);        // B3b-5：上傳格式 0=pcm16、1=mulaw（預設），序列埠 u0/u1
 void setPaceRealtime(bool rt);  // 中控送法 false=全速（預設）、true=照真實速度，序列埠 r0/r1

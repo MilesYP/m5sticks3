@@ -13,6 +13,9 @@
 #pragma once
 #include <stdint.h>
 
+// M5GFX 裡 M5Canvas 是 m5gfx::M5Canvas 的別名（using），只能前置宣告真正的類別
+namespace m5gfx { class M5Canvas; }
+
 enum class Mood : uint8_t { Idle, Listening, Thinking, Speaking, Happy, Angry, Scared, Sleepy, Asleep };
 // A4：拿法（對話區永遠靠 A 鍵側）
 enum class Orient : uint8_t { Portrait, LandALeft, LandARight };
@@ -50,5 +53,7 @@ const char* orientName(Orient o);
 // A4 驗收：序列埠 y<0～8> 只改「畫面上」的表情（不影響互動邏輯），y 單獨＝結束預覽
 void setPreview(int moodIndex);
 int  preview();
+// A5-1：畫布（換整頁時 ui_fx 要存舊畫面）
+m5gfx::M5Canvas* canvas();
 
 }  // namespace ui_expression

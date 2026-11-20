@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "ui_fx.h"
 
 // ─────────────────────────────────────────────────────────────────────────
 //  座標約定：表情用「設計單位」描述（直式 135×240 時 1 單位＝1px），相對於臉的中心點；
@@ -154,10 +155,19 @@ void pinStep(Body& b, int i, float dt, float hx, float hy, float halfw, float ha
 }
 
 // ── 小符號（粒子）──
-enum class PK : uint8_t { Text, Note, Dots, Dot };
+// A5-1（11-20 Miles：符號太小、要可愛生動、右上角空間可以佔滿）：
+//   符號改成向量畫（粗筆畫＋外圈光暈，跟眼睛的霓虹風一致），不再用放大的點陣字（放大會鋸齒）；
+//   尺寸約放大 1.6 倍；位置集中在「符號角」：直式＝右上、橫式＝臉旁邊不靠 A 鍵的那一側（上方只剩約 20px）。
+//   Text 的 size＝符號高度（設計單位）；Note／Dots 的 size＝比例。
+enum class PK : uint8_t { Text, Note, Dots, Dot, Heart, Spark };
 struct Part { bool on; PK kind; char ch; float x, y, vx, vy, age, life, size; Rgb col; };
 constexpr int MAX_PARTS = 6;
 Part s_parts[MAX_PARTS];
+float s_face_l = 0, s_face_r = 135;   // 臉的區域（像素），render() 每幀更新
+float clampX(float x, float half) { return fminf(fmaxf(x, s_face_l + half + 2), s_face_r - half - 2); }
+// 符號角（設計單位，相對臉中心）：直式右上；橫式在臉旁、避開 A 鍵側（對話區在 A 鍵側）
+float symX() { return s_orient == Orient::Portrait ? 36.0f : s_orient == Orient::LandARight ? -104.0f : 104.0f; }
+float symY() { return s_orient == Orient::Portrait ? -70.0f : -30.0f; }
 void emit(PK kind, char ch, float x, float y, const Rgb& col, float size, float vx = 0, float vy = -18, float life = 1.1f) {
   int slot = 0;
   float oldest = -1;
@@ -235,6 +245,7 @@ void wrapInto(const char* text, size_t len, bool bot, int maxw, int prefix_w) {
 
 int convHeight() { return CONV_LINES_PORTRAIT * 14 + CONV_PAD * 2; }   // efontTW_12：每行 12px＋行距 2px
 bool landscape() { return s_orient != Orient::Portrait; }
+bool land_sym() { return s_orient != Orient::Portrait; }
 
 void addSeg(const char* text, size_t len, bool bot, int maxw) {
   if (landscape()) {
@@ -349,10 +360,21 @@ void drawEye(float ex, float ey, float w, float h, const Rgb& c1, const Rgb& c2,
              float ang, float slp, float hap, float sc) {
   if (w < 2) w = 2;
   if (h < 2) h = 2;
-  const float pad = 4 * sc;
+  // 11-20 Miles「外圈加光暈、要霓虹燈管那種螢光」：光暈從 1 圈（4px、28%）改成 3 圈由外往內變亮
+  // （10／6.5／3.5px、10%／18%／32%）。外兩圈用一般圓角矩形（比平滑版快），最內圈維持平滑邊。
+  const float pad = 10 * sc;   // 最外圈（眼皮遮罩、裁切範圍都要蓋到這裡）
   const float r = fminf(11 * sc, fminf(w, h) * 0.5f);
-  s_cv.fillSmoothRoundRect((int32_t)(ex - w / 2 - pad), (int32_t)(ey - h / 2 - pad), (int32_t)(w + 2 * pad),
-                           (int32_t)(h + 2 * pad), (int32_t)(r + pad), fade(c2, 0.28f));
+  {
+    const float pads[3] = {10 * sc, 6.5f * sc, 3.5f * sc};
+    const float alph[3] = {0.10f, 0.18f, 0.32f};
+    for (int k = 0; k < 3; ++k) {
+      const float p = pads[k];
+      const int32_t gx = (int32_t)(ex - w / 2 - p), gy = (int32_t)(ey - h / 2 - p);
+      const int32_t gw = (int32_t)(w + 2 * p), gh = (int32_t)(h + 2 * p), gr = (int32_t)(r + p);
+      if (k < 2) s_cv.fillRoundRect(gx, gy, gw, gh, gr, fade(c2, alph[k]));
+      else       s_cv.fillSmoothRoundRect(gx, gy, gw, gh, gr, fade(c2, alph[k]));
+    }
+  }
   const int x0 = (int)lroundf(ex - w / 2), y0 = (int)lroundf(ey - h / 2);
   const int iw = (int)lroundf(w), ih = (int)lroundf(h);
   for (int i = 0; i < ih; ++i) {
@@ -387,6 +409,57 @@ void drawEye(float ex, float ey, float w, float h, const Rgb& c1, const Rgb& c2,
   s_cv.clearClipRect();
 }
 
+// 向量符號（x,y＝中心像素、h＝高度像素、g＝筆畫加粗量：先畫 g>0 的光暈再畫 g=0 的本體）
+void glyphBang(float x, float y, float h, float g, uint16_t c) {   // ！
+  s_cv.drawWideLine((int32_t)x, (int32_t)(y - 0.40f * h), (int32_t)x, (int32_t)(y + 0.12f * h), 0.09f * h + g, c);
+  s_cv.fillCircle((int32_t)x, (int32_t)(y + 0.36f * h), (int32_t)(0.09f * h + g), c);
+}
+// 粗筆畫的圓弧（角度：0°＝右、順時針，螢幕 y 向下），用短線段接起來
+void strokeArc(float cx, float cy, float R, float a0, float a1, float r, uint16_t c) {
+  const int n = (int)fmaxf(3, fabsf(a1 - a0) / 22);   // 每段約 22°：夠圓，又不會畫太多段（錄音中主迴圈 11-20 實測變慢）
+  float px = cx + R * cosf(a0 * 0.0174533f), py = cy + R * sinf(a0 * 0.0174533f);
+  for (int i = 1; i <= n; ++i) {
+    const float a = (a0 + (a1 - a0) * i / n) * 0.0174533f;
+    const float x = cx + R * cosf(a), y = cy + R * sinf(a);
+    s_cv.drawWideLine((int32_t)px, (int32_t)py, (int32_t)x, (int32_t)y, r, c);
+    px = x; py = y;
+  }
+}
+void glyphQuestion(float x, float y, float h, float g, uint16_t c) {   // ？
+  const float R = 0.20f * h, t = 0.08f * h + g, cy = y - 0.18f * h;
+  strokeArc(x, cy, R, 180, 450, t, c);   // 從左邊經過頂端繞到正下方
+  s_cv.drawWideLine((int32_t)x, (int32_t)(cy + R), (int32_t)x, (int32_t)(y + 0.14f * h), t, c);
+  s_cv.fillCircle((int32_t)x, (int32_t)(y + 0.36f * h), (int32_t)(0.09f * h + g), c);
+}
+void glyphZ(float x, float y, float h, float g, uint16_t c) {   // Z（睡覺）
+  const float w = 0.30f * h, r = 0.075f * h + g;
+  s_cv.drawWideLine((int32_t)(x - w), (int32_t)(y - 0.3f * h), (int32_t)(x + w), (int32_t)(y - 0.3f * h), r, c);
+  s_cv.drawWideLine((int32_t)(x + w), (int32_t)(y - 0.3f * h), (int32_t)(x - w), (int32_t)(y + 0.3f * h), r, c);
+  s_cv.drawWideLine((int32_t)(x - w), (int32_t)(y + 0.3f * h), (int32_t)(x + w), (int32_t)(y + 0.3f * h), r, c);
+}
+void glyphHeart(float x, float y, float h, float g, uint16_t c) {   // ♥
+  const float r = 0.24f * h + g;
+  s_cv.fillCircle((int32_t)(x - 0.21f * h), (int32_t)(y - 0.12f * h), (int32_t)r, c);
+  s_cv.fillCircle((int32_t)(x + 0.21f * h), (int32_t)(y - 0.12f * h), (int32_t)r, c);
+  s_cv.fillTriangle((int32_t)(x - 0.44f * h - g), (int32_t)(y - 0.04f * h), (int32_t)(x + 0.44f * h + g), (int32_t)(y - 0.04f * h),
+                    (int32_t)x, (int32_t)(y + 0.42f * h + g), c);
+}
+void glyphSpark(float x, float y, float h, float g, uint16_t c) {   // ✦ 四角星
+  const float a = 0.5f * h + g, b = 0.11f * h + g;
+  s_cv.fillTriangle((int32_t)(x - b), (int32_t)y, (int32_t)(x + b), (int32_t)y, (int32_t)x, (int32_t)(y - a), c);
+  s_cv.fillTriangle((int32_t)(x - b), (int32_t)y, (int32_t)(x + b), (int32_t)y, (int32_t)x, (int32_t)(y + a), c);
+  s_cv.fillTriangle((int32_t)x, (int32_t)(y - b), (int32_t)x, (int32_t)(y + b), (int32_t)(x - a), (int32_t)y, c);
+  s_cv.fillTriangle((int32_t)x, (int32_t)(y - b), (int32_t)x, (int32_t)(y + b), (int32_t)(x + a), (int32_t)y, c);
+}
+void glyphAnger(float x, float y, float h, float g, uint16_t c) {   // 漫畫的生氣青筋 💢：四段短弧，往中心凸
+  const float d = 0.54f * h, R = 0.28f * h, t = 0.05f * h + g;
+  for (int q = 0; q < 4; ++q) {
+    const float ang = 45.0f + 90.0f * q;
+    const float cx = x + d * cosf(ang * 0.0174533f), cy = y + d * sinf(ang * 0.0174533f);
+    strokeArc(cx, cy, R, ang + 180 - 27, ang + 180 + 27, t, c);   // 四段分開、中間留空
+  }
+}
+
 void drawNote(float x, float y, float s, uint16_t c) {   // ♪（畫的，不依賴字型）
   s_cv.fillCircle((int32_t)(x - 2 * s), (int32_t)(y + 4 * s), (int32_t)(3.2f * s), c);
   s_cv.drawWideLine((int32_t)(x + 1 * s), (int32_t)(y + 4 * s), (int32_t)(x + 1 * s), (int32_t)(y - 7 * s), 1.0f * s, c);
@@ -401,7 +474,7 @@ void enterMood(Mood m, uint32_t now) {
   s_ev = Ev();
   s_quiet = 0;
   s_sp[K_HY].v -= (m == Mood::Scared) ? 240.0f : 70.0f;   // 彈進來
-  if (m == Mood::Scared) emit(PK::Text, '!', 45, -51, MG, 26);
+  if (m == Mood::Scared) emit(PK::Text, '!', symX(), symY(), MG, 50);
 }
 
 // 模擬音量（預覽或還沒有真實音量時）：講 talk 秒、停 (cyc−talk) 秒，每秒約 6.5 個音節
@@ -453,12 +526,12 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
       tg[K_MW] = tg[K_MH] = 8 + v * 12;
       if (!talk && s_quiet > 0.4f && !E.paused) {   // 停頓：瞄耳朵、冒「？」
         E.paused = true; E.dx = s * 7; E.dx_until = t + 0.5f;
-        emit(PK::Text, '?', -s * 55, -55, MG, 24, 0, -6, 1.0f);
+        emit(PK::Text, '?', symX(), symY(), MG, 46, 0, -6, 1.2f);
       }
       if (talk) E.paused = false;
       if (t < E.dx_until) tg[K_DX] = E.dx;
       if (s_prev_v < 0.62f && v >= 0.62f) s_sp[K_HY].v += 70;                      // 跟節奏點頭
-      if (s_prev_v < 0.95f && v >= 0.95f) { s_sp[K_ED].v -= 160; emit(PK::Text, '!', -s * 55, -55, MG, 22); }   // 大聲：耳朵一抖
+      if (s_prev_v < 0.95f && v >= 0.95f) { s_sp[K_ED].v -= 160; emit(PK::Text, '!', symX(), symY(), MG, 44); }   // 大聲：耳朵一抖
       break;
     }
 
@@ -499,8 +572,10 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
           s_sp[K_HY].v -= 95;
           E.brow = t + 0.35f;
           if (rnd(0, 1) < 0.35f) {
-            if (rnd(0, 1) < 0.5f) emit(PK::Note, 0, rnd(33, 57), rnd(-65, -45), MG, 1.4f, rnd(-6, 6));
-            else emit(PK::Text, '!', rnd(33, 57), rnd(-65, -45), {0x00, 0xF0, 0xFF}, 20, rnd(-6, 6));
+            const float r3 = rnd(0, 1);
+            if (r3 < 0.4f) emit(PK::Note, 0, symX() + rnd(-8, 8), symY() + rnd(-6, 6), MG, 3.0f, rnd(-6, 6));
+            else if (r3 < 0.7f) emit(PK::Spark, 0, symX() + rnd(-8, 8), symY() + rnd(-6, 6), {0x00, 0xF0, 0xFF}, 40, rnd(-6, 6));
+            else emit(PK::Text, '!', symX() + rnd(-6, 6), symY(), {0x00, 0xF0, 0xFF}, 42, rnd(-6, 6));
           }
           if (rnd(0, 1) < 0.15f) s_wink_end = now + 160;
         }
@@ -524,8 +599,14 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
       if (t > E.n) {
         E.n = t + 0.6f;
         const bool left = rnd(0, 1) < 0.5f;
-        emit(PK::Note, 0, left ? rnd(-61, -45) : rnd(45, 61), rnd(-41, -11),
-             rnd(0, 1) < 0.5f ? MG : Rgb{0xFF, 0xE6, 0x00}, 1.4f, rnd(-8, 8), -24, 1.4f);
+        // 開心：音符、愛心、星星輪流冒；直式從頭頂兩側、橫式從臉的兩側
+        const float sx = land_sym() ? (left ? -100.0f : 100.0f) : (left ? rnd(-46, -26) : rnd(26, 46));
+        const float sy = land_sym() ? rnd(-40, -10) : rnd(-74, -58);
+        const Rgb cc = rnd(0, 1) < 0.5f ? MG : Rgb{0xFF, 0xE6, 0x00};
+        const float k = rnd(0, 1);
+        if (k < 0.4f) emit(PK::Note, 0, sx, sy, cc, 2.8f, rnd(-8, 8), -24, 1.4f);
+        else if (k < 0.75f) emit(PK::Heart, 0, sx, sy, Rgb{0xFF, 0x4D, 0x8D}, 34, rnd(-8, 8), -24, 1.4f);
+        else emit(PK::Spark, 0, sx, sy, cc, 36, rnd(-8, 8), -24, 1.2f);
       }
       break;
     }
@@ -545,7 +626,7 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
       f.mm = MouthMode::Wave; tg[K_MW] = 26;
       if (t > E.n) { E.n = t + 0.45f; E.d = rnd(-6, 6); }
       tg[K_DX] = E.d;
-      if (t > E.x2) { E.x2 = t + 2.6f; if (t > 0.5f) emit(PK::Text, '!', 45, -51, MG, 22); }
+      if (t > E.x2) { E.x2 = t + 2.6f; if (t > 0.5f) emit(PK::Text, '!', symX(), symY(), MG, 46); }
       break;
 
     case Mood::Sleepy: {
@@ -556,7 +637,7 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
       if (c < 3) {                       // 眼皮越來越重、頭往下沉
         tg[K_LH] = tg[K_RH] = 26 - c / 3 * 18; tg[K_HY] = c / 3 * 11;
       } else if (c < 3.35f) {            // 猛然驚醒
-        if (!E.snap) { E.snap = true; s_sp[K_HY].v -= 170; emit(PK::Text, '!', 45, -51, MG, 18, 0, -10, 0.7f); }
+        if (!E.snap) { E.snap = true; s_sp[K_HY].v -= 170; emit(PK::Text, '!', symX(), symY(), MG, 42, 0, -10, 0.8f); }
         tg[K_LH] = tg[K_RH] = 34;
       } else {
         E.snap = false;
@@ -564,7 +645,7 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
         if (yawn_cycle && c > 3.7f && c < 5.2f) {   // 打哈欠
           f.mm = MouthMode::OFill; tg[K_MW] = 12; tg[K_MH] = 4 + 12 * sinf((c - 3.7f) / 1.5f * 3.14159f);
           tg[K_LH] = tg[K_RH] = 5;
-          if (!E.yawn) { E.yawn = true; emit(PK::Dots, 0, 43, -45, {0x2B, 0xB3, 0xA8}, 1.2f, 0, -8, 1.4f); }
+          if (!E.yawn) { E.yawn = true; emit(PK::Dots, 0, symX(), symY() + 10, {0x2B, 0xB3, 0xA8}, 2.4f, 0, -8, 1.4f); }
         } else {
           E.yawn = false;
         }
@@ -576,7 +657,7 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
       tg[K_LH] = tg[K_RH] = 5;
       tg[K_HY] = sinf(t * 1.4f) * 3;
       f.mm = MouthMode::Ring; tg[K_MW] = tg[K_MH] = 6 + 2 * sinf(t * 1.4f);
-      if (t > E.n) { E.n = t + 1.2f; emit(PK::Text, 'z', rnd(31, 41), -31, {127, 184, 180}, rnd(14, 22), 6, -14, 1.8f); }
+      if (t > E.n) { E.n = t + 1.2f; emit(PK::Text, 'z', symX() - 10 + rnd(-4, 4), symY() + 18, {127, 184, 180}, rnd(24, 38), 8, -16, 2.0f); }
       break;
   }
   return f;
@@ -692,8 +773,12 @@ void render() {
   Rgb t1 = {(float)mi.r1, (float)mi.g1, (float)mi.b1}, t2 = {(float)mi.r2, (float)mi.g2, (float)mi.b2};
   if (s_tint_on && (shown == Mood::Idle || shown == Mood::Sleepy || shown == Mood::Asleep)) {
     const float dim = shown == Mood::Idle ? 1.0f : shown == Mood::Sleepy ? 0.75f : 0.45f;
-    t1 = {s_tint_r * dim, s_tint_g * dim, s_tint_b * dim};
-    t2 = {s_tint_r * dim * 0.5f, s_tint_g * dim * 0.5f, s_tint_b * dim * 0.5f};   // 同色系較暗
+    // 11-20 Miles「綠色還是有點暗、要更螢光」：原本下半部只有一半亮度（×0.5），眼睛一半是暗的、嘴巴也暗。
+    // 改成霓虹燈管的樣子：上緣往白色推 30%（燈管發白的芯）、下緣 ×0.85（飽和色），光暈跟著變亮。
+    const Rgb tint = {s_tint_r, s_tint_g, s_tint_b};
+    const Rgb core = mixc(tint, Rgb{255, 255, 255}, 0.30f);
+    t1 = {core.r * dim, core.g * dim, core.b * dim};
+    t2 = {s_tint_r * dim * 0.85f, s_tint_g * dim * 0.85f, s_tint_b * dim * 0.85f};
   }
   float ck = dt * 10.0f;
   if (ck > 1) ck = 1;
@@ -728,10 +813,11 @@ void render() {
   int fx0 = 0, fw = W, fh = H;
   if (!land) fh = H - cs;
   else { fw = W - cs; if (s_orient == Orient::LandALeft) fx0 = cs; }
-  const float sc = land ? 0.8f : 1.0f;
+  const float sc = land ? cfg::FACE_LAND_SCALE : 1.0f;
   const float fcx = fx0 + fw * 0.5f;
   const float fcy = land ? H * 0.40f : fh * (0.42f + 0.06f * s_conv_k);
   const int hz = land ? (int)(H * 0.86f) : 190;   // 地平線
+  s_face_l = (float)fx0; s_face_r = (float)(fx0 + fw);   // 符號左右不要超出臉的區域（橫式對話區打開時臉會變窄）
   auto X = [&](float d) { return fcx + d * sc; };
   auto Y = [&](float d) { return fcy + d * sc; };
 
@@ -755,13 +841,15 @@ void render() {
   {
     s_grid_off += dt * mi.grid * (1 + fr.v);
     if (s_grid_off > 1000) s_grid_off -= 1000;
-    s_cv.drawFastHLine(0, hz, W, c565(MG));
-    s_cv.drawFastHLine(0, hz + 1, W, c565(MG));
-    s_cv.setClipRect(0, hz + 2, W, H - hz - 2);
-    const uint16_t gc = fade(MG, 0.5f);
-    for (int k = -3; k <= 3; ++k) s_cv.drawLine((int32_t)fcx, hz, (int32_t)(fcx + k * fw * 0.42f), H, gc);
+    // 11-20 Miles「最上面那條橫線太明顯」：地平線原本 2px 全亮洋紅 → 1px、40%；
+    // 橫線改成「越遠越暗、越近越亮」（跟資訊頁快訊的地平線一樣），有景深、不搶眼睛
+    s_cv.drawFastHLine(0, hz, W, fade(MG, 0.40f));
+    s_cv.setClipRect(0, hz + 1, W, H - hz - 1);
+    for (int k = -3; k <= 3; ++k) s_cv.drawLine((int32_t)fcx, hz, (int32_t)(fcx + k * fw * 0.42f), H, fade(MG, 0.35f));
     const float step = 12 * sc;
-    for (float y = hz + 6 * sc + fmodf(s_grid_off * sc, step); y < H; y += step) s_cv.drawFastHLine(0, (int32_t)y, W, gc);
+    const float depth = (float)(H - hz);
+    for (float y = hz + 6 * sc + fmodf(s_grid_off * sc, step); y < H; y += step)
+      s_cv.drawFastHLine(0, (int32_t)y, W, fade(MG, 0.18f + 0.40f * (y - hz) / depth));
     s_cv.clearClipRect();
   }
 
@@ -829,12 +917,24 @@ void render() {
     }
   }
 
-  // 驚嚇：冷汗
+  // 驚嚇：冷汗（11-20 Miles：太小看不出來 → 改成漫畫式的大汗滴，壓在右眼右上角、慢慢往下滑）
   if (shown == Mood::Scared && !s_offline) {
-    const float sx = rx + rw / 2 + 8 * sc, sy = ry - 14 * sc + fmodf(t * 30, 16) * sc;
-    const uint16_t sw = s_cv.color565(0x4C, 0xC9, 0xF0);
-    s_cv.fillTriangle((int32_t)sx, (int32_t)(sy - 6 * sc), (int32_t)(sx - 3 * sc), (int32_t)sy, (int32_t)(sx + 3 * sc), (int32_t)sy, sw);
-    s_cv.fillCircle((int32_t)sx, (int32_t)sy, (int32_t)(3.5f * sc), sw);
+    const float r = 8.0f * sc;                                   // 汗滴圓的部分的半徑（全高約 2.9r ≈ 23px）
+    const float slide = fmodf(t, 1.8f) / 1.8f;                   // 每 1.8 秒滑一次
+    const float sx = rx + rw / 2 - 1 * sc;                       // 一半壓在眼睛邊上
+    const float sy = ry - rh / 2 + 6 * sc + slide * 12 * sc;
+    const uint16_t edge = s_cv.color565(0x1B, 0x5E, 0x9E);       // 深藍外框
+    const uint16_t body = s_cv.color565(0x6F, 0xD8, 0xFF);       // 水藍
+    const uint16_t shine = s_cv.color565(0xEA, 0xFB, 0xFF);      // 反光
+    auto dropShape = [&](float grow, uint16_t c) {
+      s_cv.fillTriangle((int32_t)sx, (int32_t)(sy - 2.3f * r - grow * 1.6f),
+                        (int32_t)(sx - 0.93f * r - grow), (int32_t)(sy - 0.35f * r),
+                        (int32_t)(sx + 0.93f * r + grow), (int32_t)(sy - 0.35f * r), c);
+      s_cv.fillCircle((int32_t)sx, (int32_t)sy, (int32_t)(r + grow), c);
+    };
+    dropShape(1.5f, edge);
+    dropShape(0, body);
+    s_cv.fillEllipse((int32_t)(sx - 0.38f * r), (int32_t)(sy - 0.15f * r), (int32_t)fmaxf(1, 0.22f * r), (int32_t)fmaxf(1, 0.38f * r), shine);
   }
 
   // 嘴巴
@@ -922,14 +1022,11 @@ void render() {
     }
   }
   // 生氣：# 青筋跳動
-  if (shown == Mood::Angry) {
-    s_cv.setFont(&fonts::efontTW_12);
-    s_cv.setTextDatum(middle_center);
-    s_cv.setTextSize((1.6f + 0.4f * fmaxf(0, sinf(t * 9))) * sc);
-    s_cv.setTextColor(c565(MG));
-    s_cv.drawString("#", (int32_t)X(51), (int32_t)Y(-61 + hy));
-    s_cv.setFont(&fonts::Font0);
-    s_cv.setTextSize(1);
+  if (shown == Mood::Angry) {   // 生氣青筋：跟著節奏一跳一跳
+    const float ah = (44 + 7 * fmaxf(0, sinf(t * 9))) * sc;
+    const float ax = clampX(X(symX()), 0.8f * ah), ay = fmaxf(Y(symY() + 4 + hy), 0.8f * ah + 2);
+    glyphAnger(ax, ay, ah, 1.5f, fade(MG, 0.35f));
+    glyphAnger(ax, ay, ah, 0, c565(MG));
   }
 
   // 小符號（彈出放大再縮回、往上飄、淡出）
@@ -944,18 +1041,35 @@ void render() {
     p.y += p.vy * dt;
     const float pop = fminf(1, p.age * 8) * (1 + 0.3f * fmaxf(0, 1 - p.age * 4));
     const uint16_t pc = fade(p.col, 1 - p.age / p.life);
-    const float px = X(p.x), py = Y(p.y);
+    const float px0 = X(p.x), py0 = Y(p.y), py = py0, px = px0;
     switch (p.kind) {
-      case PK::Text: {
-        const char s[2] = {p.ch, 0};
-        s_cv.setTextSize(fmaxf(0.5f, p.size / 12.0f * pop * sc));
-        s_cv.setTextColor(pc);
-        s_cv.drawString(s, (int32_t)px, (int32_t)py);
+      case PK::Text: case PK::Heart: case PK::Spark: {
+        const float h = p.size * pop * sc;
+        const float py = fmaxf(py0, 0.46f * h + 2);   // 不要被螢幕上緣切掉
+        const float px = clampX(px0, 0.5f * h);       // 也不要超出臉的左右邊（橫式對話區打開時）
+        const float a = 1 - p.age / p.life;
+        const uint16_t gc = fade(p.col, 0.35f * a);   // 外圈光暈
+        auto g = [&](float grow, uint16_t c) {
+          if (p.kind == PK::Heart) glyphHeart(px, py, h, grow, c);
+          else if (p.kind == PK::Spark) glyphSpark(px, py, h, grow, c);
+          else if (p.ch == '?') glyphQuestion(px, py, h, grow, c);
+          else if (p.ch == 'z') glyphZ(px, py, h, grow, c);
+          else glyphBang(px, py, h, grow, c);
+        };
+        g(2.0f, gc);
+        g(0, pc);
         break;
       }
-      case PK::Note: drawNote(px, py, p.size * pop * sc, pc); break;
+      case PK::Note: {
+        const float ns = p.size * pop * sc;
+        const float py = fmaxf(py0, 7.5f * ns + 2);
+        const float px = clampX(px0, 8.0f * ns);
+        drawNote(px, py, ns + 0.35f, fade(p.col, 0.35f * (1 - p.age / p.life)));   // 光暈
+        drawNote(px, py, ns, pc);
+        break;
+      }
       case PK::Dots:
-        for (int k = -1; k <= 1; ++k) s_cv.fillCircle((int32_t)(px + k * 6 * sc), (int32_t)py, (int32_t)fmaxf(1, 1.8f * p.size * pop * sc), pc);
+        for (int k = -1; k <= 1; ++k) s_cv.fillCircle((int32_t)(clampX(px, 12 * sc) + k * 8 * sc), (int32_t)py, (int32_t)fmaxf(1, 1.8f * p.size * pop * sc), pc);
         break;
       case PK::Dot: s_cv.fillCircle((int32_t)px, (int32_t)py, (int32_t)fmaxf(1, 1.5f * sc), pc); break;
     }
@@ -967,7 +1081,9 @@ void render() {
 
   if (s_offline) drawWifiOff(W - 16, 20);
 
-  s_cv.pushSprite(0, 0);
+  ui_fx::present(&s_cv);   // A5-1：換整頁時由 ui_fx 交叉淡化
 }
+
+M5Canvas* canvas() { return &s_cv; }
 
 }  // namespace ui_expression
