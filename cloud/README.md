@@ -62,14 +62,14 @@ npx wrangler secret put OPENAI_API_KEY   # 貼上你的 OpenAI API key；只存�
 ## 資訊頁雲端資料（A5-2，11-20）：天氣、快訊、語音額度（美金）
 程式在 `src/info.js`；Cron Trigger 每 30 分鐘更新（`wrangler.toml` 的 `[triggers]`），裝置連上、每輪對話結束、換日時也會送。
 
-**一次性設定（secret 都不進 repo；指令先複製貼到終端機，停在提示時才去複製 key，畫面不顯示）**
+**一次性設定（Mac 預設的 zsh 語法：`read "K?提示"`，bash 的 `read -p` 在 zsh 會報 no coprocess；secret 都不進 repo；指令先複製貼到終端機，停在提示時才去複製 key，畫面不顯示）**
 ```bash
 # 1. 中央氣象署授權碼（opendata.cwa.gov.tw → 會員 → API授權碼）
-cd ~/Developer/m5sticks3/cloud && read -rs -p "貼上授權碼後按 Enter：" K && echo && printf '%s' "$K" | npx wrangler secret put CWA_KEY; unset K
+cd ~/Developer/m5sticks3/cloud && read -rs "K?貼上授權碼後按 Enter：" && echo && printf '%s' "$K" | npx wrangler secret put CWA_KEY; unset K
 # 2. 天氣地點：縣市＋鄉鎮區，例「臺北市中正區」（個人資料，所以也用 secret）
-cd ~/Developer/m5sticks3/cloud && read -r -p "地點（例 臺北市中正區）：" K && printf '%s' "$K" | npx wrangler secret put WX_TOWN; unset K
+cd ~/Developer/m5sticks3/cloud && read -r "K?地點（例 臺北市中正區）：" && printf '%s' "$K" | npx wrangler secret put WX_TOWN; unset K
 # 3. OpenAI 管理員金鑰（platform.openai.com/settings/organization/admin-keys 建立，只給讀取權限即可）：查餘額用
-cd ~/Developer/m5sticks3/cloud && read -rs -p "貼上 admin key 後按 Enter：" K && echo && printf '%s' "$K" | npx wrangler secret put OPENAI_ADMIN_KEY; unset K
+cd ~/Developer/m5sticks3/cloud && read -rs "K?貼上 admin key 後按 Enter：" && echo && printf '%s' "$K" | npx wrangler secret put OPENAI_ADMIN_KEY; unset K
 ```
 三個都是選配：沒設 `CWA_KEY` 就沒天氣；沒設 `OPENAI_ADMIN_KEY` 時餘額＝`CREDIT_USD`－中控自己記的花費（只算這台裝置的語音）。
 
