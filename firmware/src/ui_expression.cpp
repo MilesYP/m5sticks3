@@ -292,24 +292,24 @@ void rewrap(bool eva) {
 
 // A7（11-21 Miles）：表情背景淡淡的浮水印——原創字樣（不用 EVA 的商標字），
 // 小字機號＋大字「初號機」（Miles：第一台機器，致敬）＋三條斜槓，壓在臉區左下、在臉之下。
-void pxWatermark(int fx0, int top, int fw, int fy1, uint16_t col) {
+void pxWatermark(M5Canvas& g, int fx0, int top, int fw, int fy1, uint16_t col) {
   const ui_labels::Bmp* big = ui_labels::find("wm_big");
   if (!big) return;
   const int x = fx0 + 5, by = fy1 - big->h - 5;
   if (by - 12 < top) return;
-  s_cv.fillRect(x - 2, by - 13, fx0 + fw - x + 2, big->h + 15, TFT_BLACK);   // 浮水印那塊不畫格子（11-21 Miles：被格子蓋到）
-  s_cv.setFont(&fonts::Font0);
-  s_cv.setTextSize(1);
-  s_cv.setTextDatum(top_left);
-  s_cv.setTextColor(col);
-  s_cv.drawString("M5S3PACK-01", x + 1, by - 11);
-  s_cv.drawBitmap(x, by, big->bits, big->w, big->h, col);
+  g.fillRect(x - 2, by - 13, fx0 + fw - x + 2, big->h + 15, TFT_BLACK);   // 浮水印那塊不畫格子（11-21 Miles：被格子蓋到）
+  g.setFont(&fonts::Font0);
+  g.setTextSize(1);
+  g.setTextDatum(top_left);
+  g.setTextColor(col);
+  g.drawString("M5S3PACK-01", x + 1, by - 11);
+  g.drawBitmap(x, by, big->bits, big->w, big->h, col);
   // 三條斜槓（平行四邊形，往右上斜）
   const int sx = x + big->w + 6, sh = big->h;
   for (int k = 0; k < 3; ++k) {
     const int bx = sx + k * 7;
     if (bx + 4 + sh / 3 > fx0 + fw) break;
-    for (int r = 0; r < sh; ++r) s_cv.drawFastHLine(bx + (sh - 1 - r) / 3, by + r, 4, col);
+    for (int r = 0; r < sh; ++r) g.drawFastHLine(bx + (sh - 1 - r) / 3, by + r, 4, col);
   }
 }
 
@@ -502,7 +502,7 @@ void drawBadge(HB b, float cx, float cy, float alpha, float grow, const Rgb& acc
   }
 }
 // 六角格（平頂，邊長 a）：每格只畫 3 條邊（相鄰格共用），省一半線
-void pxHexGrid(int W, int H, uint16_t c) {
+void pxHexGrid(M5Canvas& g, int W, int H, uint16_t c) {
   const float a = 9.0f, hh = a * 0.866f;   // 邊長、半高
   const float dx = a * 1.5f;
   for (int col = -1; col * dx < W + a; ++col) {
@@ -511,11 +511,33 @@ void pxHexGrid(int W, int H, uint16_t c) {
     for (float cy = -hh + off; cy < H + hh; cy += 2 * hh) {
       const int x0 = (int)(cx - a), x1 = (int)(cx - a / 2), x2 = (int)(cx + a / 2);
       const int yt = (int)(cy - hh), ym = (int)cy;
-      s_cv.drawLine(x0, ym, x1, yt, c);   // 左上斜邊
-      s_cv.drawFastHLine(x1, yt, x2 - x1, c);   // 上邊
-      s_cv.drawLine(x2, yt, (int)(cx + a), ym, c);   // 右上斜邊
+      g.drawLine(x0, ym, x1, yt, c);   // 左上斜邊
+      g.drawFastHLine(x1, yt, x2 - x1, c);   // 上邊
+      g.drawLine(x2, yt, (int)(cx + a), ym, c);   // 右上斜邊
     }
   }
+}
+
+// 背景快取（11-21 27-a7f 實機 j：迴圈 37ms 超過 25ms 預算）：六角格＋浮水印每幀約 400 條線，
+// 只有方向、臉區域、主題色變了才重畫到 s_bg，平常整塊 memcpy（64KB，PSRAM→PSRAM 約 1ms 內）。
+M5Canvas s_bg(&M5.Display);
+struct BgKey { int rot, fx0, top, fw, fy1; uint16_t grid, wm; };
+BgKey s_bgk = {-1, 0, 0, 0, 0, 0, 0};
+size_t s_bg_bytes = 0;
+bool pxBackground(int W, int H, int fx0, int top, int fw, int fy1, uint16_t grid, uint16_t wm) {
+  if (!s_bg_bytes || !s_bg.getBuffer()) return false;
+  const BgKey k = {(int)s_cv.getRotation(), fx0, top, fw, fy1, grid, wm};
+  if (memcmp(&k, &s_bgk, sizeof k) != 0) {
+    s_bg.setRotation(k.rot);
+    s_bg.fillScreen(c565(BG));
+    s_bg.setClipRect(fx0, top, fw, fy1 - top);
+    pxHexGrid(s_bg, W, H, grid);
+    pxWatermark(s_bg, fx0, top, fw, fy1, wm);
+    s_bg.clearClipRect();
+    s_bgk = k;
+  }
+  memcpy(s_cv.getBuffer(), s_bg.getBuffer(), s_bg_bytes);
+  return true;
 }
 // 掃描線眼睛：切角矩形（八角）、每 3 列畫 2 列；生氣／想睡斜切、開心下方弧形挖掉，算每一列的左右界（不用底色遮，六角格才不會被塗掉）
 void pxEye(float ex, float ey, float w, float h, int side, float ang, float slp, float hap, float sc, uint16_t c) {
@@ -934,6 +956,11 @@ void begin() {
   s_cv.createSprite(M5.Display.width(), M5.Display.height());   // 135×240（螢幕 rotation 0）
   s_cv.setRotation(0);
   s_ready = (s_cv.getBuffer() != nullptr);
+  if (PIXEL && s_ready) {   // 背景快取（再 64KB PSRAM）
+    s_bg.setPsram(true);
+    s_bg.setColorDepth(16);
+    if (s_bg.createSprite(M5.Display.width(), M5.Display.height())) s_bg_bytes = (size_t)M5.Display.width() * M5.Display.height() * 2;
+  }
   for (int i = 0; i < K_NP; ++i) s_sp[i] = {kDefault[i], 0, kDefault[i]};
   s_last_frame_ms = s_t0 = millis();
 }
@@ -1099,15 +1126,17 @@ void render() {
   const float hx = P(K_HX), hy = P(K_HY), dx = P(K_DX), dy = P(K_DY);
 
   // ── 繪製 ──
-  s_cv.fillScreen(c565(BG));
   const PxTheme th = pxTheme(shown, s_offline);
   const int top = 13;                                         // 狀態列下面
   const int fy1 = land ? H : fh;                              // 臉的區域下緣
-  if (PIXEL) {
-    s_cv.setClipRect(fx0, top, fw, fy1 - top);
-    pxHexGrid(W, H, fade(th.accent, 0.22f));
-    pxWatermark(fx0, top, fw, fy1, fade(th.accent, 0.16f));
-    s_cv.clearClipRect();
+  if (!PIXEL || !pxBackground(W, H, fx0, top, fw, fy1, fade(th.accent, 0.22f), fade(th.accent, 0.16f))) {
+    s_cv.fillScreen(c565(BG));
+    if (PIXEL) {   // 背景快取開不出來（PSRAM 不夠）時照舊每幀畫
+      s_cv.setClipRect(fx0, top, fw, fy1 - top);
+      pxHexGrid(s_cv, W, H, fade(th.accent, 0.22f));
+      pxWatermark(s_cv, fx0, top, fw, fy1, fade(th.accent, 0.16f));
+      s_cv.clearClipRect();
+    }
   }
 
   // 地平線霓虹網格（往前捲動，速度跟情緒與音量）
@@ -1285,9 +1314,19 @@ void render() {
     const float mw = P(K_MW) * sc * s_bd[2].sx + 12 * sc, mh = fmaxf(2, P(K_MH)) * sc * s_bd[2].sy + 16 * sc;
     const uint16_t mc = c565(c2);
     const int y0 = (int)(my - mh / 2), y1 = (int)(my + mh / 2), x0 = (int)(mx - mw / 2), x1 = (int)(mx + mw / 2);
-    for (int y = y0; y <= y1; ++y) {
-      if (((y - y0) % 3) != 2) continue;
-      for (int x = x0; x <= x1; ++x) if (s_cv.readPixel(x, y) == mc) s_cv.drawPixel(x, y, TFT_BLACK);
+    // 一列一次 readRect（原本逐點 readPixel 約佔一幀 20%），連續的嘴巴色整段塗黑
+    const int cx0 = x0 < 0 ? 0 : x0, cx1 = x1 >= s_cv.width() ? s_cv.width() - 1 : x1;
+    lgfx::rgb565_t row[256];
+    for (int y = y0; y <= y1 && cx1 >= cx0 && cx1 - cx0 < 256; ++y) {
+      if (((y - y0) % 3) != 2 || y < 0 || y >= s_cv.height()) continue;
+      s_cv.readRect(cx0, y, cx1 - cx0 + 1, 1, row);
+      for (int i = 0, n = cx1 - cx0 + 1; i < n;) {
+        if (row[i].raw != mc) { ++i; continue; }
+        int j = i;
+        while (j < n && row[j].raw == mc) ++j;
+        s_cv.drawFastHLine(cx0 + i, y, j - i, TFT_BLACK);
+        i = j;
+      }
     }
   }
 

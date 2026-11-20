@@ -442,25 +442,29 @@ void drawWeather() {
   char hdr[20];
   if (live) snprintf(hdr, sizeof hdr, "%s", w.loc); else info_data::formatAt(hdr, sizeof hdr, w.at);
   txt(T_WX, 0, 1, hdr, live ? K_HI : K_DIM, true);
-  ui_wxicon::draw(s_cv, t.x + PAD + 7, t.y + 20, 7, w.icon, col(K_YEL), col(K_HI), col(K_TXT));
+  // 11-21 Miles「內容跟框不合」：左欄放大圖示；右欄溫度在上、描述在下（不再被雨絲壓到）；
+  // 濕度靠左、降雨機率靠右，撐滿整個框寬
+  constexpr int IC = 24;                                       // 左欄寬（圖示）
+  ui_wxicon::draw(s_cv, t.x + PAD + IC / 2 - 1, t.y + 24, 8, w.icon, col(K_YEL), col(K_HI), col(K_TXT));
   char tb[12] = "--";
   if (w.temp > -100) snprintf(tb, sizeof tb, "%d", w.temp);
-  txtF(T_WX, 18, 12, tb, K_HI, &fonts::Font2);
+  txtF(T_WX, IC, 12, tb, K_HI, &fonts::Font2);
   const int tw = s_cv.textWidth(tb);
-  s_cv.drawCircle(t.x + PAD + 18 + tw + 2, t.y + 15, 1, col(K_HI));
+  s_cv.drawCircle(t.x + PAD + IC + tw + 2, t.y + 15, 1, col(K_HI));
   char d[40];
-  info_data::utf8Prefix(d, sizeof d, w.desc, (t.w - 2 * PAD) / 12);
-  txtF(T_WX, 0, 28, d, K_TXT, &fonts::efontTW_12);
+  info_data::utf8Prefix(d, sizeof d, w.desc, (t.w - 2 * PAD - IC) / 12);
+  txtF(T_WX, IC, 27, d, K_TXT, &fonts::efontTW_12);
   char rb[12] = "--", pb[12] = "--";
   if (w.rh >= 0) snprintf(rb, sizeof rb, "%d%%", w.rh);
   if (w.pop >= 0) snprintf(pb, sizeof pb, "%d%%", w.pop);
   auto thinW = [&](const char* v) { s_cv.setFont(THIN); return (int)s_cv.textWidth(v); };
   const C3& pc = w.pop >= 50 ? K_YEL : K_DIM;
-  int x = PAD; const int ry = 41;
-  ui_wxicon::drop(s_cv, t.x + x, t.y + ry + 1, col(K_DIM)); x += 7;
-  txtF(T_WX, x - PAD, ry + THIN_DY, rb, K_DIM, THIN); x += thinW(rb) + 5;
-  ui_wxicon::umbrella(s_cv, t.x + x, t.y + ry + 1, col(pc)); x += 9;
-  txtF(T_WX, x - PAD, ry + THIN_DY, pb, pc, THIN);
+  const int ry = 41;
+  ui_wxicon::drop(s_cv, t.x + PAD, t.y + ry + 1, col(K_DIM));
+  txtF(T_WX, 7, ry + THIN_DY, rb, K_DIM, THIN);
+  const int pw = thinW(pb), px = t.w - 2 * PAD - pw;           // 降雨機率靠右
+  ui_wxicon::umbrella(s_cv, t.x + PAD + px - 9, t.y + ry + 1, col(pc));
+  txtF(T_WX, px, ry + THIN_DY, pb, pc, THIN);
 }
 
 // efontTW_16_b 的四個原生字形，32×16、每列 MSB first。
