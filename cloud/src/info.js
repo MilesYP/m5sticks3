@@ -225,8 +225,10 @@ export class InfoHub {
     this.pendingFn = () => 0;   // GptLink 設定：還開著的 session 估計花費（美金）
     this.lastForce = 0;
     this.refreshing = null;
+    this.errors = {};   // 最近一次各來源的錯誤（/info 頁面顯示，部署後除錯用）
   }
   log(s) { console.log("[info] " + s); }
+  fail(src, msg) { this.errors[src] = msg; this.log(src + "：" + msg); return null; }
 
   // ── 花費記帳（GptLink 呼叫）──
   async addSpend(usd, why) {
@@ -297,11 +299,12 @@ export class InfoHub {
           this.storage.get("info:wx"), this.storage.get("info:news"), this.storage.get("info:costs"), this.storage.get("info:lastDay"),
         ]);
         const jobs = [];
-        if (force || !wx || now - wx.fetched > INFO.WX_EVERY_MS - 60e3) jobs.push(this.fetchWx().then((w) => w && out.push(wxMsg(w))));
-        if (force || !nw || now - nw.fetched > INFO.NEWS_EVERY_MS - 60e3) jobs.push(this.fetchNews().then((n) => n && out.push(...newsMsgs(n))));
+        const guard = (src, p) => p.catch((e) => this.fail(src, String(e && e.message || e)));
+        if (force || !wx || now - wx.fetched > INFO.WX_EVERY_MS - 60e3) jobs.push(guard("wx", this.fetchWx()).then((w) => w && out.push(wxMsg(w))));
+        if (force || !nw || now - nw.fetched > INFO.NEWS_EVERY_MS - 60e3) jobs.push(guard("news", this.fetchNews()).then((n) => n && out.push(...newsMsgs(n))));
         let usdDirty = lastDay !== taipeiDate();   // 換日（台北）→ 今日花費歸零要送
         if (force || !costs || now - costs.fetched > INFO.COSTS_EVERY_MS - 60e3 || costs.through < utcDate()) {
-          jobs.push(this.fetchCosts().then((c) => { if (c) usdDirty = true; }));
+          jobs.push(guard("costs", this.fetchCosts()).then((c) => { if (c) usdDirty = true; }));
         }
         await Promise.all(jobs.map((p) => p.catch((e) => this.log("更新失敗 " + (e && e.message)))));
         if (usdDirty || force) out.unshift(await this.usdMsg());
@@ -323,18 +326,31 @@ export class InfoHub {
 
   async fetchWx() {
     const key = this.env.CWA_KEY;
-    if (!key) { this.log("天氣：沒設定 CWA_KEY（wrangler secret put CWA_KEY）"); return null; }
+    if (!key) return this.fail("wx", "沒設定 CWA_KEY（wrangler secret put CWA_KEY）");
     const tw = parseTown(this.env.WX_TOWN);
-    if (!tw) { this.log("天氣：WX_TOWN 格式錯（例：臺北市中正區）"); return null; }
+    if (!tw) return this.fail("wx", `WX_TOWN 格式錯（${[...(this.env.WX_TOWN || "")].length} 字；要「縣市＋鄉鎮區」，例：臺北市中正區）`);
     const u = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/${tw.dataset}?Authorization=${encodeURIComponent(key)}&format=JSON` +
       (tw.town ? "&LocationName=" + encodeURIComponent(tw.town) : "");
-    const r = await fetch(u, { headers: { accept: "application/json" } });
-    if (!r.ok) throw new Error("CWA HTTP " + r.status);
-    const j = await r.json();
-    const w = parseCwa(j);
+    let r;
+    try {
+      r = await fetch(u, { headers: { accept: "application/json" } });
+    } catch (e) {
+      return this.fail("wx", `連不到氣象署（${tw.dataset}）：${e && e.message}`);
+    }
+    const body = await r.text();
+    if (!r.ok) return this.fail("wx", `氣象署 HTTP ${r.status}（${tw.dataset} ${tw.town}）：${body.slice(0, 200)}`);
+    let j, w;
+    try {
+      j = JSON.parse(body);
+      w = parseCwa(j);
+    } catch (e) {
+      return this.fail("wx", `解析失敗（${tw.dataset} ${tw.town}）：${e && e.message}｜回應開頭：${body.slice(0, 300)}`);
+    }
+    if (w.temp == null && !w.desc) return this.fail("wx", `回應裡找不到溫度與天氣（${tw.dataset} ${tw.town}）｜回應開頭：${body.slice(0, 300)}`);
     const loc = (w.town || tw.town || tw.county).replace(/[區鄉鎮市]$/, "");
     const out = { fetched: Date.now(), loc, temp: w.temp, rh: w.rh, pop: w.pop, desc: w.desc, ic: wxIcon(w.desc, w.code) };
     await this.storage.put("info:wx", out);
+    delete this.errors.wx;
     this.log(`天氣 ${tw.county}${tw.town}：${out.desc} ${out.temp}°C 濕度 ${out.rh}% 降雨 ${out.pop}% → ${out.ic}`);
     return out;
   }

@@ -283,7 +283,7 @@ export class VoiceSession {
     if (url.searchParams.get("refresh") === "1") await this.info.refresh(true);
     const [wx, news, costs] = await Promise.all([this.storage.get("info:wx"), this.storage.get("info:news"), this.storage.get("info:costs")]);
     const usd = await this.info.usdMsg();
-    const body = { usd, wx, news, costs, devices: this.state.getWebSockets().length };
+    const body = { usd, wx, news, costs, errors: this.info.errors, devices: this.state.getWebSockets().length };
     return new Response(JSON.stringify(body, null, 2) + "\n", { headers: { "content-type": "application/json; charset=utf-8" } });
   }
 
