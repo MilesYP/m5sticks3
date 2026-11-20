@@ -165,7 +165,7 @@
    - **小字的中文用 `efontTW_10`（細體）**：`efontTW_10_b` 的中文 10px 會糊成一塊（「濕」「餘」實測看不出來）；數字仍用 `efontTW_10_b`、字母仍用 `Font0`（`txt()` 三種字型逐段換，`nextRun()` 不切斷 UTF-8）。
    - 額度：今日花費＝GPT-Live `usage.seconds`×$0.05/60（還開著的 session 用經過時間估）＋搜尋 $0.01／次＋後端 token；**今日花費存獨立的 `usd:<台北日期>`**，不跟 `quota:<日期>` 物件共用（兩條非同步路徑讀改寫會互蓋）。價格放 `wrangler.toml [vars]`，官方改價改那裡。
    - 餘額＝`CREDIT_USD`－Costs API（admin key，到昨天 UTC）－中控記的 Costs 還沒涵蓋的天數（`spendutc:<UTC 日期>`）。OpenAI 沒有讀預付餘額的 API。
-   - 天氣：中央氣象署 F-D0047-0xx（未來 3 天逐 3 小時，依縣市），`parseCwa()` 新舊兩種 JSON 欄位都吃；地點 `WX_TOWN` 是 secret（個資不進 repo）。快訊：中央社 RSS（`NEWS_FEEDS`），合併去重取最新 6 則、截 36 字。
+   - 天氣：中央氣象署 F-D0047-0xx（未來 3 天逐 3 小時，依縣市），`parseCwa()` 新舊兩種 JSON 欄位都吃；地點 `WX_TOWN` 是 secret（個資不進 repo）。**11-20 實測：授權碼錯（存成別的東西）時氣象署回的是 HTML「Request Rejected」，不是 401** → 看到這個先用 Mac 直接 curl 驗授權碼（`cloud/README.md`），不要先懷疑雲端 IP 被擋。`/info?t=…` 的 `errors` 欄會顯示各來源最近一次錯誤。Costs API 每分鐘 10 次上限，強制更新也至少隔 10 分鐘。快訊：中央社 RSS（`NEWS_FEEDS`），合併去重取最新 6 則、截 36 字。
    - 模擬：`LGFX_LINUX_FB` 編譯真的 M5GFX 繪圖核心（LGFXBase／fonts／lgfx_v1／panel／touch／platforms＋efont、IPA 字型 .c）＋模擬標頭（`M5Canvas` 是 `m5gfx::M5Canvas` 別名、全域 `RX`／`TX`），`-DINFO_SIM` 檢查字有沒有超出磚塊，輸出 PPM 自己看。
 
 ### 鐵則十：省電（P1，2026-11-20，待實機驗收）
