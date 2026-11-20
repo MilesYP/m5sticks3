@@ -8,6 +8,7 @@
 #include "config.h"
 #include "ui_fx.h"
 #include "ui_persona.h"
+#include "ui_labels.h"   // A7：狀態大字點陣圖（不連結整套 efontTW_24，見 tools/gen_kanji.py）
 
 // ─────────────────────────────────────────────────────────────────────────
 //  座標約定：表情用「設計單位」描述（直式 135×240 時 1 單位＝1px），相對於臉的中心點；
@@ -385,7 +386,7 @@ void drawConv(int W, int H, bool eva) {
 
 // ═════ A7 像素臉（Miles 11-20 參考圖：NERV 風——六角格底、掃描線眼睛、狀態大字、強度方格、取景角、狀態列）═════
 constexpr bool PIXEL = true;
-const char* const kPxLabel[] = {"待機", "聆聽", "思考", "說話", "開心", "警報", "驚嚇", "想睡", "睡眠"};
+const char* const kPxLabel[] = {"st_idle", "st_listen", "st_think", "st_speak", "st_happy", "st_alert", "st_scared", "st_sleepy", "st_asleep"};   // ui_labels 的 key
 const char* const kPxStatus[] = {"待機中", "聆聽中", "思考中", "說話中", "開心", "警報", "驚嚇", "想睡", "睡眠中"};
 struct PxTheme { Rgb accent, eye; };
 PxTheme pxTheme(Mood m, bool offline) {
@@ -1297,13 +1298,10 @@ void render() {
     pxMeter(fx0 + fw - 13, fy1 - 14, total, n, c565(th.accent), 0);
     pxBrackets(fx0 + 4, top + 4, fw - 8, fy1 - top - 8, c565(th.accent));
     // 左上狀態大字最後畫、底下先塗黑：表情不會蓋到字（Miles 11-20）
-    s_cv.setFont(&fonts::efontTW_24);
-    s_cv.setTextSize(1);
-    s_cv.setTextDatum(top_left);
-    const char* lab = kPxLabel[static_cast<int>(shown)];
-    s_cv.fillRect(fx0 + 7, top + 6, s_cv.textWidth(lab) + 2, 26, TFT_BLACK);
-    s_cv.setTextColor(fade(th.accent, 0.42f));
-    s_cv.drawString(lab, fx0 + 8, top + 7);
+    if (const ui_labels::Bmp* lab = ui_labels::find(kPxLabel[static_cast<int>(shown)])) {
+      s_cv.fillRect(fx0 + 7, top + 6, lab->w + 2, lab->h + 2, TFT_BLACK);
+      s_cv.drawBitmap(fx0 + 8, top + 7, lab->bits, lab->w, lab->h, fade(th.accent, 0.42f));
+    }
     const int lvB = s_px_battery;
     const uint16_t bc = lvB < 0 ? fade(th.accent, 0.6f) : lvB >= 60 ? s_cv.color565(0x39, 0xFF, 0x14) : lvB >= 20 ? s_cv.color565(0xFF, 0xD0, 0x00) : s_cv.color565(0xFF, 0x29, 0x23);
     pxHeader(fx0, fw, shown, th.accent, bc);

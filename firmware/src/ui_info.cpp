@@ -20,6 +20,7 @@
 #include "ui_persona.h"
 #include "voice_turn.h"
 #include "ui_wxicon.h"
+#include "ui_labels.h"   // A7：「台北時間」點陣圖（不連結整套 efontTW_16_b）
 
 #ifdef INFO_SIM
 void infoSimReport(const char* what, const char* tile, const char* s, int x, int y, int w, int h);
@@ -396,10 +397,9 @@ void nervBox(int x, int y, int w, int h, const char* s, bool active, const C3& o
 //   下面：最左 AM／PM 兩個 NERV 框上下疊，斜體七段 12 小時制時:分＋小秒數，整組靠右
 void drawClock(bool ok, const struct tm& lt) {
   const Tile& t = s_t[T_CLOCK];
-  s_cv.setFont(&fonts::efontTW_16_b);
-  s_cv.setTextColor(col(K_HI));
-  s_cv.drawString("台北時間", t.x + PAD, t.y + 2);
-  const int lw = s_cv.textWidth("台北時間");
+  const ui_labels::Bmp* tp = ui_labels::find("taipei");
+  if (tp) s_cv.drawBitmap(t.x + PAD, t.y + 2, tp->bits, tp->w, tp->h, col(K_HI));
+  const int lw = tp ? tp->w : 0;
   s_cv.setFont(&fonts::TomThumb);
   s_cv.setTextColor(col(K_DIM));
   s_cv.drawString("TAIPEI", t.x + PAD + lw + 3, t.y + 4);

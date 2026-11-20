@@ -27,10 +27,39 @@ WORDS = [
     ("extpow", "外部",     11, 40),    # 資訊頁：USB 供電
 ]
 
+# A7（11-20）：介面用的狀態大字與「台北時間」也改成點陣圖——直接用 efontTW_24／efontTW_16_b 會把整套中文字庫
+# 編進韌體，27-a7b 因此超過 app 分割區（4.08MB > 3.34MB）。用法：
+#   python3 tools/gen_kanji.py --set ui --font "/path/to/NotoSerifCJK-Bold.ttc" --out firmware/src/ui_labels.h
+# （字型 Noto Serif CJK TC Bold，SIL OFL 1.1；會自動挑 .ttc 裡的 TC 繁體字形）
+WORDS_UI = [
+    ("st_idle",   "待機", 22, 70),
+    ("st_listen", "聆聽", 22, 70),
+    ("st_think",  "思考", 22, 70),
+    ("st_speak",  "說話", 22, 70),
+    ("st_happy",  "開心", 22, 70),
+    ("st_alert",  "警報", 22, 70),
+    ("st_scared", "驚嚇", 22, 70),
+    ("st_sleepy", "想睡", 22, 70),
+    ("st_asleep", "睡眠", 22, 70),
+    ("taipei",    "台北時間", 15, 72),   # 資訊頁時鐘左上
+]
+
+FONT_INDEX = 0
+
+def tc_index(font_path):
+    """.ttc 裡找繁體中文（TC）那一套；找不到就用 0"""
+    for i in range(8):
+        try:
+            if "TC" in ImageFont.truetype(font_path, 12, index=i).getname()[0]:
+                return i
+        except OSError:
+            break
+    return 0
+
 def render(font_path, text, max_h, max_w):
     size = max_h + 8
     while size > 6:
-        f = ImageFont.truetype(font_path, size, index=0)
+        f = ImageFont.truetype(font_path, size, index=FONT_INDEX)
         l, t, r, b = f.getbbox(text)
         if b - t <= max_h and r - l <= max_w:
             break
@@ -57,20 +86,26 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--font", required=True, help="Noto Serif CJK TC Black 的路徑（.ttc／.otf）")
     ap.add_argument("--out", default="firmware/src/kanji_bitmaps.h")
+    ap.add_argument("--set", choices=["mode", "ui"], default="mode", help="mode＝切模式過場大字；ui＝表情狀態大字與台北時間")
     a = ap.parse_args()
+    global FONT_INDEX
+    words, ns = (WORDS, "kanji") if a.set == "mode" else (WORDS_UI, "ui_labels")
+    if a.set == "ui":
+        FONT_INDEX = tc_index(a.font)
+    fname = ImageFont.truetype(a.font, 12, index=FONT_INDEX).getname()
     lines = [
-        "// 自動產生：tools/gen_kanji.py（不要手改）。字型 Noto Serif CJK TC Black，SIL OFL 1.1。",
+        f"// 自動產生：tools/gen_kanji.py --set {a.set}（不要手改）。字型 {fname[0]} {fname[1]}，SIL OFL 1.1。",
         "// 1-bit、每列 MSB 先、補滿整數 byte（M5GFX drawBitmap 格式）。",
         "#pragma once",
         "#include <stdint.h>",
         "#include <string.h>",
         "",
-        "namespace kanji {",
+        f"namespace {ns} {{",
         "struct Bmp { const char* key; const char* text; uint16_t w, h; const uint8_t* bits; };",
         "",
     ]
     table = []
-    for key, text, mh, mw in WORDS:
+    for key, text, mh, mw in words:
         img = render(a.font, text, mh, mw)
         data = pack(img)
         lines.append(f"// {text}  {img.size[0]}x{img.size[1]}")
@@ -83,10 +118,10 @@ def main():
               "inline const Bmp* find(const char* key) {",
               "  for (const Bmp& b : kAll) if (strcmp(b.key, key) == 0) return &b;",
               "  return nullptr;",
-              "}", "}  // namespace kanji", ""]
+              "}", f"}}  // namespace {ns}", ""]
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text("\n".join(lines), encoding="utf-8")
-    print(f"寫入 {a.out}（{len(WORDS)} 個詞）")
+    print(f"寫入 {a.out}（{len(words)} 個詞）")
 
 if __name__ == "__main__":
     main()
