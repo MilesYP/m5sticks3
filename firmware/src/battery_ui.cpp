@@ -13,11 +13,12 @@ const Tier kTiers[] = {
   {"螢光綠", 60,  57, 255,  20},   // 11-20 Miles：霓虹綠 #39FF14（原本藍→#00FF41 偏青不夠綠），比下一級的薄荷綠更亮更飽和
   {"綠",   40,  87, 220, 140},
   {"黃",   20, 255, 209, 102},
-  {"紅",   10, 255,  90,  90},
-  {"閃爍",  0, 255,  90,  90},   // <10%：顏色由 ui_expression 的紅灰閃爍蓋過
+  {"黃紅閃", 5, 255, 209, 102},   // 11-21 Miles：<20% 臉黃紅閃爍（顏色由 ui_expression 蓋過）
+  {"紅灰閃", 0, 255,  90,  90},   // <5% 臉紅灰閃爍
 };
 constexpr int kTierCount = sizeof(kTiers) / sizeof(kTiers[0]);
-constexpr int TIER_BLINK = kTierCount - 1;
+constexpr int TIER_BLINK = kTierCount - 1;      // 紅灰閃
+constexpr int TIER_WARN  = kTierCount - 2;      // 黃紅閃
 
 float    s_level = -1.0f;      // 平滑後的電量
 int      s_vbat_mv = 0;        // A5-1：上次讀到的電池電壓
@@ -45,12 +46,12 @@ int nextTier(int cur, float pct) {
 void apply(bool charging) {
   if (s_tier < 0) {
     ui_expression::setRestTint(false, 0, 0, 0);
-    ui_expression::setLowBatteryBlink(false);
+    ui_expression::setLowBatteryBlink(0);
     return;
   }
   const Tier& t = kTiers[s_tier];
   ui_expression::setRestTint(true, t.r, t.g, t.b);
-  ui_expression::setLowBatteryBlink(s_tier == TIER_BLINK && !charging);
+  ui_expression::setLowBatteryBlink(charging ? 0 : s_tier == TIER_BLINK ? 2 : s_tier == TIER_WARN ? 1 : 0);
 }
 
 void readAndApply(bool first) {

@@ -457,7 +457,12 @@ void drawWeather() {
   ui_wxicon::umbrella(s_cv, t.x + PAD + rx, t.y + 35, col(pc));
   txtF(T_WX, rx + 8, 34 + THIN_DY, pb, pc, THIN);
   // 左邊：圖示＋氣溫一列，描述一列
-  ui_wxicon::draw(s_cv, t.x + PAD + 7, t.y + 21, 7, w.icon, col(K_YEL), col(K_HI), col(K_TXT));
+  // 11-21 Miles：天氣圖示全彩（黃太陽、白雲；陰／雨／雷雨的雲灰白、雨藍）
+  {
+    const bool grey = (w.icon == info_data::WxIcon::Cloud || w.icon == info_data::WxIcon::Rain || w.icon == info_data::WxIcon::Storm);
+    ui_wxicon::draw(s_cv, t.x + PAD + 7, t.y + 21, 7, w.icon, s_cv.color565(0xFF, 0xD0, 0x00),
+                    grey ? s_cv.color565(0xC4, 0xC8, 0xD0) : s_cv.color565(0xFF, 0xFF, 0xFF), s_cv.color565(0x3F, 0xA9, 0xFF));
+  }
   char tb[12] = "--";
   if (w.temp > -100) snprintf(tb, sizeof tb, "%d", w.temp);
   txtF(T_WX, 18, 13, tb, K_HI, &fonts::Font2);

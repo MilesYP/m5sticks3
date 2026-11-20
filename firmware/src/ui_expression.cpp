@@ -51,6 +51,7 @@ constexpr uint8_t BG_R = 0x00, BG_G = 0x00, BG_B = 0x00;   // A7：黑底
 constexpr uint8_t MG_R = 0xFF, MG_G = 0x2B, MG_B = 0xD6;   // 洋紅：網格、舌頭、符號
 constexpr uint8_t OFF_R = 95, OFF_G = 94, OFF_B = 90;      // 斷線灰
 constexpr uint8_t BLINK_RED_R = 226, BLINK_RED_G = 75, BLINK_RED_B = 74;
+constexpr uint8_t BLINK_YEL_R = 255, BLINK_YEL_G = 208, BLINK_YEL_B = 0;   // 11-21：<20% 黃紅閃的黃
 
 struct Rgb { float r, g, b; };
 inline uint16_t c565(float r, float g, float b) {
@@ -115,7 +116,13 @@ uint32_t s_freeze_ms = 0;
 // 休息臉電量色／低電量閃爍／看方向
 bool  s_tint_on = false;
 float s_tint_r = 0, s_tint_g = 0, s_tint_b = 0;
-bool  s_low_blink = false;
+int   s_low_blink = 0;   // 0 不閃、1 黃紅、2 紅灰
+// 低電量閃爍色：<20% 黃↔紅、<5% 紅↔灰（半週期 BAT_BLINK_MS）
+Rgb lowBlinkColor() {
+  const bool ph = ((millis() / cfg::BAT_BLINK_MS) % 2) == 0;
+  if (s_low_blink >= 2) return ph ? Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B} : Rgb{OFF_R, OFF_G, OFF_B};
+  return ph ? Rgb{BLINK_YEL_R, BLINK_YEL_G, BLINK_YEL_B} : Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B};
+}
 float s_gaze_tx = 0, s_gaze_ty = 0, s_gaze_x = 0, s_gaze_y = 0;
 constexpr float GAZE_EASE_PER_MS = 0.006f;
 Rgb   s_c1 = {0x00, 0xF0, 0xFF}, s_c2 = {0x9D, 0x5C, 0xFF};   // 目前畫面上的顏色（平滑過渡）
@@ -328,10 +335,15 @@ void drawEvaConvFrame(int x, int y, int w, int h, uint16_t amber) {
   // A7（11-21）：外框從頁籤下緣開始；左上凸出一塊實心頁籤寫「受信」（點陣圖，不糊）
   const int fy = y + EVA_CONV_TAB_H - 1;
   s_cv.drawRect(x, fy, w, h - (fy - y), amber);
-  const ui_labels::Bmp* lab = ui_labels::find("rx_head");
-  const int tw = lab ? lab->w + 8 : 28;
+  // 11-21 Miles「受信不夠銳利」：改用 efontTW_12（原生 12px 點陣字，不是縮小的明體），黑字疊兩次加粗
+  s_cv.setFont(&fonts::efontTW_12);
+  s_cv.setTextSize(1);
+  s_cv.setTextDatum(top_left);
+  const int tw = s_cv.textWidth("受信") + 9;
   s_cv.fillRect(x, y, tw, EVA_CONV_TAB_H, amber);
-  if (lab) s_cv.drawBitmap(x + 4, y + (EVA_CONV_TAB_H - lab->h) / 2, lab->bits, lab->w, lab->h, TFT_BLACK);
+  s_cv.setTextColor(TFT_BLACK);
+  s_cv.drawString("受信", x + 4, y + 1);
+  s_cv.drawString("受信", x + 5, y + 1);
   s_cv.setFont(&fonts::Font0);
   s_cv.setTextSize(1);
   s_cv.setTextDatum(top_left);
@@ -355,6 +367,7 @@ void drawConv(int W, int H, bool eva) {
   s_cv.fillRect(rx, ry, rw, rh, TFT_BLACK);
   const uint16_t amber = s_cv.color565(255, 155, 0);
   const uint16_t userColor = s_cv.color565(255, 241, 222);
+  const uint16_t botGreen = s_cv.color565(0x39, 0xFF, 0x14);   // 11-21 Miles：Friday 的回答用資訊頁電池綠
   if (eva) {
     drawEvaConvFrame(rx, ry, rw, rh, amber);
   } else {
@@ -396,7 +409,7 @@ void drawConv(int W, int H, bool eva) {
     const int y = ry + firstY + k * 14;
     int x = rx + pad;
     if (L.pfx) {
-      s_cv.setTextColor(eva ? (L.bot ? amber : userColor)
+      s_cv.setTextColor(eva ? (L.bot ? botGreen : userColor)
                             : L.bot ? s_cv.color565(0x00, 0xF0, 0xFF) : s_cv.color565(MG_R, MG_G, MG_B));
       const char* pf = convPrefix(L.bot, eva);
       s_cv.drawString(pf, x, y);
@@ -416,7 +429,7 @@ void drawConv(int W, int H, bool eva) {
       memcpy(tmp, L.p, n);
     }
     tmp[n] = '\0';
-    s_cv.setTextColor(eva ? (L.bot ? amber : userColor)
+    s_cv.setTextColor(eva ? (L.bot ? botGreen : userColor)
                           : L.bot ? s_cv.color565(241, 250, 238) : s_cv.color565(150, 160, 175));
     s_cv.drawString(tmp, x, y);
   }
@@ -1019,7 +1032,7 @@ void setRestTint(bool enabled, uint8_t r, uint8_t g, uint8_t b) {
   s_tint_on = enabled;
   s_tint_r = r; s_tint_g = g; s_tint_b = b;
 }
-void setLowBatteryBlink(bool on) { s_low_blink = on; }
+void setLowBatteryBlink(int mode) { s_low_blink = mode; }
 void setGaze(float x, float y) {
   s_gaze_tx = x < -1 ? -1 : x > 1 ? 1 : x;
   s_gaze_ty = y < -1 ? -1 : y > 1 ? 1 : y;
@@ -1091,9 +1104,8 @@ void render() {
   Rgb c1 = s_c1, c2 = s_c2;
   if (s_offline) { c1 = {OFF_R, OFF_G, OFF_B}; c2 = {OFF_R * 0.6f, OFF_G * 0.6f, OFF_B * 0.6f}; }
   else if (s_low_blink && shown != Mood::Listening && shown != Mood::Thinking && shown != Mood::Speaking) {
-    const bool red = ((millis() / cfg::BAT_BLINK_MS) % 2) == 0;
-    c1 = red ? Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B} : Rgb{OFF_R, OFF_G, OFF_B};
-    c2 = mixc(BG, c1, 0.6f);
+    c1 = lowBlinkColor();
+    c2 = PIXEL ? c1 : mixc(BG, c1, 0.6f);
   }
 
   // ── 對話區展開／收起（真實時間）──
@@ -1173,6 +1185,8 @@ void render() {
   // 聆聽：耳朵＋聲波（耳朵從畫面邊緣彈進來）
   const int es = earSide();
   if (PIXEL) { c1 = th.eye; c2 = th.eye; }   // 像素臉：五官、符號一律淡琥珀（警報時框與格子變紅）
+  if (PIXEL && !s_offline && s_low_blink && shown != Mood::Listening && shown != Mood::Thinking && shown != Mood::Speaking)
+    c1 = c2 = lowBlinkColor();   // 11-21：低電量五官閃爍（語音中不閃）
   if (P(K_ED) > -40) {
     const float ex = X(es * (49 - P(K_ED)) + hx), ey = Y(3 + hy);
     const float wave_cx = X(es * (53 - P(K_ED)) + hx);
@@ -1217,9 +1231,7 @@ void render() {
   const float lh = (blink ? 4 : fmaxf(4, P(K_LH))) * sc * s_bd[0].sy;
   const float rh = ((blink || wink) ? 4 : fmaxf(4, P(K_RH))) * sc * s_bd[1].sy;
   if (PIXEL) {
-    Rgb ec = th.eye;
-    if (!s_offline && s_low_blink && shown != Mood::Listening && shown != Mood::Thinking && shown != Mood::Speaking)
-      ec = ((millis() / cfg::BAT_BLINK_MS) % 2) == 0 ? Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B} : Rgb{OFF_R, OFF_G, OFF_B};
+    Rgb ec = c1;   // 平常＝th.eye；低電量時＝閃爍色（眼睛、嘴巴一起閃）
     if (shown == Mood::Asleep) ec = mixc(BG, ec, 0.55f);
     pxEye(lx, ly, lw, lh, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));
     pxEye(rx, ry, rw, rh, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));

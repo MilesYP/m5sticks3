@@ -126,7 +126,7 @@ constexpr uint32_t BAT_READ_MS        = 5000;
 constexpr float    BAT_SMOOTH         = 0.2f;   // 每次讀數的權重（約 25 秒的平滑）
 constexpr int      BAT_HYST_PCT       = 3;
 constexpr uint32_t BAT_CHARGE_HOLD_MS = 30000;  // 讀數「充電中／未充電」會來回跳 → 30 秒內見過充電就當充電中
-constexpr uint32_t BAT_BLINK_MS       = 500;    // 紅灰閃爍半週期
+constexpr uint32_t BAT_BLINK_MS       = 500;    // 低電量閃爍半週期（黃紅／紅灰）
 
 // ── A4 量測：充電紀錄（v23-a4m；A4b 定「充飽」門檻用）──
 // M5Unified 0.3.0 對 StickS3 的 isCharging()／getChargeState() 只讀 M5PM1 GPIO0 的 CHG_STAT 腳（低＝充電中），
