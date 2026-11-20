@@ -4,6 +4,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "battery_ui.h"
 #include "config.h"
 #include "ui_fx.h"
 #include "ui_persona.h"
@@ -11,6 +12,9 @@
 // ─────────────────────────────────────────────────────────────────────────
 //  座標約定：表情用「設計單位」描述（直式 135×240 時 1 單位＝1px），相對於臉的中心點；
 //  畫的時候乘上比例 sc（直式 1.0、橫式 0.8）再加上臉中心的像素座標。
+//  A7（11-20，Miles 參考圖定案）：像素臉——黑底六角格、狀態列「FRIDAY・狀態」＋電量 %、取景角、左上狀態大字、
+//   掃描線眼睛與嘴巴（每 3 列空 1 列）、五官與符號一律淡琥珀（警報時框格變紅）、右側強度方格、對話框兩版都用 EVA「受信」版。
+//   原本合成波畫法保留在 PIXEL=false 的分支（對照用）。角色臉（ui_persona）套同一套底、狀態列與取景角。
 //  畫布用 M5Canvas::setRotation 轉向（只換畫圖座標，緩衝區仍是 135×240，推上螢幕不變）。
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -41,7 +45,7 @@ const MoodInfo kMoods[] = {
 static_assert(sizeof(kMoods) / sizeof(kMoods[0]) == static_cast<size_t>(Mood::Asleep) + 1,
               "kMoods 要和 enum class Mood 一一對應");
 
-constexpr uint8_t BG_R = 0x0A, BG_G = 0x04, BG_B = 0x20;   // 深藍紫底
+constexpr uint8_t BG_R = 0x00, BG_G = 0x00, BG_B = 0x00;   // A7：黑底
 constexpr uint8_t MG_R = 0xFF, MG_G = 0x2B, MG_B = 0xD6;   // 洋紅：網格、舌頭、符號
 constexpr uint8_t OFF_R = 95, OFF_G = 94, OFF_B = 90;      // 斷線灰
 constexpr uint8_t BLINK_RED_R = 226, BLINK_RED_G = 75, BLINK_RED_B = 74;
@@ -165,6 +169,7 @@ struct Part { bool on; PK kind; char ch; float x, y, vx, vy, age, life, size; Rg
 constexpr int MAX_PARTS = 6;
 Part s_parts[MAX_PARTS];
 float s_face_l = 0, s_face_r = 135;   // 臉的區域（像素），render() 每幀更新
+float s_sym_top = 0;                    // 像素臉：符號最高只到狀態列下面（不蓋狀態列、左上大字）
 float clampX(float x, float half) { return fminf(fmaxf(x, s_face_l + half + 2), s_face_r - half - 2); }
 // 符號角（設計單位，相對臉中心）：直式右上；橫式在臉旁、避開 A 鍵側（對話區在 A 鍵側）
 float symX() { return s_orient == Orient::Portrait ? 36.0f : s_orient == Orient::LandARight ? -104.0f : 104.0f; }
@@ -375,6 +380,109 @@ void drawConv(int W, int H, bool eva) {
   }
   s_cv.setFont(&fonts::Font0);
   if (eva) s_cv.clearClipRect();
+}
+
+
+// ═════ A7 像素臉（Miles 11-20 參考圖：NERV 風——六角格底、掃描線眼睛、狀態大字、強度方格、取景角、狀態列）═════
+constexpr bool PIXEL = true;
+const char* const kPxLabel[] = {"待機", "聆聽", "思考", "說話", "開心", "警報", "驚嚇", "想睡", "睡眠"};
+const char* const kPxStatus[] = {"待機中", "聆聽中", "思考中", "說話中", "開心", "警報", "驚嚇", "想睡", "睡眠中"};
+struct PxTheme { Rgb accent, eye; };
+PxTheme pxTheme(Mood m, bool offline) {
+  if (offline) return {{95, 94, 90}, {120, 118, 112}};
+  if (m == Mood::Angry) return {{0xE8, 0x2A, 0x2A}, {0xFF, 0xC8, 0x70}};   // 警報：紅色系，眼睛淡琥珀
+  return {{0xFF, 0x9B, 0x00}, {0xFF, 0xB0, 0x50}};
+}
+// 六角格（平頂，邊長 a）：每格只畫 3 條邊（相鄰格共用），省一半線
+void pxHexGrid(int W, int H, uint16_t c) {
+  const float a = 9.0f, hh = a * 0.866f;   // 邊長、半高
+  const float dx = a * 1.5f;
+  for (int col = -1; col * dx < W + a; ++col) {
+    const float cx = col * dx;
+    const float off = (col & 1) ? hh : 0;
+    for (float cy = -hh + off; cy < H + hh; cy += 2 * hh) {
+      const int x0 = (int)(cx - a), x1 = (int)(cx - a / 2), x2 = (int)(cx + a / 2);
+      const int yt = (int)(cy - hh), ym = (int)cy;
+      s_cv.drawLine(x0, ym, x1, yt, c);   // 左上斜邊
+      s_cv.drawFastHLine(x1, yt, x2 - x1, c);   // 上邊
+      s_cv.drawLine(x2, yt, (int)(cx + a), ym, c);   // 右上斜邊
+    }
+  }
+}
+// 掃描線眼睛：切角矩形（八角）、每 3 列畫 2 列；生氣／想睡斜切、開心下方弧形挖掉，算每一列的左右界（不用底色遮，六角格才不會被塗掉）
+void pxEye(float ex, float ey, float w, float h, int side, float ang, float slp, float hap, float sc, uint16_t c) {
+  if (w < 3) w = 3;
+  if (h < 3) h = 3;
+  const float L = ex - w / 2, R = ex + w / 2, T = ey - h / 2, B = ey + h / 2;
+  const float ch = fminf(w, h) * 0.24f;          // 切角
+  const float dropA = T + h * 0.55f * ang, dropS = T + h * 0.65f * slp;
+  const float hcy = ey + h * (0.62f + (1.0f - hap)), hrx = w * 0.8f + 2 * sc, hry = h * 0.55f + 2 * sc;
+  for (int y = (int)ceilf(T); y < (int)B; ++y) {
+    if (((y - (int)ceilf(T)) % 3) == 2) continue;     // 掃描線縫
+    const float yy = y + 0.5f;
+    float xl = L, xr = R;
+    const float dt = yy - T, db = B - yy;
+    if (dt < ch) { xl += ch - dt; xr -= ch - dt; }
+    if (db < ch) { xl += ch - db; xr -= ch - db; }
+    if (ang > 0.02f && dropA > T + 0.5f) {           // 生氣：內側上方斜切
+      const float k = (yy - T) / (dropA - T) * (R - L);
+      if (side < 0) xr = fminf(xr, L + k); else xl = fmaxf(xl, R - k);
+    }
+    if (slp > 0.02f && dropS > T + 0.5f) {           // 想睡：外側上方斜切
+      const float k = (dropS - yy) / (dropS - T) * (R - L);
+      if (side < 0) xl = fmaxf(xl, L + k); else xr = fminf(xr, R - k);
+    }
+    if (xr - xl < 1) continue;
+    if (hap > 0.02f) {                                // 開心：挖掉下方橢圓 → 笑眼
+      const float e = (yy - hcy) / hry;
+      if (e * e < 1) {
+        const float hw = hrx * sqrtf(1 - e * e);
+        const float a0 = ex - hw, a1 = ex + hw;
+        if (a0 > xl) s_cv.drawFastHLine((int)xl, y, (int)(fminf(a0, xr) - xl), c);
+        if (a1 < xr) s_cv.drawFastHLine((int)fmaxf(a1, xl), y, (int)(xr - fmaxf(a1, xl)), c);
+        continue;
+      }
+    }
+    s_cv.drawFastHLine((int)lroundf(xl), y, (int)lroundf(xr - xl), c);
+  }
+}
+void pxBrackets(int x, int y, int w, int h, uint16_t c) {
+  const int l = 9;
+  s_cv.drawFastHLine(x, y, l, c);  s_cv.drawFastVLine(x, y, l, c);
+  s_cv.drawFastHLine(x + w - l, y, l, c);  s_cv.drawFastVLine(x + w - 1, y, l, c);
+  s_cv.drawFastHLine(x, y + h - 1, l, c);  s_cv.drawFastVLine(x, y + h - l, l, c);
+  s_cv.drawFastHLine(x + w - l, y + h - 1, l, c);  s_cv.drawFastVLine(x + w - 1, y + h - l, l, c);
+}
+// 狀態列：「FRIDAY・待機中」＋右邊電量 %，下面一條細線
+int s_px_battery = -1;
+void pxHeader(int fx0, int W, Mood m, const Rgb& accent, uint16_t batCol) {
+  s_cv.fillRect(fx0, 0, W, 12, TFT_BLACK);   // 狀態列底塗黑：符號、眉毛不會壓到字
+  s_cv.setTextSize(1);
+  s_cv.setTextDatum(top_left);
+  s_cv.setFont(&fonts::Font0);
+  s_cv.setTextColor(c565(accent));
+  s_cv.drawString("FRIDAY", fx0 + 3, 3);
+  int x = fx0 + 3 + s_cv.textWidth("FRIDAY") + 3;
+  s_cv.fillRect(x, 6, 2, 2, c565(accent));
+  x += 5;
+  s_cv.setFont(&fonts::efontTW_10);
+  s_cv.drawString(kPxStatus[static_cast<int>(m)], x, 1);
+  if (s_px_battery >= 0) {
+    char b[8];
+    snprintf(b, sizeof b, "%d%%", s_px_battery);
+    s_cv.setFont(&fonts::Font0);
+    s_cv.setTextColor(batCol);
+    s_cv.drawString(b, fx0 + W - 3 - s_cv.textWidth(b), 3);
+  }
+  s_cv.drawFastHLine(fx0, 12, W, c565(accent));
+}
+// 強度方格（右側直排，從下往上亮）：n 格亮、共 total 格
+void pxMeter(int x, int yBottom, int total, int n, uint16_t on, uint16_t off) {
+  for (int i = 0; i < total; ++i) {
+    const int y = yBottom - (i + 1) * 9 + 3;
+    if (i < n) s_cv.fillRect(x, y, 6, 6, on);
+    else if (off) s_cv.drawRect(x, y, 6, 6, off);
+  }
 }
 
 // 右上角「Wi-Fi 加紅色斜線」
@@ -793,6 +901,7 @@ void render() {
   s_last_frame_ms = now;
 
   const Mood shown = s_preview >= 0 ? static_cast<Mood>(s_preview) : s_mood;
+  s_px_battery = battery_ui::level();   // A7：狀態列右邊的電量 %（平滑後；序列埠 c 假裝電量也看得到）
   if (shown != s_shown) enterMood(shown, now);
   const float t = (now - s_t0) / 1000.0f;
 
@@ -855,7 +964,7 @@ void render() {
   const int W = s_cv.width(), H = s_cv.height();
   const bool land = landscape();
   const bool eva = ui_persona::active();
-  const int cs = (int)(convExtent(eva) * s_conv_k + 0.5f);
+  const int cs = (int)(convExtent(true) * s_conv_k + 0.5f);   // A7：對話框一律 EVA 版
   int fx0 = 0, fw = W, fh = H;
   if (!land) fh = H - cs;
   else { fw = W - cs; if (s_orient == Orient::LandALeft) fx0 = cs; }
@@ -864,13 +973,23 @@ void render() {
   const float fcy = land ? H * 0.40f : fh * (0.42f + 0.06f * s_conv_k);
   const int hz = land ? (int)(H * 0.86f) : 190;   // 地平線
   s_face_l = (float)fx0; s_face_r = (float)(fx0 + fw);   // 符號左右不要超出臉的區域（橫式對話區打開時臉會變窄）
+  s_sym_top = 0;
+  if (PIXEL) { s_face_l = fx0 + fw * (land ? 0.76f : 0.5f); s_sym_top = 13 + 4; }   // 像素臉：符號只在右半邊、狀態列以下（左上留給狀態大字）
   auto X = [&](float d) { return fcx + d * sc; };
   auto Y = [&](float d) { return fcy + d * sc; };
 
   // 本機角色（ui_persona，素材不在公開 repo）：臉的區域改畫像素動畫，對話區與斷線圖示照舊
   if (eva) {
     s_cv.fillScreen(TFT_BLACK);
-    ui_persona::draw(&s_cv, fx0, 0, fw, land ? H : fh, shown, now, s_offline);
+    const PxTheme th = pxTheme(shown, s_offline);
+    const int top = 13, fy1 = land ? H : fh;
+    s_cv.setClipRect(fx0, top, fw, fy1 - top);
+    pxHexGrid(W, H, fade(th.accent, 0.18f));
+    s_cv.clearClipRect();
+    ui_persona::draw(&s_cv, fx0, top, fw, fy1 - top, shown, now, s_offline);
+    pxBrackets(fx0 + 4, top + 4, fw - 8, fy1 - top - 8, c565(th.accent));
+    const int lvB = s_px_battery;
+    pxHeader(fx0, fw, shown, th.accent, lvB < 0 ? fade(th.accent, 0.6f) : lvB >= 60 ? s_cv.color565(0x39, 0xFF, 0x14) : lvB >= 20 ? s_cv.color565(0xFF, 0xD0, 0x00) : s_cv.color565(0xFF, 0x29, 0x23));
     s_cv.setTextSize(1);
     s_cv.setFont(&fonts::Font0);
     drawConv(W, H, true);
@@ -894,9 +1013,17 @@ void render() {
 
   // ── 繪製 ──
   s_cv.fillScreen(c565(BG));
+  const PxTheme th = pxTheme(shown, s_offline);
+  const int top = 13;                                         // 狀態列下面
+  const int fy1 = land ? H : fh;                              // 臉的區域下緣
+  if (PIXEL) {
+    s_cv.setClipRect(fx0, top, fw, fy1 - top);
+    pxHexGrid(W, H, fade(th.accent, 0.22f));
+    s_cv.clearClipRect();
+  }
 
   // 地平線霓虹網格（往前捲動，速度跟情緒與音量）
-  {
+  if (!PIXEL) {
     s_grid_off += dt * mi.grid * (1 + fr.v);
     if (s_grid_off > 1000) s_grid_off -= 1000;
     // 11-20 Miles「最上面那條橫線太明顯」：地平線原本 2px 全亮洋紅 → 1px、40%；
@@ -913,6 +1040,7 @@ void render() {
 
   // 聆聽：耳朵＋聲波（耳朵從畫面邊緣彈進來）
   const int es = earSide();
+  if (PIXEL) { c1 = th.eye; c2 = th.eye; }   // 像素臉：五官、符號一律淡琥珀（警報時框與格子變紅）
   if (P(K_ED) > -40) {
     const float ex = X(es * (49 - P(K_ED)) + hx), ey = Y(3 + hy);
     const float wave_cx = X(es * (53 - P(K_ED)) + hx);
@@ -956,8 +1084,17 @@ void render() {
   const float lw = P(K_LW) * sc * s_bd[0].sx, rw = P(K_RW) * sc * s_bd[1].sx;
   const float lh = (blink ? 4 : fmaxf(4, P(K_LH))) * sc * s_bd[0].sy;
   const float rh = ((blink || wink) ? 4 : fmaxf(4, P(K_RH))) * sc * s_bd[1].sy;
-  drawEye(lx, ly, lw, lh, c1, c2, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
-  drawEye(rx, ry, rw, rh, c1, c2, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
+  if (PIXEL) {
+    Rgb ec = th.eye;
+    if (!s_offline && s_low_blink && shown != Mood::Listening && shown != Mood::Thinking && shown != Mood::Speaking)
+      ec = ((millis() / cfg::BAT_BLINK_MS) % 2) == 0 ? Rgb{BLINK_RED_R, BLINK_RED_G, BLINK_RED_B} : Rgb{OFF_R, OFF_G, OFF_B};
+    if (shown == Mood::Asleep) ec = mixc(BG, ec, 0.55f);
+    pxEye(lx, ly, lw, lh, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));
+    pxEye(rx, ry, rw, rh, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));
+  } else {
+    drawEye(lx, ly, lw, lh, c1, c2, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
+    drawEye(rx, ry, rw, rh, c1, c2, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
+  }
 
   // 眉毛
   if (P(K_BRA) > 0.05f && fr.brows) {
@@ -981,9 +1118,9 @@ void render() {
     const float slide = fmodf(t, 1.8f) / 1.8f;                   // 每 1.8 秒滑一次
     const float sx = rx + rw / 2 - 1 * sc;                       // 一半壓在眼睛邊上
     const float sy = ry - rh / 2 + 6 * sc + slide * 12 * sc;
-    const uint16_t edge = s_cv.color565(0x1B, 0x5E, 0x9E);       // 深藍外框
-    const uint16_t body = s_cv.color565(0x6F, 0xD8, 0xFF);       // 水藍
-    const uint16_t shine = s_cv.color565(0xEA, 0xFB, 0xFF);      // 反光
+    const uint16_t edge = PIXEL ? c565(th.accent) : s_cv.color565(0x1B, 0x5E, 0x9E);       // 深藍外框
+    const uint16_t body = PIXEL ? TFT_BLACK : s_cv.color565(0x6F, 0xD8, 0xFF);           // 水藍（像素臉：空心）
+    const uint16_t shine = PIXEL ? c565(th.eye) : s_cv.color565(0xEA, 0xFB, 0xFF);      // 反光
     auto dropShape = [&](float grow, uint16_t c) {
       s_cv.fillTriangle((int32_t)sx, (int32_t)(sy - 2.3f * r - grow * 1.6f),
                         (int32_t)(sx - 0.93f * r - grow), (int32_t)(sy - 0.35f * r),
@@ -995,7 +1132,7 @@ void render() {
     s_cv.fillEllipse((int32_t)(sx - 0.38f * r), (int32_t)(sy - 0.15f * r), (int32_t)fmaxf(1, 0.22f * r), (int32_t)fmaxf(1, 0.38f * r), shine);
   }
 
-  // 嘴巴
+  // 嘴巴（像素臉：一樣的嘴型，畫完再挖掃描線縫）
   {
     const float mx = X(mhx + s_bd[2].ox), my = Y(mhy + s_bd[2].oy);
     const float mw = P(K_MW) * sc * s_bd[2].sx, mh = fmaxf(2, P(K_MH)) * sc * s_bd[2].sy, mc = P(K_MC), sk = P(K_SK) * sc;
@@ -1029,7 +1166,7 @@ void render() {
           s_ev.popped = false;
           const float br = (1 + bc / 2.6f * 9) * sc;
           s_cv.drawCircle((int32_t)(mx + (10 + bc * 2) * sc), (int32_t)(my - (6 + bc * 2) * sc), (int32_t)br,
-                          s_cv.color565(127, 184, 180));
+                          PIXEL ? c565(th.eye) : s_cv.color565(127, 184, 180));
         } else if (!s_ev.popped && !s_offline) {
           s_ev.popped = true;
           for (int i = 0; i < 4; ++i)
@@ -1041,7 +1178,7 @@ void render() {
         s_cv.fillSmoothRoundRect((int32_t)(mx - mw / 2), (int32_t)(my - mh / 2), (int32_t)mw, (int32_t)mh,
                                  (int32_t)fminf(7 * sc, mh / 2), mcol);
         if (mh > 14 * sc)   // 舌頭
-          s_cv.fillEllipse((int32_t)mx, (int32_t)(my + mh / 2 - 4 * sc), (int32_t)(mw * 0.25f), (int32_t)(3.5f * sc), c565(MG));
+          s_cv.fillEllipse((int32_t)mx, (int32_t)(my + mh / 2 - 4 * sc), (int32_t)(mw * 0.25f), (int32_t)(3.5f * sc), PIXEL ? c565(th.accent) : c565(MG));
         break;
       }
       case MouthMode::OFill:
@@ -1071,6 +1208,17 @@ void render() {
     }
   }
 
+  if (PIXEL) {   // 嘴巴挖掃描線縫（只挖嘴巴顏色的像素，六角格不受影響）
+    const float mx = X(mhx + s_bd[2].ox), my = Y(mhy + s_bd[2].oy);
+    const float mw = P(K_MW) * sc * s_bd[2].sx + 12 * sc, mh = fmaxf(2, P(K_MH)) * sc * s_bd[2].sy + 16 * sc;
+    const uint16_t mc = c565(c2);
+    const int y0 = (int)(my - mh / 2), y1 = (int)(my + mh / 2), x0 = (int)(mx - mw / 2), x1 = (int)(mx + mw / 2);
+    for (int y = y0; y <= y1; ++y) {
+      if (((y - y0) % 3) != 2) continue;
+      for (int x = x0; x <= x1; ++x) if (s_cv.readPixel(x, y) == mc) s_cv.drawPixel(x, y, TFT_BLACK);
+    }
+  }
+
   // 思考：右上思考泡泡（三點輪流亮）
   if (shown == Mood::Thinking) {
     const int act = ((int)(t * 3)) % 3;
@@ -1082,9 +1230,10 @@ void render() {
   // 生氣：# 青筋跳動
   if (shown == Mood::Angry) {   // 生氣青筋：跟著節奏一跳一跳
     const float ah = (44 + 7 * fmaxf(0, sinf(t * 9))) * sc;
-    const float ax = clampX(X(symX()), 0.8f * ah), ay = fmaxf(Y(symY() + 4 + hy), 0.8f * ah + 2);
-    glyphAnger(ax, ay, ah, 1.5f, fade(MG, 0.35f));
-    glyphAnger(ax, ay, ah, 0, c565(MG));
+    const float ax = clampX(X(symX()), 0.8f * ah), ay = fmaxf(Y(symY() + 4 + hy), s_sym_top + 0.8f * ah + 2);
+    const Rgb ag = PIXEL ? th.accent : MG;
+    if (!PIXEL) glyphAnger(ax, ay, ah, 1.5f, fade(ag, 0.35f));
+    glyphAnger(ax, ay, ah, 0, c565(ag));
   }
 
   // 小符號（彈出放大再縮回、往上飄、淡出）
@@ -1094,16 +1243,18 @@ void render() {
     Part& p = s_parts[i];
     if (!p.on) continue;
     p.age += dt;
+
     if (p.age >= p.life) { p.on = false; continue; }
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     const float pop = fminf(1, p.age * 8) * (1 + 0.3f * fmaxf(0, 1 - p.age * 4));
-    const uint16_t pc = fade(p.col, 1 - p.age / p.life);
+    const Rgb pcol = PIXEL ? th.eye : p.col;   // 像素臉：符號一律淡琥珀、不加光暈
+    const uint16_t pc = fade(pcol, 1 - p.age / p.life);
     const float px0 = X(p.x), py0 = Y(p.y), py = py0, px = px0;
     switch (p.kind) {
       case PK::Text: case PK::Heart: case PK::Spark: {
         const float h = p.size * pop * sc;
-        const float py = fmaxf(py0, 0.46f * h + 2);   // 不要被螢幕上緣切掉
+        const float py = fmaxf(py0, s_sym_top + 0.46f * h + 2);   // 不要被螢幕上緣（像素臉：狀態列）切掉
         const float px = clampX(px0, 0.5f * h);       // 也不要超出臉的左右邊（橫式對話區打開時）
         const float a = 1 - p.age / p.life;
         const uint16_t gc = fade(p.col, 0.35f * a);   // 外圈光暈
@@ -1114,15 +1265,15 @@ void render() {
           else if (p.ch == 'z') glyphZ(px, py, h, grow, c);
           else glyphBang(px, py, h, grow, c);
         };
-        g(2.0f, gc);
+        if (!PIXEL) g(2.0f, gc);
         g(0, pc);
         break;
       }
       case PK::Note: {
         const float ns = p.size * pop * sc;
-        const float py = fmaxf(py0, 7.5f * ns + 2);
+        const float py = fmaxf(py0, s_sym_top + 7.5f * ns + 2);
         const float px = clampX(px0, 8.0f * ns);
-        drawNote(px, py, ns + 0.35f, fade(p.col, 0.35f * (1 - p.age / p.life)));   // 光暈
+        if (!PIXEL) drawNote(px, py, ns + 0.35f, fade(p.col, 0.35f * (1 - p.age / p.life)));   // 光暈
         drawNote(px, py, ns, pc);
         break;
       }
@@ -1135,7 +1286,29 @@ void render() {
   s_cv.setTextSize(1);
   s_cv.setFont(&fonts::Font0);
 
-  drawConv(W, H, false);   // 最後畫，蓋住延伸到 A 鍵側的網格與聲波
+  if (PIXEL) {
+    // 強度方格：待機呼吸 3～4 格、聆聽／說話跟音量、警報滿格閃、睡著 1 格
+    float lv = 0.35f + 0.08f * sinf(t * 2.2f);
+    if (shown == Mood::Listening || shown == Mood::Speaking) lv = 0.12f + 0.88f * fr.v;
+    else if (shown == Mood::Angry || shown == Mood::Scared) lv = 0.85f + 0.15f * sinf(t * 12);
+    else if (shown == Mood::Asleep || shown == Mood::Sleepy) lv = 0.1f;
+    else if (shown == Mood::Happy || shown == Mood::Thinking) lv = 0.5f + 0.2f * sinf(t * 4);
+    const int total = 8, n = (int)lroundf(lv * total);
+    pxMeter(fx0 + fw - 13, fy1 - 14, total, n, c565(th.accent), 0);
+    pxBrackets(fx0 + 4, top + 4, fw - 8, fy1 - top - 8, c565(th.accent));
+    // 左上狀態大字最後畫、底下先塗黑：表情不會蓋到字（Miles 11-20）
+    s_cv.setFont(&fonts::efontTW_24);
+    s_cv.setTextSize(1);
+    s_cv.setTextDatum(top_left);
+    const char* lab = kPxLabel[static_cast<int>(shown)];
+    s_cv.fillRect(fx0 + 7, top + 6, s_cv.textWidth(lab) + 2, 26, TFT_BLACK);
+    s_cv.setTextColor(fade(th.accent, 0.42f));
+    s_cv.drawString(lab, fx0 + 8, top + 7);
+    const int lvB = s_px_battery;
+    const uint16_t bc = lvB < 0 ? fade(th.accent, 0.6f) : lvB >= 60 ? s_cv.color565(0x39, 0xFF, 0x14) : lvB >= 20 ? s_cv.color565(0xFF, 0xD0, 0x00) : s_cv.color565(0xFF, 0x29, 0x23);
+    pxHeader(fx0, fw, shown, th.accent, bc);
+  }
+  drawConv(W, H, true);    // A7：對話框兩版都用 EVA「受信」版
 
   if (s_offline) drawWifiOff(W - 16, 20);
 

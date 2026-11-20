@@ -17,13 +17,6 @@ uint32_t s_state_t0 = 0;
 #endif
 
 // 取景框四角（EVA 風）
-void brackets(m5gfx::M5Canvas* cv, int x, int y, int w, int h, uint16_t c) {
-  const int l = 8;
-  cv->drawFastHLine(x, y, l, c);          cv->drawFastVLine(x, y, l, c);
-  cv->drawFastHLine(x + w - l, y, l, c);  cv->drawFastVLine(x + w - 1, y, l, c);
-  cv->drawFastHLine(x, y + h - 1, l, c);  cv->drawFastVLine(x, y + h - l, l, c);
-  cv->drawFastHLine(x + w - l, y + h - 1, l, c); cv->drawFastVLine(x + w - 1, y + h - l, l, c);
-}
 }  // namespace
 
 namespace ui_persona {
@@ -41,8 +34,7 @@ const char* name() {
 }
 
 void draw(m5gfx::M5Canvas* cv, int x, int y, int w, int h, Mood m, uint32_t now, bool frozen) {
-  const uint16_t amber = cv->color565(0xFF, 0x8A, 0x00);
-  brackets(cv, x + 3, y + 3, w - 6, h - 6, amber);
+  // A7：取景框改由 ui_expression 統一畫（像素臉外框）
 #if PERSONA_HAS
   using namespace persona_assets;
   int si = static_cast<int>(m);
