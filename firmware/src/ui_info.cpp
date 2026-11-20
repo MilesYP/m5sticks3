@@ -334,7 +334,7 @@ void drawUsd(int ti, int dx, int dy) {
   txtF(ti, dx, dy, head, tc, F);
   const int hw = s_cv.textWidth(head);
   txtF(ti, dx + hw, dy, cap, K_DIM, F);
-  if (u.left >= 0) { snprintf(left, sizeof left, u.left >= 100 ? "餘%.0f" : "餘%.2f", u.left); txtF(ti, dx, dy + 12, left, K_DIM, F); }
+  if (u.left >= 0) { snprintf(left, sizeof left, u.left >= 100 ? "餘%.0f" : "餘%.2f", u.left); txtF(ti, dx, dy + 12, left, K_RED, F); }   // 11-21 Miles：餘額紅字
 }
 // ── 斜體七段數字（第六版：參考 EVA「活動限界」計時器——字往右斜、段兩端削尖、段間留縫）──
 // 每 SLANT_STEP 列往右偏 1px（整數斜率：階梯每階一樣高，邊緣乾淨；原本 0.17 四捨五入，階梯高低不一看起來糊）

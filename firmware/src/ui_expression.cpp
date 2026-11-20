@@ -188,7 +188,8 @@ void emit(PK kind, char ch, float x, float y, const Rgb& col, float size, float 
 constexpr int      CONV_LINES_PORTRAIT = 5;
 constexpr int      CONV_PAD     = 3;
 constexpr int      EVA_CONV_PAD = 4;
-constexpr int      EVA_CONV_HEADER = 16;
+constexpr int      EVA_CONV_HEADER = 16;   // 頁籤＋外框上緣到第一行字
+constexpr int      EVA_CONV_TAB_H = 14;    // 左上「受信」頁籤高度
 constexpr int      EVA_CONV_LAND_WIDTH = 80;
 constexpr uint32_t CONV_HOLD_MS = 5000;
 constexpr size_t   USER_CAP     = 480;
@@ -287,17 +288,42 @@ void rewrap(bool eva) {
   s_conv_dirty = false;
 }
 
-void drawEvaConvFrame(int x, int y, int w, int h, uint16_t amber) {
-  s_cv.drawRect(x, y, w, h, amber);
-  constexpr int stripeRows = 4, stripeWidth = 3;
-  const int right = x + w - 1;
-  for (int row = 0; row < stripeRows && row + 1 < h - 1; ++row) {
-    for (int left = x + 1 - row; left < right; left += 2 * stripeWidth) {
-      const int start = left < x + 1 ? x + 1 : left;
-      const int end = left + stripeWidth < right ? left + stripeWidth : right;
-      if (end > start) s_cv.drawFastHLine(start, y + row + 1, end - start, amber);
-    }
+// A7（11-21 Miles）：表情背景淡淡的浮水印——原創字樣（不用 EVA 的商標字），
+// 小字機號＋大字「星期五」＋三條斜槓，壓在臉區左下、在臉之下。
+void pxWatermark(int fx0, int top, int fw, int fy1, uint16_t col) {
+  const ui_labels::Bmp* big = ui_labels::find("wm_big");
+  if (!big) return;
+  const int x = fx0 + 5, by = fy1 - big->h - 5;
+  if (by - 12 < top) return;
+  s_cv.setFont(&fonts::Font0);
+  s_cv.setTextSize(1);
+  s_cv.setTextDatum(top_left);
+  s_cv.setTextColor(col);
+  s_cv.drawString("M5S3PACK-01", x + 1, by - 11);
+  s_cv.drawBitmap(x, by, big->bits, big->w, big->h, col);
+  // 三條斜槓（平行四邊形，往右上斜）
+  const int sx = x + big->w + 6, sh = big->h;
+  for (int k = 0; k < 3; ++k) {
+    const int bx = sx + k * 7;
+    if (bx + 4 + sh / 3 > fx0 + fw) break;
+    for (int r = 0; r < sh; ++r) s_cv.drawFastHLine(bx + (sh - 1 - r) / 3, by + r, 4, col);
   }
+}
+
+void drawEvaConvFrame(int x, int y, int w, int h, uint16_t amber) {
+  // A7（11-21）：外框從頁籤下緣開始；左上凸出一塊實心頁籤寫「受信」（點陣圖，不糊）
+  const int fy = y + EVA_CONV_TAB_H - 1;
+  s_cv.drawRect(x, fy, w, h - (fy - y), amber);
+  const ui_labels::Bmp* lab = ui_labels::find("rx_head");
+  const int tw = lab ? lab->w + 8 : 28;
+  s_cv.fillRect(x, y, tw, EVA_CONV_TAB_H, amber);
+  if (lab) s_cv.drawBitmap(x + 4, y + (EVA_CONV_TAB_H - lab->h) / 2, lab->bits, lab->w, lab->h, TFT_BLACK);
+  s_cv.setFont(&fonts::Font0);
+  s_cv.setTextSize(1);
+  s_cv.setTextDatum(top_left);
+  s_cv.setTextColor(amber);
+  // 橫式直欄貼著狀態列（已寫 FRIDAY）→ 只有直式加副標
+  if (!landscape()) s_cv.drawString("// FRIDAY", x + tw + 3, y + (EVA_CONV_TAB_H - 8) / 2 + 1);
 }
 
 // 對話區：直式＝畫面下方橫條；橫式＝A 鍵側直欄
@@ -323,10 +349,8 @@ void drawConv(int W, int H, bool eva) {
   s_cv.setTextSize(1);
   s_cv.setTextDatum(top_left);
   if (eva) {
-    s_cv.setClipRect(rx + 1, ry + 1, rw - 2, rh - 2);
-    s_cv.setFont(&fonts::efontTW_10_b);
+    s_cv.setClipRect(rx + 1, ry + EVA_CONV_TAB_H, rw - 2, rh - EVA_CONV_TAB_H - 1);
     s_cv.setTextColor(amber);
-    s_cv.drawString("受信 // FRIDAY", rx + EVA_CONV_PAD, ry + 6);
   }
   s_cv.setFont(&fonts::efontTW_12);
   const int pad = eva ? EVA_CONV_PAD : CONV_PAD;
@@ -998,6 +1022,7 @@ void render() {
   if (PIXEL) {
     s_cv.setClipRect(fx0, top, fw, fy1 - top);
     pxHexGrid(W, H, fade(th.accent, 0.22f));
+    pxWatermark(fx0, top, fw, fy1, fade(th.accent, 0.16f));
     s_cv.clearClipRect();
   }
 
