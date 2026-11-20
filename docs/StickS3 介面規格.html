@@ -36,10 +36,11 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
 </style></head>
 <body><div class="wrap">
 <h1>StickS3 介面規格</h1>
-<p class="lede">極客口袋終端的畫面與操作說明書。本頁為設計規格，非最終韌體畫面；數值、對話皆為示意。更新於 2026-11-15。</p>
+<p class="lede">極客口袋終端的畫面與操作說明書。本頁為設計規格，非最終韌體畫面；數值、對話皆為示意。更新於 2026-11-20（新增第 3b 節 EVA 風與 B 過場、第 3c 節省電時的畫面）。</p>
 <div class="leg">
 <span><span class="k">A</span> 表情頁短按＝資訊頁、長按＝說話；HID 模式＝急停；空中滑鼠＝左鍵</span>
-<span><span class="k">B</span> 開選單 / 下一項 / 長按 3 秒急停</span>
+<span><span class="k">B</span> 短按切下一個模式（EVA 過場）／長按 3 秒急停</span>
+<span>序列埠 <code>q0</code>／<code>q1</code> 切 Desktop 風格（合成波／EVA）</span>
 </div>
 
 <h2>1. 表情頁 × 語音（上下分區，表情為主）</h2>
@@ -126,7 +127,69 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
  </div>
 </div>
 
+<h2>3b. Desktop 風格 q0／q1 與 B 切模式過場（2026-11-20 定案）</h2>
+<p class="lede">Desktop 的表情頁與資訊頁有兩套風格，同一支韌體用序列埠 <code>q0</code>／<code>q1</code> 切換；短按 A 在該風格的表情頁與資訊頁之間切換，按住 A 照常說話。<b>有本機角色素材（<code>persona_assets.h</code>）時開機預設 q1，沒有素材固定 q0</b>（公開 repo 永遠是 q0）。之後可能再加 q2、q3…，每一套都包含「表情頁＋資訊頁」。實作：<code>ui_persona.*</code>、<code>ui_info_eva.*</code>、<code>ui_modeswitch.*</code>；素材規格見 <code>docs/persona-swap.md</code>。</p>
+<table><thead><tr><th>項目</th><th>q0 合成波</th><th>q1 EVA</th></tr></thead><tbody>
+<tr><td>表情頁的臉</td><td>向量畫的漸層眼＋嘴巴＋霓虹網格（第 2 節）</td><td>本機像素角色（每個表情一段循環動畫，整數倍放大置中），四角琥珀色取景框</td></tr>
+<tr><td>對話區</td><td>黑底、上緣細線；使用者淡紫、Friday 青色前綴</td><td>黑底、<b>琥珀外框＋警戒斜紋</b>、標題「受信 // FRIDAY」；使用者暖白（前綴 <code>&gt; </code>）、Friday 琥珀（前綴 <code>F: </code>）。直式在下方，橫式在 A 鍵側（寬 80px）</td></tr>
+<tr><td>資訊頁</td><td>第 3 節的合成波磚塊儀表板</td><td>獨立 EVA 儀表板：七段數字時鐘、供電「內部／外部」（16px 粗體點陣，讀 M5PM1 5VIN 即時切換）、WiFi／MIC／IMU／RF／BLE／HID 六角標籤兩排三格、CHIP 負載、記憶體、網路、快訊</td></tr>
+<tr><td>A5-2 雲端資料</td><td colspan="2">天氣、快訊、語音額度兩行：<b>兩套資訊頁都要顯示</b>（EVA 版版面在 A5-2 提案）</td></tr>
+</tbody></table>
+<div class="row">
+ <div class="unit">
+  <div class="dev"><div class="sc p">
+   <div style="position:absolute;left:10px;top:10px;width:14px;height:14px;border-left:2px solid #ff9b00;border-top:2px solid #ff9b00"></div>
+   <div style="position:absolute;right:10px;top:10px;width:14px;height:14px;border-right:2px solid #ff9b00;border-top:2px solid #ff9b00"></div>
+   <div style="position:absolute;left:10px;top:226px;width:14px;height:14px;border-left:2px solid #ff9b00;border-bottom:2px solid #ff9b00"></div>
+   <div style="position:absolute;right:10px;top:226px;width:14px;height:14px;border-right:2px solid #ff9b00;border-bottom:2px solid #ff9b00"></div>
+   <div style="position:absolute;left:62px;top:70px;width:80px;height:110px;background:repeating-linear-gradient(0deg,#3d2a6b 0 10px,#2a1d4d 10px 20px);opacity:.8"></div>
+   <div style="position:absolute;left:66px;top:118px;font-size:9px;color:#b9a6ff">像素角色<br>（本機素材）</div>
+   <div style="position:absolute;left:0;right:0;bottom:0;height:112px;background:#000;border:1.5px solid #ff9b00">
+     <div style="height:5px;background:repeating-linear-gradient(135deg,#ff9b00 0 3px,transparent 3px 6px)"></div>
+     <div style="font-size:9px;color:#ff9b00;padding:3px 5px">受信 // FRIDAY</div>
+     <div style="font-size:10px;color:#fff1de;padding:0 5px">&gt; 明天要帶傘嗎</div>
+     <div style="font-size:10px;color:#ff9b00;padding:2px 5px;line-height:1.5">F: 明天下午降雨機率 60%，建議帶傘。</div>
+   </div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>q1 表情頁＋對話（直式）</b><br>對話框在下方；橫式移到 A 鍵側</div>
+ </div>
+ <div class="unit">
+  <div class="dev"><div class="sc p">
+   <div style="position:absolute;left:0;right:0;top:0;height:16px;background:repeating-linear-gradient(135deg,#ffd400 0 8px,#000 8px 16px)"></div>
+   <div style="position:absolute;left:0;right:0;bottom:0;height:16px;background:repeating-linear-gradient(135deg,#ffd400 0 8px,#000 8px 16px)"></div>
+   <div style="position:absolute;left:0;right:0;top:70px;text-align:center;font-size:11px;color:#ff9b00">MODE 03 / 04</div>
+   <div style="position:absolute;left:0;right:0;top:100px;text-align:center;font-size:40px;font-weight:900;color:#ff2a2a;font-family:serif;line-height:1.1">射頻</div>
+   <div style="position:absolute;left:24px;right:24px;top:230px;height:8px;border:1px solid #ff9b00"><div style="width:60%;height:100%;background:#ff9b00"></div></div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>B 切模式過場（直式）</b><br>警戒斜紋＋明朝體大字＋實際進度條</div>
+ </div>
+ <div class="unit">
+  <div class="dev land"><div class="sc l">
+   <div style="position:absolute;left:0;top:0;bottom:0;width:12px;background:repeating-linear-gradient(135deg,#ffd400 0 8px,#000 8px 16px)"></div>
+   <div style="position:absolute;left:22px;top:46px;font-size:46px;font-weight:900;color:#ff2a2a;font-family:serif;line-height:1">射頻</div>
+   <div style="position:absolute;left:220px;top:60px;font-size:11px;color:#ff9b00">MODE 03 / 04<br>RF TOOL</div>
+   <div style="position:absolute;left:220px;top:110px;width:120px;height:8px;border:1px solid #ff9b00"><div style="width:60%;height:100%;background:#ff9b00"></div></div>
+  </div><div class="btnA">A</div></div>
+  <div class="cap"><b>B 切模式過場（橫式，A 鍵在右）</b><br>左側紅色大字、右側模式與進度條；A 鍵在左時鏡像</div>
+ </div>
+</div>
+<table><thead><tr><th>過場規則</th><th>說明</th></tr></thead><tbody>
+<tr><td>觸發</td><td>B 短按（&lt; 1 秒）切下一個模式；四個模式大字：語音／外部操作／射頻／體感</td></tr>
+<tr><td>進度條</td><td>照實際進度走：新模式資源還沒好停在 25%，好了再跑完（約 450ms），結束直接切新模式畫面</td></tr>
+<tr><td>急停</td><td>過場中按 A（模式 2）或按住 B 3 秒：立即結束過場、直接顯示 KILLED</td></tr>
+<tr><td>風格</td><td>過場固定 EVA 樣式，不跟 q0／q1 切換</td></tr>
+</tbody></table>
+
+<h2>3c. 省電時的畫面（P1，2026-11-20 先採用）</h2>
+<p class="lede">只在 Desktop 生效。放著不動時畫面會變暗；拿起、拍一下、按 A、睡著時拍手或講話 → 立刻亮回來（變亮立即、變暗約 0.6 秒慢慢降）。語音中、情緒反應中一律全亮全速。規則見 <code>CLAUDE.md</code> 鐵則十。</p>
+<table><thead><tr><th>狀態</th><th>表情頁</th><th>資訊頁</th><th>背光</th><th>其他</th></tr></thead><tbody>
+<tr><td>待機</td><td>待機臉，約 30 張／秒</td><td>每秒重畫一次</td><td>正常（110，序列埠 <code>l</code> 可調）</td><td>—</td></tr>
+<tr><td>想睡</td><td>靜置 6 秒（想睡臉），10 張／秒</td><td>靜置 10 秒</td><td>暗（45）</td><td>Wi-Fi 深度省電</td></tr>
+<tr><td>睡著</td><td>靜置 11 秒（睡著臉），5 張／秒</td><td>靜置 30 秒</td><td>微光（12）</td><td>Wi-Fi 深度省電、CPU 80MHz</td></tr>
+</tbody></table>
+
 <h2>4. 功能選單（B 開啟）</h2>
+<p class="note"><b>現況（11-20）</b>：B 短按目前是直接循環四個模式並顯示第 3b 節的 EVA 過場；本節的選單是原始設計，尚未實作，之後若要做選單再定 B 的操作。</p>
 <p class="lede">直拿時螢幕夠長，整頁列出 5 項，B 移動選取；橫拿時改「一頁三個」，中間選中、上下預覽，右側點點顯示在第幾項。A 進入。選單中不顯示對話框。</p>
 <div class="row">
  <div class="unit">

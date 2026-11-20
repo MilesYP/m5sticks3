@@ -63,6 +63,7 @@ void setWifiEnabled(bool on);        // 整個 Wi-Fi 關／開
 void setPowerSave(bool on);          // 手動：Wi-Fi 省電開／關；之後自動切換暫停，直到 setPowerSaveAuto()
 void setPowerSaveAuto();
 void voiceActive(bool active);       // true＝錄放音中（關省電，避免滋滋聲）；false＝結束（開回省電）
+void setIdleDeepSleep(bool deep);   // P1：想睡／睡著時 Wi-Fi 用 MAX_MODEM（語音中不影響，結束後套用）
 void setTxPowerDbm(int dbm);
 void pingNow();
 void dropLink();                     // B3b-5：序列埠 x，只斷 WebSocket（模擬連線重置，測重送）

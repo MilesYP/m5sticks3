@@ -47,7 +47,7 @@ constexpr C3 K_PUR  = {0xB3, 0x88, 0xEB};
 constexpr C3 K_GRN  = {0x39, 0xFF, 0x88};
 constexpr C3 K_ORG  = {0xFF, 0x9F, 0x1C};
 constexpr C3 K_BLUE = {0x4D, 0x8D, 0xFF};
-constexpr C3 K_VIO  = {0x9D, 0x5C, 0xFF};   // 深紫（跟 MEM 的淡紫區分）
+constexpr C3 K_VIO  = {0xFF, 0x3F, 0xD0};   // NET LINK 洋紅（P1 11-20 Miles：原深紫 9D5CFF 跟 CHIP 藍分不出來）
 constexpr C3 K_RED  = {0xFF, 0x4D, 0x6D};
 inline uint16_t col(const C3& c) { return s_cv.color565(c.r, c.g, c.b); }
 inline uint16_t mixCol(const C3& a, const C3& b, float t) {

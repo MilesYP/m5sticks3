@@ -406,11 +406,12 @@ void drawEye(float ex, float ey, float w, float h, const Rgb& c1, const Rgb& c2,
   if (h < 2) h = 2;
   // 11-20 Miles「外圈加光暈、要霓虹燈管那種螢光」：光暈從 1 圈（4px、28%）改成 3 圈由外往內變亮
   // （10／6.5／3.5px、10%／18%／32%）。外兩圈用一般圓角矩形（比平滑版快），最內圈維持平滑邊。
-  const float pad = 10 * sc;   // 最外圈（眼皮遮罩、裁切範圍都要蓋到這裡）
+  // P1（11-20 Miles「光暈有點太大」）：10／6.5／3.5px → 7／4.5／2.5px，最外圈 10% → 8%
+  const float pad = 7 * sc;    // 最外圈（眼皮遮罩、裁切範圍都要蓋到這裡）
   const float r = fminf(11 * sc, fminf(w, h) * 0.5f);
   {
-    const float pads[3] = {10 * sc, 6.5f * sc, 3.5f * sc};
-    const float alph[3] = {0.10f, 0.18f, 0.32f};
+    const float pads[3] = {7 * sc, 4.5f * sc, 2.5f * sc};
+    const float alph[3] = {0.08f, 0.18f, 0.32f};
     for (int k = 0; k < 3; ++k) {
       const float p = pads[k];
       const int32_t gx = (int32_t)(ex - w / 2 - p), gy = (int32_t)(ey - h / 2 - p);

@@ -17,7 +17,7 @@
 > ```
 
 ## 目前狀態（每次更新時順手改這一段）
-- **階段**：**M1-A A5-1 資訊頁本機資料完成**（11-20；M0、M1-A 切片 1–5、M1-B 全 13 片完成）。Desktop 短按 A 切資訊頁（合成波磚塊儀表板、直橫三版、交叉淡化換頁）；同片調整表情（符號放大向量化、大汗滴、霓虹光暈、橫式臉放大、地平線變淡、電量色霓虹綠）。下一步：**先燒錄最後一版確認迴圈時間** → **M1-A A5-2 資訊頁雲端資料＋語音額度美金**（接手 `docs/KICKOFF_A5-2.md`）→ A4b 充電表情（實測已完成）；G2 Grove 功能驗收可並行
+- **階段**：**A6 EVA 風完成、P1 省電先採用**（11-20 晚）；下一片 **A5-2**（`docs/KICKOFF_A5-2.md`，先燒錄確認 P1）；**M1-A A5-1 資訊頁本機資料完成**（11-20；M0、M1-A 切片 1–5、M1-B 全 13 片完成）。Desktop 短按 A 切資訊頁（合成波磚塊儀表板、直橫三版、交叉淡化換頁）；同片調整表情（符號放大向量化、大汗滴、霓虹光暈、橫式臉放大、地平線變淡、電量色霓虹綠）。下一步：**先燒錄最後一版確認迴圈時間** → **M1-A A5-2 資訊頁雲端資料＋語音額度美金**（接手 `docs/KICKOFF_A5-2.md`）→ A4b 充電表情（實測已完成）；G2 Grove 功能驗收可並行
 - **進行中**：無（下一片 A5-2）。語音待辦（未排期）：滾輪調音量（等 G2）、MCP＋skill、Hey Friday 喚醒詞、自訂聲音、新聞快報（見 `docs/StickS3 執行計劃.md` M1-B 之後的語音待辦）
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
@@ -32,6 +32,13 @@
   - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
+
+### 2026-11-20｜P1 省電＋外觀微調（先採用）｜Claude Code（Cowork 橋接）
+- 起因：充飽拔線 21 分鐘掉到 67%（續航約 1～1.5 小時）。Miles 選先做軟體省電、不買電流表，以體感＋`h` 電壓紀錄驗證；接受待機時 Wi-Fi 深度省電。
+- 做了什麼：新增 `power_save.*`（規則見 `CLAUDE.md` 鐵則十）——表情頁待機 30fps／想睡 10fps／睡著 5fps，背光 110／45／12（變暗慢慢降、變亮立刻），睡著 CPU 80MHz，想睡／睡著 Wi-Fi `MAX_MODEM`，主迴圈兩張畫面之間最多睡 10ms；語音、情緒反應、換頁、過場一律全速；資訊頁套同一套背光／CPU／Wi-Fi 分級（Miles 要求），但用靜置時間判斷：10 秒變暗、30 秒微光＋降頻。`net_hub::setIdleDeepSleep`、`voiceActive` 改成三段。Grove 沒配件關 5V。序列埠 `z`／`z0`／`z1`、`l<n>`。外觀：眼睛光暈 10／6.5／3.5 → 7／4.5／2.5px（Miles「光暈有點太大」）；合成波資訊頁 NET LINK 深紫 → 洋紅 `#FF3FD0`（跟 CHIP 藍分不出來）。`AUDIO_BUILD_TAG` 25-p1。基準版本先提交 `7fe58d6`。
+- 驗收結果：**先採用（Miles 11-20「省電先這樣、之後再優化」）**。Mac 第一次編譯 `imu_pet.h` 少 `<stdint.h>` 失敗、已修；完整實機驗收排在 A5-2 開工第一件事（`docs/KICKOFF_A5-2.md`）。同步更新執行計劃 md/html（新增 A6 EVA 風、P1 兩列）、介面規格（第 3b 節 q0／q1 與 B 過場、第 3c 節省電畫面）、KICKOFF_A5-2（兩套資訊頁都要顯示雲端資料）。
+- 下一步：燒錄驗收（見下）→ A5-2。
+- 待辦／未決：A5-1 最後一版的錄音中迴圈時間（Miles 晚點測）；`cad/reference/` 是賣家商品照與來源不明的外殼 STEP，先不進公開 repo（待 Miles 決定）。
 
 ### 2026-11-20｜UI EVA 風：切模式過場＋本機角色＋EVA 資訊頁｜Claude（Cowork 橋接）＋Codex
 - 做了什麼：Miles 定案 EVA 風資訊頁與切模式過場（提案圖兩張，琥珀橘主色、黃黑條紋、六角格、七段數字、明朝體大字）。實作 `ui_modeswitch.*`：B 短按先把過場推上螢幕，再跑 `mode_manager::next()`，進度條在資源好之前停 25%、好了再跑 `UI_MODESWITCH_MS`（450ms）；進 Desktop 用 `ui_fx` 交叉淡化到表情頁；急停 `cancel()` 不走過場。`mode_manager::peekNext()`。`tools/gen_kanji.py` → `kanji_bitmaps.h`（語音／外部操作／射頻／體感／緊急停止／內部／外部）。本機角色管線：`tools/sprite2h.py`（PNG 序列 → 8-bit 調色盤＋索引、`--demo` 測試素材、`--clean`）、`ui_persona.*`（`__has_include("persona_assets.h")` 才啟用，整數倍放大＋取景框，接在 `ui_expression::render` 版面計算之後，對話區照舊）、序列埠 `q0/q1`、`.gitignore` 加 `firmware/persona_local/`、`firmware/src/persona_assets.h`。規格與交接 prompt：`docs/persona-swap.md`。

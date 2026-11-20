@@ -377,4 +377,10 @@ bool tilt(float* right, float* up, float* z) {
 }
 bool measureSound() { return s_m_snd; }
 
+uint32_t idleMs() {
+  if (s_react != Mood::Idle || voice_turn::busy()) return 0;
+  const uint32_t now = millis();
+  return now >= s_last_active ? now - s_last_active : 0;
+}
+
 }  // namespace imu_pet

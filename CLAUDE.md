@@ -161,6 +161,14 @@
 10. **電量色**：≥60% 霓虹綠 `#39FF14`（11-20 Miles 由藍改）、40–59 薄荷綠、20–39 黃、10–19 紅、<10 紅灰閃。
 11. **充電（A4b 用，`docs/lab/chg-1120-1651.txt`）**：開機狀態下 CHG_STAT 到充飽都不會穩定停（47 分鐘內「充電中」比例 85%→60%、每分鐘切換 6→38 次），電量 % 會跳 87～100 → **「充飽」看電壓**：有 USB（VBUS＞4.5V）且最近 5 分鐘電池平均 ≥ 4.10V、5 分鐘上升 < 15mV；平均 < 4.05V 或拔線就離開（這次數據回推約第 22 分鐘判為充飽）。
 
+### 鐵則十：省電（P1，2026-11-20，待實機驗收）
+1. **起因**：充飽拔線 21 分鐘掉到 67%（電池 250mAh → 平均約 230mA，推估）。主因推估是表情頁 CPU 240MHz 不停畫（每 21ms 一張、每張 64KB 送螢幕）、背光從不調暗、Wi-Fi 一直連著；未量電流（Miles 選不買電流表，用體感＋序列埠 `h` 每分鐘電壓紀錄比較）。
+2. **只在 Desktop 降級，表情頁與資訊頁同一套**（`power_save.*`；資訊頁 11-20 Miles 要求，畫面本來就每秒一張，只套背光／CPU／Wi-Fi；資訊頁看靜置時間：10 秒變暗、30 秒微光＋降頻，表情頁仍跟想睡臉 6／11 秒）：語音中、情緒反應、換頁／過場中＝全速（跟 P1 之前一樣）；待機臉 30fps；想睡 10fps＋背光 45＋Wi-Fi `MAX_MODEM`；睡著 5fps＋背光 12＋Wi-Fi `MAX_MODEM`＋CPU 80MHz。表情一變（被拍、拿起、按 A）當圈就回全速、背光立刻亮。兩張畫面之間主迴圈最多睡 10ms 一圈（IMU、按鍵、待機收音照常處理）；資訊頁固定 10ms 一圈。其他模式不動。
+3. **Wi-Fi 省電三段由 `net_hub` 統一管**：錄放音中 `NONE`（鐵則六第 9 點）、平常 `MIN_MODEM`、想睡／睡著 `MAX_MODEM`（`setIdleDeepSleep`）；語音中收到深睡要求先記著，結束再套用。
+4. **Grove 開機沒偵測到配件就關 5V 升壓**；之後插上要打 `e` 重開供電並重掃。
+5. **CPU 降頻有風險**（ESP32-S3＋OPI PSRAM 在 80MHz 未實測）：出問題先把 `cfg::PWR_CPU_SCALE` 改 false 對照。睡著時一張畫面會變慢約 3 倍，要確認「睡著被拍→生氣」仍抓得到。
+6. `z0` 關掉全部省電（對照用），`z1` 開；`l<0～255>` 調正常背光。
+
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
 2. **跨裝置 HID 外掛**：參考 `esp32-iphone-agent`。S3 當免越獄 USB 複合鍵鼠，iOS（配 AssistiveTouch）或 PC/macOS 自適應；視覺大模型截圖定座標→回傳 HID 指令。含實體急停。
@@ -214,12 +222,13 @@ firmware/src/
   ui_persona.*        // 本機角色像素動畫（素材在 firmware/persona_local/、不進 repo；規格 docs/persona-swap.md）（11-20）
   kanji_bitmaps.h     // tools/gen_kanji.py 產生的 1-bit 大字（Noto Serif CJK TC Black，OFL）
   imu_pet.*           // 模式1：IMU 桌寵互動——搖／拍／靜置／睡著聽聲音 → 表情；拿法判斷、線性加速度；序列埠 j／v／o（M1-A A3／A4）
+  power_save.*        // P1 省電：Desktop 表情頁依桌寵狀態（全速／待機／想睡／睡著）調畫面張數、背光、CPU 頻率、Wi-Fi 省電深度；序列埠 z／l（11-20）
   battery_ui.*        // 休息臉顏色跟電量：平滑＋遲滯分級；序列埠 c 假裝電量（M1-A A3 已建）
   net_hub.*           // Wi-Fi＋中控 WebSocket：網路 task（core 0）、指令／收件／log 佇列、μ-law 邊錄邊傳、斷線重送、token、RTT、省電、[link]（M1-B 已建）
   audio_io.*          // ES8311 錄放音、PGA、雜訊量測、4MB 錄音環形緩衝（不限長度）、邊收邊播環形緩衝（播放 task 自餵）（M1-B 已建）
   voice_turn.*        // 一輪語音：錄（邊傳）→送尾巴→邊收邊解壓邊播；表情本機決定（M1-B 已建）
   adpcm.*             // IMA ADPCM／μ-law 解碼、8kHz→16kHz 升取樣（M1-B B3b-3／B3b-4 已建）
-  diag_cmd.*          // 序列埠診斷指令 w/s/p/g/f/u/m/x/r/b/i/k/e/j/v/c/h/o/y/n/t/#/?（M1-B B3.6 起；A4 加 h 充電紀錄、o 拿法、y 預覽表情、# 記號；A5-1 加 n 切頁、t 交叉淡化）
+  diag_cmd.*          // 序列埠診斷指令 w/s/p/g/f/u/m/x/r/b/i/k/e/j/v/c/h/o/y/n/t/#/?（M1-B B3.6 起；A4 加 h 充電紀錄、o 拿法、y 預覽表情、# 記號；A5-1 加 n 切頁、t 交叉淡化；EVA 加 q 風格；P1 加 z 省電、l 背光）
   ui_grok.*           // 模式1：M5GFX 幾何表情 + 音量連動 + 跑馬燈
   hid_injector.*      // 模式2：TinyUSB 跨平台鍵鼠 + 急停整合
   rf_transceiver.*    // 模式3：CC1101 學習/存/發 + RSSI 掃描

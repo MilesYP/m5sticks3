@@ -674,6 +674,14 @@ void pingNow() { postSimple(Cmd::Ping); }
 void dropLink() { postSimple(Cmd::DropLink); }
 
 // 省電與發射功率直接呼叫 esp_wifi（本身可跨 task 呼叫），不經網路 task
+// P1：待機省電深度（power_save 決定）。錄放音中一律 NONE；平常 MIN_MODEM；想睡／睡著 MAX_MODEM。
+std::atomic<bool> s_voice_on{false};
+std::atomic<bool> s_idle_deep{false};
+
+void applyIdlePs() {
+  WiFi.setSleep(s_idle_deep.load() ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
+}
+
 void setPowerSave(bool on) {
   s_ps_manual.store(true);
   WiFi.setSleep(on);   // on → WIFI_PS_MIN_MODEM（預設）；off → WIFI_PS_NONE
@@ -682,16 +690,24 @@ void setPowerSave(bool on) {
 
 void setPowerSaveAuto() {
   s_ps_manual.store(false);
-  WiFi.setSleep(true);
+  if (s_voice_on.load()) WiFi.setSleep(WIFI_PS_NONE); else applyIdlePs();
   Serial.println("[diag] Wi-Fi 省電 → 自動（錄放音期間關、平常開）");
 }
 
 void voiceActive(bool active) {
   if (s_ps_manual.load()) return;
-  if (WiFi.getSleep() == !active) return;   // 已經是要的狀態，不重複設定
-  WiFi.setSleep(!active);
-  Serial.printf("[wifi] 省電 → %s（%s）\n", active ? "關" : "開",
+  if (s_voice_on.load() == active) return;   // 已經是要的狀態，不重複設定
+  s_voice_on.store(active);
+  if (active) WiFi.setSleep(WIFI_PS_NONE);
+  else applyIdlePs();
+  Serial.printf("[wifi] 省電 → %s（%s）\n", active ? "關" : s_idle_deep.load() ? "深度" : "開",
                 active ? "錄放音中，避免滋滋聲" : "錄放音結束");
+}
+
+void setIdleDeepSleep(bool deep) {
+  s_idle_deep.store(deep);
+  if (s_ps_manual.load() || s_voice_on.load()) return;   // 手動覆寫／錄放音中：等結束時再套用
+  applyIdlePs();
 }
 
 void setTxPowerDbm(int dbm) {

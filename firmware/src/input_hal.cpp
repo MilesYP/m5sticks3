@@ -83,6 +83,11 @@ void begin() {
 
   scanGrove();
   Serial.printf("[input] Grove I2C: %s -> %s\n", s_scan_line, deviceName());
+  // P1 省電：沒插配件就關 5V 升壓（之後插上要用序列埠 e 重開供電並重掃；原本就只在開機掃描）
+  if (s_device == GroveDevice::None) {
+    M5.Power.setExtOutput(false);
+    Serial.println("[input] Grove 沒有配件 → 關 5V 升壓（省電；插上後打 e 重掃）");
+  }
 }
 
 void rescan() {

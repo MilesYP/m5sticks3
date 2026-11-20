@@ -159,7 +159,22 @@ constexpr uint32_t UI_MODESWITCH_MS = 450;
 
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔
-constexpr uint32_t LOOP_YIELD_MS = 1;        // loop 結尾讓出 CPU 的時間（非阻塞）
+constexpr uint32_t LOOP_YIELD_MS = 1;
+// ── P1 省電（2026-11-20，Miles：充飽拔線 21 分鐘掉到 67%；以體感＋序列埠 h 電壓紀錄驗證）──
+// 規則見 power_save.h；序列埠 z 狀態、z0／z1 關／開、l<n> 正常背光
+constexpr uint8_t  PWR_BL_AWAKE        = 110;   // 正常背光（0～255）
+constexpr uint8_t  PWR_BL_DROWSY       = 45;    // 想睡
+constexpr uint8_t  PWR_BL_ASLEEP       = 12;    // 睡著（微光）
+constexpr uint32_t PWR_BL_DIM_STEP_MS  = 6;     // 變暗每降 1 階等多久（110→12 約 0.6 秒）；變亮立刻
+constexpr uint32_t PWR_FRAME_CALM_MS   = 33;    // 待機臉約 30fps
+constexpr uint32_t PWR_FRAME_DROWSY_MS = 100;   // 想睡 10fps
+constexpr uint32_t PWR_FRAME_ASLEEP_MS = 200;   // 睡著 5fps
+constexpr uint32_t PWR_INFO_DROWSY_MS  = 10000; // 資訊頁：靜置 10 秒變暗（11-20 Miles；表情頁仍跟想睡臉 6 秒）
+constexpr uint32_t PWR_INFO_ASLEEP_MS  = 30000; // 資訊頁：靜置 30 秒微光＋降頻
+constexpr uint32_t PWR_YIELD_MAX_MS    = 10;    // 兩張畫面之間每圈最多睡多久（IMU／按鍵／待機收音照常處理）
+constexpr bool     PWR_CPU_SCALE       = true;  // 睡著降 CPU 頻率（出問題先改 false 對照）
+constexpr uint32_t PWR_CPU_AWAKE_MHZ   = 240;
+constexpr uint32_t PWR_CPU_ASLEEP_MHZ  = 80;    // Wi-Fi 最低要 80MHz        // loop 結尾讓出 CPU 的時間（非阻塞）
 // B3b-4：中控斷線超過這麼久才顯示斷線提示（重連常在 1～2 秒內完成，避免圖示一閃一閃）
 constexpr uint32_t OFFLINE_SHOW_MS = 2000;
 

@@ -19,6 +19,7 @@
 #include "audio_io.h"
 #include "battery_ui.h"
 #include "net_hub.h"
+#include "power_save.h"
 #include "ui_expression.h"
 #include "ui_fx.h"
 #include "ui_info.h"
@@ -49,7 +50,7 @@ static void renderActive(bool force) {
   if (ui_modeswitch::render()) return;   // 切模式過場中（結束那一圈會回 false，接著畫新模式）
   if (mode_manager::current() == Mode::Desktop) {
     if (ui_info::shown()) ui_info::render();
-    else ui_expression::render();
+    else if (force || power_save::frameDue()) { ui_expression::render(); power_save::frameDrawn(); }   // P1：待機／想睡／睡著降畫面張數
   } else {
     ui_status::render(force);
   }
@@ -91,6 +92,7 @@ void setup() {
   diag_cmd::begin();             // 序列埠診斷指令（B3.6）
   imu_pet::begin();              // A3：IMU 桌寵互動（序列埠 j／v 量測）
   battery_ui::begin();           // A3：休息臉顏色跟電量（序列埠 c 假裝電量）
+  power_save::begin();           // P1：背光／畫面張數／CPU／Wi-Fi 依桌寵狀態省電（序列埠 z）
   ui_status::printReport();
 }
 
@@ -182,7 +184,8 @@ void loop() {
     }
   }
   if (mode_manager::current() != Mode::Desktop && !ui_modeswitch::active()) ui_fx::cancel();
+  power_save::loop();   // P1：依這一圈的狀態決定省電等級（在畫圖之前）
   renderActive(false);
   ui_fx::loop();
-  delay(cfg::LOOP_YIELD_MS);
+  delay(power_save::yieldMs());   // P1：兩張畫面之間讓 CPU 休息（最多 10ms 一圈）
 }

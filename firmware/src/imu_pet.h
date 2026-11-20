@@ -14,6 +14,7 @@
 //      看方向依目前拿法換算成畫面的左右上下。序列埠 o 假裝拿法。
 // ─────────────────────────────────────────────────────────────────────────
 #pragma once
+#include <stdint.h>
 
 namespace imu_pet {
 void begin();                  // M5.begin() 之後呼叫：確認 IMU 在、印型號
@@ -25,4 +26,6 @@ bool measureImu();
 // A5-1 資訊頁：低通後的重力（g），已換算成目前畫面的「右」「上」與螢幕法線 z（≈ 每 100ms 更新）；還沒讀到 IMU 回 false
 bool tilt(float* right, float* up, float* z);
 bool measureSound();
+// P1 省電（資訊頁用）：距離上次有人動多久（ms）；反應中、語音中回 0
+uint32_t idleMs();
 }
