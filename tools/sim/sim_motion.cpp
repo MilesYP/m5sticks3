@@ -5,7 +5,8 @@
 #include <math.h>
 #include "ui_expression.h"
 #include "ui_fx.h"
-namespace battery_ui { int level() { return 45; } }
+static int g_level = 45;
+namespace battery_ui { int level() { return g_level; } }
 SimSerial Serial; SimEsp ESP; SimM5 M5;
 static uint32_t g_ms = 100000; static uint32_t g_seed = 12345;
 uint32_t millis() { return g_ms; } uint32_t micros() { return g_ms * 1000; }
@@ -44,7 +45,7 @@ bool active() { return false; }
 int g_fr = 0;
 void meas(const char* t) { if (g_n) printf("  %-22s 部分更新 平均 %.0f%%、最多 %.0f%%\n", t, g_sum / g_n * 100, g_max * 100); g_sum = g_max = 0; g_n = 0; }
 // gdeg：重力方向（0＝下、90＝右）；shake：g
-void seg(const char* tag, int dur, float g0, float g1, float shake, int, int, Mood m = Mood::Idle) {
+void seg(const char* tag, int dur, float g0, float g1, float shake, int chg, int lv, Mood m = Mood::Idle) {
   for (int t = 0; t < dur; t += 21) {
     g_ms += 21;
     float mx = 0, my = 0;
@@ -53,6 +54,7 @@ void seg(const char* tag, int dur, float g0, float g1, float shake, int, int, Mo
     const float a = (g0 + (g1 - g0) * t / dur) * 3.14159f / 180;
     ui_expression::setGravity(sinf(a) - 0.6f * mx, cosf(a) - 0.6f * my);
     
+    ui_expression::setCharge(chg); g_level = lv;
     ui_expression::setMood(m);
     char nm[64]; snprintf(nm, sizeof nm, "%s_%04d", tag, g_fr++);
     g_name = nm; g_save = (g_fr % 2 == 0);
@@ -70,5 +72,11 @@ int main(int argc, char** argv) {
   g_meas = true; seg((T + "b_shake").c_str(), 1500, 0, 0, 1.6f, 0, 45, Mood::Scared); meas("搖（碎片）");
   seg((T + "c_flip").c_str(), 1000, 180, 180, 1.4f, 0, 45, Mood::Scared); meas("翻過來搖");
   seg((T + "d_back").c_str(), 1200, 0, 0, 0, 0, 45); meas("停手拼回");
+  seg((T + "e_plug").c_str(), 2500, 0, 0, 0, 1, 45); meas("插線充電（靜置）");
+  seg((T + "f_tilt").c_str(), 2500, 0, 80, 0, 1, 45); meas("充電慢慢往右傾");
+  seg((T + "g_tiltback").c_str(), 1500, 80, -60, 0, 1, 45); meas("充電往左傾");
+  seg((T + "h_full").c_str(), 2000, -60, 0, 0, 2, 100); meas("充飽");
+  seg((T + "i_shake").c_str(), 1200, 0, 0, 1.6f, 2, 100, Mood::Scared); meas("充飽時搖");
+  seg((T + "j_unplug").c_str(), 1500, 0, 0, 0, 0, 100); meas("拔線");
   g_meas = false;
 }

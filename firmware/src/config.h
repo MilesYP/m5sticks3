@@ -134,6 +134,13 @@ constexpr uint32_t FR_RETURN_MAX_MS = 900;  // 拼回最多多久（到了直接
 // 實機往右傾若碎片往左跑，改 −1。
 constexpr float    FR_GRAV_SIGN_X = 1.0f;
 
+// ── A4b 充電液體（Miles 11-21）：充電中／充飽時背景六角格裝液體，量跟電量、跟傾斜即時流動 ──
+constexpr int      LQ_MAX        = 96;      // 亮格上限（直式容器約 120 格）
+constexpr float    LQ_FILL_MAX   = 0.6f;    // 100% 時裝到容器的幾成（留空間晃）
+constexpr uint32_t LQ_STEP_MS    = 60;      // 每 60ms 走一步（只有走步那幀改畫面，部分更新才省）
+constexpr uint32_t LQ_WAVE_MS    = 120;     // 充電亮波每 120ms 更新一次
+constexpr uint32_t LQ_FADE_MS    = 600;     // 拔線後淡出
+
 // ── A3 休息臉顏色跟電量（Miles 11-20 選方案一）──
 // 待機／想睡／睡著的眼睛顏色：≥60% 螢光綠（11-20 改，原藍）、40–59 薄荷綠、20–39 黃、10–19 紅、<10 紅灰閃爍（語音中不閃、充電中不閃）
 // 實測電量讀數充電中會在 17～26% 間跳（v22-a3m）→ 每 5 秒讀一次、指數平滑、升級要多 3% 才升
@@ -150,6 +157,12 @@ constexpr uint32_t BAT_BLINK_MS       = 500;    // 低電量閃爍半週期（�
 constexpr uint32_t BAT_CHG_POLL_MS    = 1000;   // CHG_STAT 讀取間隔
 constexpr uint8_t  BAT_LOG_EVERY_POLLS = 10;    // 幾次讀取存一筆（＝10 秒）
 constexpr int      BAT_LOG_SAMPLES    = 2160;   // 環形紀錄筆數（10 秒一筆 ＝ 6 小時，PSRAM 約 26KB）
+// ── A4b 充電表情（11-21）：插線＝充電中（看 USB 輸入，不看會來回跳的 CHG_STAT）；「充飽」看電壓（docs/lab/chg-1120-1651.txt）──
+constexpr uint8_t  BAT_PLUG_DEBOUNCE  = 2;      // 連續幾次（每秒一次）讀到同樣的「有／沒有 USB」才算數
+constexpr int      BAT_FULL_WIN       = 30;     // 電池電壓歷史：10 秒一筆 × 30 ＝ 5 分鐘
+constexpr int      BAT_FULL_MV        = 4100;   // 5 分鐘平均 ≥ 這個…
+constexpr int      BAT_FULL_RISE_MV   = 15;     // …且 5 分鐘內上升 < 這個（最後 1 分鐘平均 − 最早 1 分鐘平均）→ 充飽
+constexpr int      BAT_FULL_EXIT_MV   = 4050;   // 充飽後 5 分鐘平均 < 這個 → 回到充電中
 
 // ── A5-1 資訊頁（Desktop 短按 A 進出；版面見 docs/StickS3 介面規格.html 第 3 節，Miles 11-20 選方案一＋合成波）──
 // 數值每秒更新一次（時間跳秒時重畫）；歷史資料不論在哪一頁都持續收，切過去圖表就是滿的。

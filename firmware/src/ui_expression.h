@@ -49,6 +49,9 @@ void setMotion(float right_g, float down_g);
 // A8：視重力（g，畫面 ＋右／＋下；靜置直拿約 (0, 1)，搖晃時含慣性）。碎片（與 A4b 充電液體）往這個方向掉
 void setGravity(float right_g, float down_g);
 bool shattered();            // A8：五官目前是碎片狀態（甩碎中或拼回中）
+// A4b：充電狀態 0 沒充電、1 充電中、2 充飽（battery_ui 判斷後呼叫）。插著線背景一直有液體（量跟電量、跟傾斜流）；休息臉（待機／想睡／睡著）再加：
+// 「充電／充飽」標籤＋閃電／星芒徽章、充飽時笑眼。語音、情緒反應的標籤與五官優先
+void setCharge(int state);
 // A4：版面方向（imu_pet 判斷後呼叫）
 void setOrientation(Orient o);
 Orient orientation();

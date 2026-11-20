@@ -21,6 +21,9 @@ const char* tierName();
 int  voltageMv();
 bool charging();
 bool externalPower();         // 目前 USB 供電，直接讀 M5PM1，無充電遲滯
+// A4b：充電狀態 0 沒充電、1 充電中（插線，去抖 2 秒）、2 充飽（5 分鐘電池平均 ≥4.10V 且上升 <15mV；<4.05V 回充電中）
+int  chargeState();
+void setChargeOverride(int state);   // 序列埠 d0/d1/d2 假裝；<0＝恢復自動
 // A4 量測（v23-a4m）：充電紀錄。序列埠 h 印出（每分鐘一行）、h0 清空。
 const char* chargeStateName(int state);   // M5.Power.getChargeState() 的整數值 → 中文
 void printChargeNow();                     // 一行：VBUS、電池電壓、CHG_STAT、電源來源

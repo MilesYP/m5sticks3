@@ -2,6 +2,7 @@
 
 #include <M5Unified.h>
 
+#include "battery_ui.h"
 #include "config.h"
 #include "imu_pet.h"
 #include "mode_manager.h"
@@ -34,6 +35,8 @@ uint32_t frameMs(power_save::Level l) {
 }
 
 uint8_t blTarget(power_save::Level l) {
+  // A4b：插著線時背光最低停在想睡那一級（睡著也看得到充電液體；不用省電池）
+  if (battery_ui::chargeState() > 0 && l == power_save::Level::Asleep) l = power_save::Level::Drowsy;
   if (l == power_save::Level::Drowsy) return s_bl_awake < cfg::PWR_BL_DROWSY ? s_bl_awake : cfg::PWR_BL_DROWSY;
   if (l == power_save::Level::Asleep) return s_bl_awake < cfg::PWR_BL_ASLEEP ? s_bl_awake : cfg::PWR_BL_ASLEEP;
   return s_bl_awake;

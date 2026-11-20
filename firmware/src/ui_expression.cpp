@@ -495,7 +495,8 @@ const char* const SP_SPARK[] = {"   #   ", "   #   ", "  ###  ", "#######", "  #
 const char* const SP_DROP[] = {"   ##   ", "   ##   ", "  ####  ", " ###### ", " ###### ", "## #####", "## #####", "########", " ###### ", "  ####  "};
 const char* const SP_Z[] = {"#####", "   # ", "  #  ", " #   ", "#####"};
 const char* const SP_DOTS[] = {"# # #"};
-enum class HB : uint8_t { Warn, Bang, Drop, Ques, Note, Heart, Spark, Dots, Zed };
+const char* const SP_BOLT[] = {"   ##", "  ## ", " ##  ", "#####", "  ## ", " ##  ", "##   "};   // A4b 閃電
+enum class HB : uint8_t { Warn, Bang, Drop, Ques, Note, Heart, Spark, Dots, Zed, Bolt };
 // 單顆六角徽章：正六角形、方向跟背景格一樣（左右尖），邊長＝背景格 2 倍，中心吸附在格子中心
 constexpr float BADGE_A = 2 * HEX_A, BADGE_HH = BADGE_A * 0.866f;
 void badgeFit(float& x, float& y) {
@@ -506,7 +507,7 @@ void badgeFit(float& x, float& y) {
 }
 // 事件（警告、音符、Z）＝實心底黑圖；狀態（疑問、愛心、星芒、哈欠）＝黑底外框＋亮圖
 void drawBadge(HB b, float cx, float cy, float alpha, float grow, const Rgb& acc, const Rgb& eye) {
-  const bool ev = (b == HB::Warn || b == HB::Bang || b == HB::Drop || b == HB::Note || b == HB::Zed);
+  const bool ev = (b == HB::Warn || b == HB::Bang || b == HB::Drop || b == HB::Note || b == HB::Zed || b == HB::Bolt);
   const float a = BADGE_A * grow;
   const uint16_t edge = fade(acc, alpha);
   const uint16_t fg = ev ? (uint16_t)TFT_BLACK : fade(eye, alpha);
@@ -527,6 +528,7 @@ void drawBadge(HB b, float cx, float cy, float alpha, float grow, const Rgb& acc
     case HB::Spark: sprite(cx, cy, SP_SPARK, 7, 2, fg); break;
     case HB::Dots: sprite(cx, cy, SP_DOTS, 1, 3, fg); break;
     case HB::Zed: sprite(cx, cy, SP_Z, 5, 2, fg); break;
+    case HB::Bolt: sprite(cx, cy, SP_BOLT, 7, 2, fg); break;
   }
 }
 // 六角格（平頂，邊長 a）：每格只畫 3 條邊（相鄰格共用），省一半線
@@ -567,6 +569,96 @@ bool pxBackground(int W, int H, int fx0, int top, int fw, int fy1, uint16_t grid
   memcpy(s_cv.getBuffer(), s_bg.getBuffer(), s_bg_bytes);
   return true;
 }
+// ═════ A4b 充電液體（Miles 11-21）：背景六角格裝液體，量跟電量，每格往重力方向的空鄰格流、被擋住就側滑（會攤平）═════
+// 格子座標跟 pxHexGrid／hexSnap 同一套：第 c 欄中心 x＝c·DX；y＝base(c)＋k·2HH，base(c)＝(c 奇數 ? HH : 0) − HH
+constexpr int LQ_COLS = 20, LQ_ROWS = 20;   // 橫式 240px／13.5＝18 欄、直式 240px／15.6＝16 列
+struct LqCell { int8_t c, k, dir; };
+LqCell   s_lq[cfg::LQ_MAX];
+int      s_lq_n = 0;
+uint8_t  s_lq_occ[LQ_COLS][LQ_ROWS];
+bool     s_lq_on = false;
+uint32_t s_lq_next = 0, s_lq_off_t = 0;
+int      s_lq_x0 = 0, s_lq_x1 = 0, s_lq_y0 = 0, s_lq_y1 = 0;   // 容器（臉的區域）
+int      s_chg = 0;                                           // 0 沒充電、1 充電中、2 充飽
+inline float lqX(int c) { return c * HEX_DX; }
+inline float lqY(int c, int k) { return ((c & 1) ? HEX_HH : 0) - HEX_HH + k * 2 * HEX_HH; }
+int lqRowOf(int c, float y) { return (int)lroundf((y - (((c & 1) ? HEX_HH : 0) - HEX_HH)) / (2 * HEX_HH)); }
+bool lqValid(int c, int k) {
+  if (c < 0 || c >= LQ_COLS || k < 0 || k >= LQ_ROWS) return false;
+  const float x = lqX(c), y = lqY(c, k);
+  return x - HEX_A >= s_lq_x0 && x + HEX_A <= s_lq_x1 && y - HEX_HH >= s_lq_y0 && y + HEX_HH <= s_lq_y1;
+}
+bool lqFree(int c, int k) { return lqValid(c, k) && !s_lq_occ[c][k]; }
+void lqClear() { s_lq_n = 0; memset(s_lq_occ, 0, sizeof s_lq_occ); }
+// 容器變了（轉向、對話框開合）：超出容器的格子丟掉，之後會再從上方補進來
+void lqPrune() {
+  int w = 0;
+  for (int i = 0; i < s_lq_n; ++i) {
+    if (lqValid(s_lq[i].c, s_lq[i].k)) s_lq[w++] = s_lq[i];
+    else s_lq_occ[s_lq[i].c][s_lq[i].k] = 0;
+  }
+  s_lq_n = w;
+}
+// 走一步：沿重力最遠（最「下面」）的先動；優先往下方三個鄰格，全被擋住就照自己的流向側滑；撞牆有機會換方向
+void lqStep() {
+  const float gm = sqrtf(s_gr_x * s_gr_x + s_gr_y * s_gr_y);
+  if (gm < 0.15f) return;   // 平放：重力在螢幕平面上幾乎沒有分量 → 不流
+  const float gx = s_gr_x / gm, gy = s_gr_y / gm, px = -gy, py = gx;   // p＝垂直重力（側邊）
+  int ord[cfg::LQ_MAX];
+  float key[cfg::LQ_MAX];
+  for (int i = 0; i < s_lq_n; ++i) { ord[i] = i; key[i] = lqX(s_lq[i].c) * gx + lqY(s_lq[i].c, s_lq[i].k) * gy; }
+  for (int i = 1; i < s_lq_n; ++i) {   // 插入排序（≤96 格）
+    const int v = ord[i];
+    int j = i - 1;
+    while (j >= 0 && key[ord[j]] < key[v]) { ord[j + 1] = ord[j]; --j; }
+    ord[j + 1] = v;
+  }
+  // 12 個候選：6 個鄰格＋6 個隔一格的（用來側滑）。單位：x＝DX、y＝HH
+  static const int8_t CX[12] = {0, 0, 1, 1, -1, -1, 2, -2, 1, 1, -1, -1};
+  static const int8_t CY[12] = {-2, 2, -1, 1, -1, 1, 0, 0, -3, 3, -3, 3};
+  for (int oi = 0; oi < s_lq_n; ++oi) {
+    LqCell& q = s_lq[ord[oi]];
+    const float y = lqY(q.c, q.k);
+    int bc = -1, bk = -1;
+    float best = 0.45f;
+    for (int i = 0; i < 6; ++i) {
+      const float vx = CX[i] * HEX_DX, vy = CY[i] * HEX_HH, len = sqrtf(vx * vx + vy * vy);
+      const float sc = (vx * gx + vy * gy) / len + rnd(0, 0.04f);
+      if (sc < best) continue;
+      const int c = q.c + CX[i], k = lqRowOf(c, y + vy);
+      if (!lqFree(c, k)) continue;
+      best = sc; bc = c; bk = k;
+    }
+    if (bc < 0) {
+      float bs = -1;
+      for (int i = 0; i < 12; ++i) {
+        const float vx = CX[i] * HEX_DX, vy = CY[i] * HEX_HH, len = sqrtf(vx * vx + vy * vy);
+        const float sc = (vx * gx + vy * gy) / len, side = (vx * px + vy * py) / len * q.dir;
+        if (sc < -0.12f || sc > 0.45f || side < 0.3f || sc <= bs) continue;
+        const int c = q.c + CX[i], k = lqRowOf(c, y + vy);
+        if (!lqFree(c, k)) continue;
+        bs = sc; bc = c; bk = k;
+      }
+      if (bc < 0) { if (rnd(0, 1) < 0.3f) q.dir = -q.dir; continue; }
+    }
+    s_lq_occ[q.c][q.k] = 0;
+    q.c = (int8_t)bc; q.k = (int8_t)bk;
+    s_lq_occ[q.c][q.k] = 1;
+  }
+}
+// 補到目標格數：從容器「上方」那一半（逆重力那頭）隨機空格滴進來；多了就從最後加的拿掉
+void lqFill(int target) {
+  const float mx = (s_lq_x0 + s_lq_x1) * 0.5f, my = (s_lq_y0 + s_lq_y1) * 0.5f;
+  for (int tries = 0; s_lq_n < target && s_lq_n < cfg::LQ_MAX && tries < 40; ++tries) {
+    const int c = (int)rnd(0, LQ_COLS), k = (int)rnd(0, LQ_ROWS);
+    if (c >= LQ_COLS || k >= LQ_ROWS || !lqFree(c, k)) continue;
+    if ((lqX(c) - mx) * s_gr_x + (lqY(c, k) - my) * s_gr_y > 0) continue;
+    s_lq[s_lq_n++] = {(int8_t)c, (int8_t)k, (int8_t)((esp_random() & 1) ? 1 : -1)};
+    s_lq_occ[c][k] = 1;
+  }
+  while (s_lq_n > target) { --s_lq_n; s_lq_occ[s_lq[s_lq_n].c][s_lq[s_lq_n].k] = 0; }
+}
+
 // ═════ A8 甩碎（Miles 11-21）：彈珠台一觸發，眼睛、嘴巴、符號炸成小六角，像骰子／彈珠在臉的框裡滾、互撞；
 //       彈珠台結束（停手 0.4 秒）後彈簧拉回原位、拼回臉 ═════
 // 碎片 feat：0 左眼、1 右眼、2 嘴巴（有家，拼回）；3 符號（沒有家，拼回時淡出）
@@ -698,6 +790,7 @@ void pxBrackets(int x, int y, int w, int h, uint16_t c) {
 }
 // 狀態列：「FRIDAY・待機中」＋右邊電量 %，下面一條細線
 int s_px_battery = -1;
+const char* s_status_ovr = nullptr;   // A4b：狀態列文字改成「充電中／充飽」
 void pxHeader(int fx0, int W, Mood m, const Rgb& accent, uint16_t batCol) {
   s_cv.fillRect(fx0, 0, W, 12, TFT_BLACK);   // 狀態列底塗黑：符號、眉毛不會壓到字
   s_cv.setTextSize(1);
@@ -709,7 +802,7 @@ void pxHeader(int fx0, int W, Mood m, const Rgb& accent, uint16_t batCol) {
   s_cv.fillRect(x, 6, 2, 2, c565(accent));
   x += 5;
   s_cv.setFont(&fonts::efontTW_10);
-  s_cv.drawString(kPxStatus[static_cast<int>(m)], x, 1);
+  s_cv.drawString(s_status_ovr ? s_status_ovr : kPxStatus[static_cast<int>(m)], x, 1);
   if (s_px_battery >= 0) {
     char b[8];
     snprintf(b, sizeof b, "%d%%", s_px_battery);
@@ -1126,6 +1219,7 @@ void setGaze(float x, float y) {
 void setMotion(float right_g, float down_g) { s_mot_x = right_g; s_mot_y = down_g; }
 void setGravity(float right_g, float down_g) { s_gr_x = right_g; s_gr_y = down_g; }
 bool shattered() { return s_fr_on; }
+void setCharge(int state) { s_chg = state < 0 ? 0 : state > 2 ? 2 : state; }
 
 void setOrientation(Orient o) {
   if (o == s_orient) return;
@@ -1311,6 +1405,50 @@ void render() {
     pinStep(s_bd[2], 2, dt, mhx, mhy, P(K_MW) / 2 + 3, fmaxf(2, P(K_MH)) / 2 + 3, wl, wr, wt, wb);
   }
 
+  // ── A4b 充電臉：休息臉（待機／想睡／睡著）換成背景液體＋充電標籤；語音、情緒反應優先 ──
+  // 液體只要插著線就一直在（搖晃、說話時照樣跟著流）；標籤、徽章、笑眼只在休息臉
+  const bool chgLq = s_chg && !s_offline;
+  const bool chg = chgLq && (shown == Mood::Idle || shown == Mood::Sleepy || shown == Mood::Asleep);
+  s_status_ovr = chg ? (s_chg == 2 ? "充飽" : "充電中") : nullptr;
+  {
+    const int ox0 = s_lq_x0, ox1 = s_lq_x1, oy0 = s_lq_y0, oy1 = s_lq_y1;
+    s_lq_x0 = fx0 + 2; s_lq_x1 = fx0 + fw - 2; s_lq_y0 = top + 1; s_lq_y1 = fy1 - 1;
+    if (chgLq) {
+      if (!s_lq_on) { lqClear(); s_lq_on = true; s_lq_next = now; }
+      s_lq_off_t = 0;
+      if (ox0 != s_lq_x0 || ox1 != s_lq_x1 || oy0 != s_lq_y0 || oy1 != s_lq_y1) lqPrune();
+    } else if (s_lq_on && !s_lq_off_t) s_lq_off_t = now ? now : 1;
+    const float alpha = s_lq_off_t ? 1.0f - (float)(now - s_lq_off_t) / cfg::LQ_FADE_MS : 1.0f;
+    if (s_lq_on && alpha <= 0) { s_lq_on = false; lqClear(); }
+    if (s_lq_on) {
+      if ((int32_t)(now - s_lq_next) > 200) s_lq_next = now;   // 斷了很久（換頁回來）：不要一次補走很多步
+      for (int n = 0; (int32_t)(now - s_lq_next) >= 0 && n < 3; ++n) {
+        if (chgLq) {
+          int cap = 0;
+          for (int c = 0; c < LQ_COLS; ++c) for (int k = 0; k < LQ_ROWS; ++k) cap += lqValid(c, k);
+          const float lv = s_chg == 2 ? 1.0f : (s_px_battery < 0 ? 0.5f : s_px_battery / 100.0f);
+          lqFill((int)lroundf(cap * cfg::LQ_FILL_MAX * fmaxf(0.08f, lv)));
+        }
+        lqStep();
+        s_lq_next += cfg::LQ_STEP_MS;
+      }
+      // 亮度：充電中一道亮波從底部往液面爬（每 LQ_WAVE_MS 才變一次）；充飽整片較亮、零星閃
+      const float gm = fmaxf(0.15f, sqrtf(s_gr_x * s_gr_x + s_gr_y * s_gr_y));
+      const float tq = (float)(now / cfg::LQ_WAVE_MS * cfg::LQ_WAVE_MS) / 1000.0f;
+      const float wave = 260 - fmodf(tq * 160, 300);
+      for (int i = 0; i < s_lq_n; ++i) {
+        const LqCell& q = s_lq[i];
+        float b;
+        if (s_chg == 2) b = 0.5f + ((((q.c * 7 + q.k * 3 + (int)(tq * 2)) % 5) == 0) ? 0.08f : 0);
+        else {
+          const float depth = (lqX(q.c) * s_gr_x + lqY(q.c, q.k) * s_gr_y) / gm;   // 越大越「下面」
+          b = 0.34f + 0.45f * fmaxf(0, 1 - fabsf(depth - wave) / 14);
+        }
+        fillHexCell(lqX(q.c), lqY(q.c, q.k), HEX_A - 1.5f, fade(th.accent, b * fmaxf(0, alpha)));
+      }
+    }
+  }
+
   // 眼睛
   const float lx = X(P(K_LX) + dx + hx + gdx + s_bd[0].ox), ly = Y(P(K_LY) + dy + hy + gdy + s_bd[0].oy);
   const float rx = X(P(K_RX) + dx + hx + gdx + s_bd[1].ox), ry = Y(P(K_RY) + dy + hy + gdy + s_bd[1].oy);
@@ -1359,8 +1497,9 @@ void render() {
   if (PIXEL && !s_fr_on) {
     Rgb ec = c1;   // 平常＝th.eye；低電量時＝閃爍色（眼睛、嘴巴一起閃）
     if (shown == Mood::Asleep) ec = mixc(BG, ec, 0.55f);
-    pxEye(lx, ly, lw, lh, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));
-    pxEye(rx, ry, rw, rh, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc, c565(ec));
+    const float hap = (chg && s_chg == 2) ? 1.0f : P(K_HAP);   // A4b：充飽＝笑眼
+    pxEye(lx, ly, lw, lh, -1, P(K_ANG), P(K_SLP), hap, sc, c565(ec));
+    pxEye(rx, ry, rw, rh, +1, P(K_ANG), P(K_SLP), hap, sc, c565(ec));
   } else if (!PIXEL) {
     drawEye(lx, ly, lw, lh, c1, c2, -1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
     drawEye(rx, ry, rw, rh, c1, c2, +1, P(K_ANG), P(K_SLP), P(K_HAP), sc);
@@ -1495,6 +1634,12 @@ void render() {
   }
 
   // 生氣：# 青筋跳動
+  if (chg && !s_fr_on) {   // A4b：充電中閃電（亮度呼吸）、充飽星芒
+    float bx = X(symX()), by = Y(symY() + 4);
+    badgeFit(bx, by);
+    const float pulse = s_chg == 1 ? 0.6f + 0.4f * (0.5f + 0.5f * sinf(t * 2.6f)) : 1.0f;
+    drawBadge(s_chg == 2 ? HB::Spark : HB::Bolt, bx, by, pulse, 1.0f, th.accent, th.eye);
+  }
   if (shown == Mood::Angry && !s_fr_on) {   // A7：紅色六角「! WARNING」，跟節奏一閃一閃
     float ax = X(symX()), ay = Y(symY() + 4 + hy);
     badgeFit(ax, ay);
@@ -1571,7 +1716,7 @@ void render() {
     pxBrackets(fx0 + 4, top + 4, fw - 8, fy1 - top - 8, c565(th.accent));
     // 左上狀態大字最後畫、底下先塗黑：表情不會蓋到字（Miles 11-20）
     // 11-21 Miles：狀態大字改成「有底色的標籤」（跟內部／外部框一樣：實心底＋黑字），蓋到表情也不突兀
-    if (const ui_labels::Bmp* lab = ui_labels::find(kPxLabel[static_cast<int>(shown)])) {
+    if (const ui_labels::Bmp* lab = ui_labels::find(chg ? (s_chg == 2 ? "st_full" : "st_charge") : kPxLabel[static_cast<int>(shown)])) {
       const int bx = fx0 + 8, by = top + 6, bw = lab->w + 6, bh = lab->h + 4;
       s_cv.fillRect(bx, by, bw, bh, c565(th.accent));
       s_cv.drawBitmap(bx + 3, by + 2, lab->bits, lab->w, lab->h, TFT_BLACK);

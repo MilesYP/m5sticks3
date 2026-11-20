@@ -72,7 +72,7 @@ void readAndApply(bool first) {
     charging = s_seen_charging && (now - s_last_charging < cfg::BAT_CHARGE_HOLD_MS);
     if (raw < 0 || raw > 100) {        // 讀不到：維持原狀
       s_charging = charging;
-      apply(charging);
+      apply(charging || s_cstate > 0);
       return;
     }
     s_level = (first || s_level < 0) ? (float)raw : s_level + ((float)raw - s_level) * cfg::BAT_SMOOTH;
@@ -83,7 +83,7 @@ void readAndApply(bool first) {
                     charging ? "充電中" : "", kTiers[s_tier].name);
   }
   s_charging = charging;
-  apply(charging);
+  apply(charging || s_cstate > 0);
 }
 
 // ── A4 量測：充電紀錄 ──
@@ -109,6 +109,37 @@ uint8_t readSource() {
   return (uint8_t)src;
 }
 
+// ── A4b 充電狀態（11-21）：插線＝充電中（USB 輸入，連續 2 次才算，不看會來回跳的 CHG_STAT）；
+//    充飽＝插著線、5 分鐘電池平均 ≥4.10V 且 5 分鐘上升 <15mV；平均 <4.05V 或拔線就離開 ──
+bool     s_plug = false;          // 去抖後的「有 USB」
+uint8_t  s_plug_cnt = 0;
+int      s_cstate = 0;            // 0 沒充電、1 充電中、2 充飽
+int      s_cstate_ovr = -1;       // 序列埠 d 假裝（−1＝自動）
+uint16_t s_vh[cfg::BAT_FULL_WIN]; // 電池電壓歷史（10 秒一筆）
+int      s_vh_n = 0, s_vh_head = 0;
+int vhAvg(int from, int n) {      // from＝0 最舊；n 筆平均
+  long sum = 0;
+  for (int i = 0; i < n; ++i) sum += s_vh[(s_vh_head - s_vh_n + from + i + cfg::BAT_FULL_WIN * 2) % cfg::BAT_FULL_WIN];
+  return n ? (int)(sum / n) : 0;
+}
+void setCstate(int st, const char* why) {
+  if (st == s_cstate) return;
+  s_cstate = st;
+  Serial.printf("[bat] 充電狀態 → %s（%s）\n", st == 2 ? "充飽" : st == 1 ? "充電中" : "沒充電", why);
+  ui_expression::setCharge(st);
+  apply(s_charging || st > 0);   // 插著線就不閃低電量
+}
+void updateCstate() {
+  if (s_cstate_ovr >= 0) { setCstate(s_cstate_ovr, "序列埠 d 假裝"); return; }
+  if (!s_plug) { setCstate(0, "拔線"); return; }
+  if (s_vh_n < cfg::BAT_FULL_WIN) { if (s_cstate == 0) setCstate(1, "插線"); return; }
+  const int avg = vhAvg(0, s_vh_n);
+  const int rise = vhAvg(s_vh_n - 6, 6) - vhAvg(0, 6);   // 最後 1 分鐘 − 最早 1 分鐘
+  if (s_cstate == 2) { if (avg < cfg::BAT_FULL_EXIT_MV) setCstate(1, "電壓掉回"); }
+  else if (avg >= cfg::BAT_FULL_MV && rise < cfg::BAT_FULL_RISE_MV) setCstate(2, "5 分鐘電壓到頂不再上升");
+  else setCstate(1, "插線");
+}
+
 void pollCharge() {
   const uint32_t now = millis();
   if (now - s_last_poll < cfg::BAT_CHG_POLL_MS) return;
@@ -117,10 +148,25 @@ void pollCharge() {
   if (s_last_state != -99 && st != s_last_state) ++s_acc_flips;
   s_last_state = st;
   if (st == 1) ++s_acc_chg;
+  // A4b：每秒看一次 USB 輸入，連續 BAT_PLUG_DEBOUNCE 次一樣才換
+  const bool plug = battery_ui::externalPower();
+  if (plug != s_plug) {
+    if (++s_plug_cnt >= cfg::BAT_PLUG_DEBOUNCE) {
+      s_plug = plug; s_plug_cnt = 0;
+      s_vh_n = 0;                    // 插拔都重新累積 5 分鐘電壓
+      updateCstate();
+    }
+  } else s_plug_cnt = 0;
   if (++s_acc_polls < cfg::BAT_LOG_EVERY_POLLS) return;
+  const int16_t vbat = M5.Power.getBatteryVoltage();
+  if (s_plug && vbat > 0) {          // A4b：10 秒一筆電池電壓（只在插線時收）
+    s_vh[s_vh_head] = (uint16_t)vbat;
+    s_vh_head = (s_vh_head + 1) % cfg::BAT_FULL_WIN;
+    if (s_vh_n < cfg::BAT_FULL_WIN) ++s_vh_n;
+    updateCstate();
+  }
   if (s_log) {
     const int16_t vbus = M5.Power.getVBUSVoltage();
-    const int16_t vbat = M5.Power.getBatteryVoltage();
     const int32_t lv = M5.Power.getBatteryLevel();
     ChgLog& e = s_log[s_log_head];
     e.sec = now / 1000;
@@ -240,6 +286,12 @@ int level() { return s_level < 0 ? -1 : (int)(s_level + 0.5f); }
 const char* tierName() { return s_tier < 0 ? "-" : kTiers[s_tier].name; }
 int voltageMv() { return s_vbat_mv; }
 bool charging() { return s_charging; }
+int  chargeState() { return s_cstate; }
+void setChargeOverride(int st) {
+  s_cstate_ovr = (st < 0 || st > 2) ? -1 : st;
+  if (s_cstate_ovr < 0) Serial.println("[bat] 充電狀態恢復自動判斷");
+  updateCstate();
+}
 
 bool externalPower() {
   const uint8_t source = readSource();
