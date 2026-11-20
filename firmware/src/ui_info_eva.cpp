@@ -6,6 +6,8 @@
 #include <string.h>
 
 #include "config.h"
+#include "info_data.h"
+#include "ui_wxicon.h"
 
 namespace {
 
@@ -22,6 +24,27 @@ void text(M5Canvas& cv, int x, int y, const char* label, uint16_t color) {
   cv.setFont(&fonts::Font0);
   cv.setTextColor(color);
   cv.drawString(label, x, y);
+}
+
+// A5-2：英數用 Font0、中文（UTF-8 非 ASCII）用 efontTW_10（細體；粗體 10px 中文會糊），逐段換字型；回傳寬度（draw=false 只量寬）
+int mixed(M5Canvas& cv, int x, int y, const char* s, uint16_t color, bool draw = true) {
+  cv.setTextColor(color);
+  int w = 0;
+  char run[96];
+  for (const char* p = s; *p;) {
+    const bool cjk = (uint8_t)*p >= 0x80;
+    size_t n = 0;
+    while (p[n] && (((uint8_t)p[n] >= 0x80) == cjk) && n < sizeof(run) - 1) { run[n] = p[n]; ++n; }
+    while (n > 0 && p[n] && ((uint8_t)p[n] & 0xC0) == 0x80) --n;
+    if (n == 0) n = 1;
+    run[n] = '\0';
+    cv.setFont(cjk ? (const lgfx::IFont*)&fonts::efontTW_10 : (const lgfx::IFont*)&fonts::Font0);
+    const int rw = cv.textWidth(run);
+    if (draw) cv.drawString(run, x + w, cjk ? y - 1 : y);
+    w += rw;
+    p += n;
+  }
+  return w;
 }
 
 void stripes(M5Canvas& cv, int width) {
@@ -75,9 +98,9 @@ void clock(M5Canvas& cv, int x, bool wide, const ui_info_eva::Status& s) {
 
   constexpr const char* days[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
   char date[22];
-  if (!s.timeSynced) snprintf(date, sizeof date, "--.-- ---  WX --");
-  else if (wide) snprintf(date, sizeof date, "%02d.%02d %s  WX --", now.tm_mon + 1, now.tm_mday, days[now.tm_wday]);
-  else snprintf(date, sizeof date, "%04d.%02d.%02d %s  WX --", 1900 + now.tm_year, now.tm_mon + 1, now.tm_mday, days[now.tm_wday]);
+  if (!s.timeSynced) snprintf(date, sizeof date, "--.-- ---");
+  else if (wide) snprintf(date, sizeof date, "%02d.%02d %s", now.tm_mon + 1, now.tm_mday, days[now.tm_wday]);
+  else snprintf(date, sizeof date, "%04d.%02d.%02d %s", 1900 + now.tm_year, now.tm_mon + 1, now.tm_mday, days[now.tm_wday]);
   text(cv, x, y + h + 4, date, kDim);
 }
 
@@ -205,25 +228,96 @@ void memory(M5Canvas& cv, int x, int y, int width, const ui_info_eva::Status& s)
   segments(cv, x + 32, y + 12, width - 32, 8, 16, heap, kAmber);
 }
 
-void network(M5Canvas& cv, int x, int y, const ui_info_eva::Status& s) {
-  char rtt[13] = "RTT --", rssi[12] = "RSSI --", ping[14] = "PING OFF";
+// A5-2：記憶體一行版（PSRAM、HEAP 兩條並排），騰出位置給天氣、額度、快訊
+void memoryRow(M5Canvas& cv, int x, int y, int width, const ui_info_eva::Status& s) {
+  const int psram = s.psramTotal ? (uint64_t)s.psramFree * 100 / s.psramTotal : 0;
+  const int heap = s.heapTotal ? (uint64_t)s.heapFree * 100 / s.heapTotal : 0;
+  const int half = width / 2;
+  text(cv, x, y, "PS", kAmber);
+  segments(cv, x + 14, y, half - 18, 7, 8, psram, kAmber);
+  text(cv, x + half, y, "HP", kAmber);
+  segments(cv, x + half + 14, y, width - half - 14, 7, 8, heap, kAmber);
+}
+
+// A5-2：連線一行版：NET ●LINK RTT（沒連上時改顯示 RSSI）
+void networkRow(M5Canvas& cv, int x, int y, const ui_info_eva::Status& s) {
+  char rtt[16] = "RTT --";
   if (s.linkUp && s.rttMs >= 1000) snprintf(rtt, sizeof rtt, "RTT %lus", (unsigned long)(s.rttMs / 1000));
   else if (s.linkUp && s.rttMs) snprintf(rtt, sizeof rtt, "RTT %lums", (unsigned long)s.rttMs);
-  if (s.wifiUp) snprintf(rssi, sizeof rssi, "RSSI %d", s.rssi);
-  if (s.pingSeconds) snprintf(ping, sizeof ping, "PING %lus", (unsigned long)s.pingSeconds);
+  else if (!s.linkUp && s.wifiUp) snprintf(rtt, sizeof rtt, "RSSI %d", s.rssi);
   text(cv, x, y, "NET", kAmber);
   cv.fillCircle(x + 21, y + 3, 2, s.linkUp ? kGreen : kRed);
   text(cv, x + 27, y, s.linkUp ? "LINK" : "OFF", s.linkUp ? kGreen : kRed);
   text(cv, x + 57, y, rtt, s.linkUp ? kGreen : kDim);
-  text(cv, x, y + 11, rssi, kDim);
-  text(cv, x + 59, y + 11, ping, kDim);
 }
 
-void news(M5Canvas& cv, int x, int y) {
-  cv.setFont(&fonts::efontTW_10_b);
-  cv.setTextColor(kDim);
-  cv.drawString("快訊 --", x, y);
+// A5-2：天氣一行：圖示＋溫度＋描述（截字）＋降雨機率；中控斷線時降雨機率換成資料時間
+void weatherRow(M5Canvas& cv, int x, int y, int width, const ui_info_eva::Status& s) {
+  const info_data::Weather& w = info_data::weather();
+  ui_wxicon::draw(cv, x + 5, y + 3, 5, w.valid ? w.icon : info_data::WxIcon::Cloud, kAmber, w.valid ? kAmber : kUnlit, kAmber);
+  if (!w.valid) { text(cv, x + 14, y, "WX --", kDim); return; }
+  char tb[12] = "--", tail[12];
+  if (w.temp > -100) snprintf(tb, sizeof tb, "%dC", w.temp);
+  if (!s.linkUp) info_data::formatAt(tail, sizeof tail, w.at);
+  else if (w.pop >= 0) snprintf(tail, sizeof tail, "%d%%", w.pop);
+  else strcpy(tail, "");
+  int xx = x + 14;
+  xx += mixed(cv, xx, y, tb, kAmber) + 4;
+  const int tw = mixed(cv, 0, y, tail, kDim, false);
+  const int room = x + width - tw - 3 - xx;
+  char d[40];
+  info_data::utf8Prefix(d, sizeof d, w.desc, room > 0 ? room / 10 : 0);
+  mixed(cv, xx, y, d, kDim);
+  mixed(cv, x + width - tw, y, tail, s.linkUp && w.pop >= 50 ? kYellow : kDim);
 }
+
+// A5-2：語音額度一行「GPT $0.42/2 餘8.37」；今日花費依比例綠／黃／紅，中控斷線時變暗
+void usdRow(M5Canvas& cv, int x, int y, const ui_info_eva::Status& s) {
+  const info_data::Usd& u = info_data::usd();
+  int xx = x + mixed(cv, x, y, "GPT ", kAmber);
+  char line[40];
+  info_data::formatUsd(line, sizeof line, u, false);
+  if (!u.valid) { mixed(cv, xx, y, "-", kDim); return; }
+  const int lv = info_data::usdLevel();
+  const uint16_t tc = !s.linkUp ? kDim : lv == 2 ? kRed : lv == 1 ? kYellow : kGreen;
+  const size_t cut = strcspn(line, "/");
+  char head[16];
+  snprintf(head, sizeof head, "%.*s", (int)cut, line);
+  xx += mixed(cv, xx, y, head, tc);
+  mixed(cv, xx, y, line + cut, kDim);
+}
+
+// A5-2：快訊 rows 行（每 cfg::INFO_NEWS_PAGE_SEC 秒換一批）；中控斷線時第 1 行改「快訊 18:30」
+void newsRows(M5Canvas& cv, int x, int y, int width, int rows, const ui_info_eva::Status& s) {
+  const info_data::News& nw = info_data::news();
+  if (nw.n <= 0) { mixed(cv, x, y, "快訊 --", kDim); return; }
+  int k0 = 0;
+  if (!s.linkUp) {
+    char at[8], h[24];
+    info_data::formatAt(at, sizeof at, nw.at);
+    snprintf(h, sizeof h, "快訊 %s", at);
+    mixed(cv, x, y, h, kAmber);
+    k0 = 1;
+  }
+  const int per = rows - k0 > 0 ? rows - k0 : 1;
+  const int pages = (nw.n + per - 1) / per;
+  const long now = s.timeSynced ? (long)time(nullptr) : (long)(millis() / 1000);
+  const int page = (int)((now / cfg::INFO_NEWS_PAGE_SEC) % pages);
+  const int chars = width / 10;
+  for (int k = 0; k + k0 < rows; ++k) {
+    const int i = page * per + k;
+    if (i >= nw.n) break;
+    char line[80];
+    const size_t n = info_data::utf8Prefix(line, sizeof line, nw.item[i], chars);
+    if (nw.item[i][n]) {   // 截斷 → 「…」
+      const size_t m = info_data::utf8Prefix(line, sizeof line - 3, nw.item[i], chars - 1);
+      snprintf(line + m, sizeof line - m, "…");
+    }
+    mixed(cv, x, y + (k + k0) * 11, line, k == 0 && k0 == 0 ? kAmber : kDim);
+  }
+}
+
+
 
 }  // namespace
 
@@ -245,12 +339,17 @@ void draw(M5Canvas& cv, Orient orientation, const Status& s) {
   cv.drawFastHLine(0, 15, width, kAmber);
 
   if (orientation == Orient::Portrait) {
+    // A5-2：CHART 34→20px、記憶體與連線各併成一行，騰出天氣、語音額度、快訊各一行
     clock(cv, 6, false, s);
     power(cv, 4, 73, 127, s);
     badges(cv, 4, 125, 127, s);
-    chart(cv, 4, 150, 127, 34, s);
-    memory(cv, 4, 190, 127, s);
-    network(cv, 4, 215, s);
+    chart(cv, 4, 150, 127, 20, s);
+    weatherRow(cv, 4, 174, 127, s);
+    usdRow(cv, 4, 186, s);
+    memoryRow(cv, 4, 198, 127, s);
+    networkRow(cv, 4, 210, s);
+    cv.drawFastHLine(4, 220, 127, kDarkAmber);
+    newsRows(cv, 4, 225, 127, 1, s);
     return;
   }
 
@@ -258,13 +357,16 @@ void draw(M5Canvas& cv, Orient orientation, const Status& s) {
   const int dashboard = aLeft ? 123 : 4;
   const int telemetry = aLeft ? 4 : 123;
   cv.drawFastVLine(119, 19, 112, kAmber);
+  // A5-2：儀表欄時鐘下面加語音額度、連線併成一行；數據欄 CHART 40→28、加天氣一行、快訊兩行
   clock(cv, dashboard, true, s);
-  power(cv, dashboard, 64, 112, s);
-  network(cv, dashboard, 109, s);
+  usdRow(cv, dashboard, 64, s);
+  power(cv, dashboard, 75, 112, s);
+  networkRow(cv, dashboard, 122, s);
   badges(cv, telemetry, 20, 114, s);
-  chart(cv, telemetry, 44, 114, 40, s);
-  memory(cv, telemetry, 90, 114, s);
-  news(cv, telemetry, 118);
+  chart(cv, telemetry, 44, 114, 28, s);
+  weatherRow(cv, telemetry, 76, 114, s);
+  memory(cv, telemetry, 89, 114, s);
+  newsRows(cv, telemetry, 113, 114, 2, s);
 }
 
 }  // namespace ui_info_eva

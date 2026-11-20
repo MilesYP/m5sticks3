@@ -13,12 +13,14 @@
 #include "config.h"
 #include "ui_fx.h"
 #include "imu_pet.h"
+#include "info_data.h"
 #include "input_hal.h"
 #include "mode_manager.h"
 #include "net_hub.h"
 #include "ui_expression.h"
 #include "ui_persona.h"
 #include "voice_turn.h"
+#include "ui_wxicon.h"
 
 #ifdef INFO_SIM
 void infoSimReport(const char* what, const char* tile, const char* s, int x, int y, int w, int h);
@@ -115,16 +117,30 @@ void txtF(int ti, int dx, int dy, const char* s, const C3& c, const lgfx::IFont*
 }
 
 // 小字：數字（0-9 . : / % - +）粗體、其餘（字母、空白）細體，逐段換字型
-inline bool numChar(char ch) { return (ch >= '0' && ch <= '9') || ch == '.' || ch == ':' || ch == '/' || ch == '%' || ch == '-' || ch == '+'; }
+// A5-2：中文（UTF-8 非 ASCII，例「餘」「濕」）走 efontTW_10 細體（Font0 沒有中文字形；粗體中文 10px 會糊成一塊）
+enum { RUN_THIN, RUN_NUM, RUN_CJK };
+inline int runClass(char ch) {
+  if ((uint8_t)ch >= 0x80) return RUN_CJK;
+  return ((ch >= '0' && ch <= '9') || ch == '.' || ch == ':' || ch == '/' || ch == '%' || ch == '-' || ch == '+') ? RUN_NUM : RUN_THIN;
+}
+const lgfx::IFont* runFont(int k) { return k == RUN_NUM ? BOLD : k == RUN_CJK ? (const lgfx::IFont*)&fonts::efontTW_10 : THIN; }
+// 取一段同字型的字（不切斷 UTF-8）
+size_t nextRun(const char* p, char* run, size_t cap, int* kind) {
+  *kind = runClass(*p);
+  size_t n = 0;
+  while (p[n] && runClass(p[n]) == *kind && n < cap - 1) { run[n] = p[n]; ++n; }
+  while (n > 0 && p[n] && ((uint8_t)p[n] & 0xC0) == 0x80) --n;   // 停在字中間 → 退回字首
+  if (n == 0) n = 1;
+  run[n] = '\0';
+  return n;
+}
 int mixedWidth(const char* s) {
   int w = 0;
-  char run[32];
+  char run[64];
   for (const char* p = s; *p;) {
-    const bool num = numChar(*p);
-    size_t n = 0;
-    while (p[n] && numChar(p[n]) == num && n < sizeof(run) - 1) { run[n] = p[n]; ++n; }
-    run[n] = '\0';
-    s_cv.setFont(num ? BOLD : THIN);
+    int k;
+    const size_t n = nextRun(p, run, sizeof run, &k);
+    s_cv.setFont(runFont(k));
     w += s_cv.textWidth(run);
     p += n;
   }
@@ -139,14 +155,12 @@ void txt(int ti, int dx, int dy, const char* s, const C3& c, bool right = false)
   simCheck(ti, s, x, y, w, 10);
 #endif
   s_cv.setTextColor(col(c));
-  char run[32];
+  char run[64];
   for (const char* p = s; *p;) {
-    const bool num = numChar(*p);
-    size_t n = 0;
-    while (p[n] && numChar(p[n]) == num && n < sizeof(run) - 1) { run[n] = p[n]; ++n; }
-    run[n] = '\0';
-    s_cv.setFont(num ? BOLD : THIN);
-    x += s_cv.drawString(run, x, num ? y : y + THIN_DY);
+    int k;
+    const size_t n = nextRun(p, run, sizeof run, &k);
+    s_cv.setFont(runFont(k));
+    x += s_cv.drawString(run, x, k == RUN_THIN ? y + THIN_DY : y);
     p += n;
   }
 }
@@ -295,6 +309,23 @@ void uptimeStr(char* b, size_t n) {
   else snprintf(b, n, "UP %lud%02luh", (unsigned long)(h / 24), (unsigned long)(h % 24));
 }
 
+// A5-2：語音額度一行。直式「$0.42/2 餘8.37」、橫式「$0.42/$2.00 餘$8.37」；
+// 今日花費依用掉上限的比例變色（<70% 綠、≥70% 黃、≥90% 紅），中控斷線時整行變暗（顯示上次的值）
+void drawUsd(int dy) {
+  const info_data::Usd& u = info_data::usd();
+  char line[48];
+  info_data::formatUsd(line, sizeof line, u, s_land);
+  if (!u.valid) { txt(T_CLOCK, 0, dy, line, K_DIM); return; }
+  const bool live = net_hub::linkUp();
+  const int lv = info_data::usdLevel();
+  const C3& tc = !live ? K_DIM : lv == 2 ? K_RED : lv == 1 ? K_YEL : K_GRN;
+  const size_t cut = strcspn(line, "/");   // 「$0.42」｜「/2 餘8.37」
+  char head[16];
+  snprintf(head, sizeof head, "%.*s", (int)cut, line);
+  txt(T_CLOCK, 0, dy, head, tc);
+  txt(T_CLOCK, mixedWidth(head), dy, line + cut, K_DIM);
+}
+
 void drawClock(bool ok, const struct tm& lt) {
   char hm[8], ss[4], date[12], up[16];
   if (ok) {
@@ -312,11 +343,11 @@ void drawClock(bool ok, const struct tm& lt) {
   if (!s_land) {                   // 直式：日期／開機時間／語音額度各一行（小字一行約 16 字，「FRI 11/20 UP 2:14」17 字放不下）
     txt(T_CLOCK, 0, 30, date, K_YEL);
     txt(T_CLOCK, 0, 40, up, K_DIM);
-    txt(T_CLOCK, 0, 50, "GPT -", K_DIM);           // A5-2：今日花費／上限 餘額（中控送）
+    drawUsd(50);
   } else {                         // 橫式：日期、開機時間在時鐘右邊；語音額度在下面整行
     txt(T_CLOCK, 0, 4, date, K_YEL, true);
     txt(T_CLOCK, 0, 15, up, K_DIM, true);
-    txt(T_CLOCK, 0, 32, "GPT -", K_DIM);
+    drawUsd(32);
   }
   (void)t;
 }
@@ -373,10 +404,37 @@ void drawImu() {
   }
 }
 
-void drawWeather() {   // A5-2 才有資料
+// A5-2：天氣（中央氣象署鄉鎮預報，中控每 30 分鐘更新）
+//   標題列：WEATHER＋地點（右）；中控斷線時地點換成資料時間（例 18:30）
+//   第 2 行：圖示＋天氣描述（efontTW_12，直式 6 字、橫式 7 字）
+//   第 3 行：溫度、濕度、降雨機率（小字）
+void drawWeather() {
+  const Tile& t = s_t[T_WX];
   header(T_WX, "WEATHER", K_CYAN);
-  txtF(T_WX, 0, 15, "-", K_DIM, &fonts::Font2);
-  txt(T_WX, 0, 22, "A5-2", K_DIM, true);
+  const info_data::Weather& w = info_data::weather();
+  if (!w.valid) { txt(T_WX, 0, ROW1 + 2, "--", K_DIM); return; }
+  char hdr[20];
+  if (net_hub::linkUp()) snprintf(hdr, sizeof hdr, "%s", w.loc);
+  else info_data::formatAt(hdr, sizeof hdr, w.at);
+  txt(T_WX, 0, 1, hdr, net_hub::linkUp() ? K_TXT : K_DIM, true);
+  // 圖示 12×12：左上 (x+PAD, y+12)
+  ui_wxicon::draw(s_cv, t.x + PAD + 6, t.y + 18, 6, w.icon, col(K_YEL), col(K_TXT), col(K_CYAN));
+  char d[40];
+  info_data::utf8Prefix(d, sizeof d, w.desc, s_land ? 7 : 6);
+  txtF(T_WX, 15, 11, d, K_TXT, &fonts::efontTW_12);
+  char row[48], tb[12] = "--", rb[12] = "--", pb[12] = "--";
+  if (w.temp > -100) snprintf(tb, sizeof tb, "%d", w.temp);
+  if (w.rh >= 0) snprintf(rb, sizeof rb, "%d%%", w.rh);
+  if (w.pop >= 0) snprintf(pb, sizeof pb, "%d%%", w.pop);
+  // 溫度用亮色、其餘暗色：分三段畫
+  snprintf(row, sizeof row, "%s°", tb);
+  txt(T_WX, 0, 23, row, K_TXT);
+  int x = mixedWidth(row) + 5;
+  snprintf(row, sizeof row, "濕%s", rb);
+  txt(T_WX, x, 23, row, K_DIM);
+  x += mixedWidth(row) + 5;
+  snprintf(row, sizeof row, "雨%s", pb);
+  txt(T_WX, x, 23, row, w.pop >= 50 ? K_CYAN : K_DIM);
 }
 
 void drawChip() {
@@ -481,8 +539,59 @@ void drawMod() {
   }
 }
 
-void drawNews() {   // A5-2 才有快訊；沒有內容時畫合成波地平線
+// 快訊一則標題截到 maxChars 字（超過換成「…」結尾）
+void newsLine(char* out, size_t cap, const char* s, int maxChars) {
+  const size_t n = info_data::utf8Prefix(out, cap, s, maxChars);
+  if (s[n] && cap > 4) {   // 被截斷：最後一字換成「…」
+    const size_t m = info_data::utf8Prefix(out, cap - 3, s, maxChars - 1);
+    snprintf(out + m, cap - m, "…");
+  }
+}
+
+// A5-2：快訊（中央社 RSS，中控每 30 分鐘更新 6 則）。每 cfg::INFO_NEWS_PAGE_SEC 秒換一頁。
+//   直式 131×44：標題列「快訊」＋資料時間＋頁碼，下面 2 則（efontTW_12，一行 10 字）
+//   橫式 86×27：2 則、一行 6 字、沒有標題列；中控斷線時第 1 行改成「快訊 18:30」
+// 沒有快訊時畫合成波地平線（A5-1 原樣）
+void drawNews() {
   const Tile& t = s_t[T_NEWS];
+  const info_data::News& nw = info_data::news();
+  if (nw.n > 0) {
+    const bool live = net_hub::linkUp();
+    const int per = 2;
+    const int pages = (nw.n + per - 1) / per;
+    const long now = synced() ? (long)time(nullptr) : (long)(millis() / 1000);
+    const int page = (int)((now / cfg::INFO_NEWS_PAGE_SEC) % pages);
+    char at[8], line[64];
+    info_data::formatAt(at, sizeof at, nw.at);
+    const C3& tc = live ? K_TXT : K_DIM;
+    if (!s_land) {
+      txtF(T_NEWS, 0, 1, "快訊", K_ORG, &fonts::efontTW_12);
+      char pg[24];
+      snprintf(pg, sizeof pg, "%d/%d", page + 1, pages);
+      txt(T_NEWS, 0, 2, pg, K_DIM, true);
+      txt(T_NEWS, 28, 2, at, live ? K_DIM : K_ORG);
+      for (int k = 0; k < per; ++k) {
+        const int i = page * per + k;
+        if (i >= nw.n) break;
+        newsLine(line, sizeof line, nw.item[i], 10);
+        txtF(T_NEWS, 0, 16 + k * 13, line, tc, &fonts::efontTW_12);
+      }
+    } else {
+      int k0 = 0;
+      if (!live) {
+        snprintf(line, sizeof line, "快訊 %s", at);
+        txt(T_NEWS, 0, 2, line, K_ORG);
+        k0 = 1;
+      }
+      for (int k = k0; k < per; ++k) {
+        const int i = page * per + k - k0;
+        if (i >= nw.n) break;
+        newsLine(line, sizeof line, nw.item[i], 6);
+        txtF(T_NEWS, 0, 1 + k * 13, line, tc, &fonts::efontTW_12);
+      }
+    }
+    return;
+  }
   s_cv.setClipRect(t.x, t.y, t.w, t.h);
   const int hy = t.y + (s_land ? 12 : 22);   // 地平線
   for (int i = 0; i < 5; ++i) {
@@ -495,7 +604,7 @@ void drawNews() {   // A5-2 才有快訊；沒有內容時畫合成波地平線
   s_cv.clearClipRect();
   txtF(T_NEWS, 0, 1, "快訊", K_ORG, &fonts::efontTW_12);
   const int hw = s_cv.textWidth("快訊");
-  txt(T_NEWS, hw + 4, 2, "- A5-2", K_DIM);
+  txt(T_NEWS, hw + 4, 2, "-", K_DIM);
 }
 
 void drawAll(bool eva) {

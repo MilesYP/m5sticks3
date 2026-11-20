@@ -16,6 +16,7 @@
 #include "adpcm.h"
 #include "audio_io.h"
 #include "config.h"
+#include "info_data.h"
 #include "secrets.h"
 
 // B3.5：中控要求連線帶 token（?t=HUB_TOKEN），沒有就連不上 → 編譯時直接擋下
@@ -30,7 +31,7 @@ namespace {
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── (1) 指令佇列：主迴圈 → 網路 task ──
-enum class Cmd : uint8_t { UploadBegin, UploadFinish, UploadAbort, Ping, DropLink, WifiOn, WifiOff };
+enum class Cmd : uint8_t { UploadBegin, UploadFinish, UploadAbort, Ping, DropLink, WifiOn, WifiOff, InfoReq };
 struct CmdMsg {
   Cmd c;
   uint32_t id;
@@ -290,6 +291,11 @@ void handleCmd(const CmdMsg& m) {
       s_ws.sendTXT("{\"t\":\"ping\"}");
       netlog("[diag] 已送 ping（等 pong 算 RTT）\n");
       break;
+    case Cmd::InfoReq:   // A5-2：序列埠 a → 中控重送資訊頁資料並強制更新
+      if (!s_link.load()) { netlog("[info] 中控未連線，沒送 info_req\n"); break; }
+      s_ws.sendTXT("{\"t\":\"info_req\"}");
+      netlog("[info] 已要求中控重送資料（info_req）\n");
+      break;
     case Cmd::DropLink:
       if (s_ws_started) s_ws.disconnect();
       netlog("[diag] 已斷開 WebSocket（模擬連線重置），等自動重連\n");
@@ -510,6 +516,42 @@ bool getStrJson(const char* json, const char* key, char* out, size_t cap) {
   return true;
 }
 
+uint32_t getNum(const char* json, const char* key);
+// A5-2：數值（可有小數、負號）；沒有這個鍵回 dflt
+float getFloat(const char* json, const char* key, float dflt) {
+  char pat[24];
+  snprintf(pat, sizeof(pat), "\"%s\":", key);
+  const char* p = strstr(json, pat);
+  return p ? strtof(p + strlen(pat), nullptr) : dflt;
+}
+
+// A5-2：資訊頁雲端資料 {"t":"info","k":"usd|wx|nw",…}（cloud/src/info.js）→ info_data；只存資料，不重畫
+void handleInfo(const char* js) {
+  char k[8] = "";
+  getStr(js, "k", k, sizeof(k));
+  const time_t at = (time_t)getNum(js, "at");
+  if (!strcmp(k, "usd")) {
+    const float today = getFloat(js, "today", 0), cap = getFloat(js, "cap", 0), left = getFloat(js, "left", -1);
+    info_data::onUsd(today, cap, left, at);
+    if (left >= 0) Serial.printf("[info] 額度 今日 $%.3f／上限 $%.2f｜餘額 $%.2f\n", today, cap, left);
+    else Serial.printf("[info] 額度 今日 $%.3f／上限 $%.2f｜餘額（沒設定 CREDIT_USD）\n", today, cap);
+  } else if (!strcmp(k, "wx")) {
+    char ic[8] = "", loc[24] = "", d[64] = "";
+    getStr(js, "ic", ic, sizeof(ic));
+    getStrJson(js, "loc", loc, sizeof(loc));
+    getStrJson(js, "s", d, sizeof(d));
+    const int temp = (int)getFloat(js, "temp", -999), rh = (int)getFloat(js, "rh", -1), pop = (int)getFloat(js, "pop", -1);
+    info_data::onWeather(ic, temp, rh, pop, loc, d, at);
+    Serial.printf("[info] 天氣 %s %s %d°C 濕度 %d%% 降雨 %d%%（%s）\n", loc, d, temp, rh, pop, ic);
+  } else if (!strcmp(k, "nw")) {
+    char t[128] = "";
+    getStrJson(js, "s", t, sizeof(t));
+    const int i = (int)getNum(js, "i"), n = (int)getNum(js, "n");
+    info_data::onNewsItem(i, n, t, at);
+    if (i == 0) Serial.printf("[info] 快訊 %d 則：%s…\n", n, t);
+  }
+}
+
 uint32_t getNum(const char* json, const char* key) {
   char pat[24];
   snprintf(pat, sizeof(pat), "\"%s\":", key);
@@ -518,6 +560,7 @@ uint32_t getNum(const char* json, const char* key) {
 }
 
 void handleText(const char* js) {
+  if (strstr(js, "\"t\":\"info\"")) { handleInfo(js); return; }   // A5-2（要在下面「有 v 就當 state」之前）
   if (strstr(js, "\"t\":\"audio_end\"")) {
     float g = 1.0f;
     const char* gp = strstr(js, "\"g\":");
@@ -601,7 +644,8 @@ void loop() {
       const size_t n = len < sizeof(js) - 1 ? len : sizeof(js) - 1;
       memcpy(js, d, n);
       js[n] = '\0';
-      if (!strstr(js, "\"t\":\"text\"")) Serial.printf("[hub] <- %s\n", js);   // 逐字稿由 voice_turn 整理後印
+      if (!strstr(js, "\"t\":\"text\"") && !strstr(js, "\"t\":\"info\""))   // 逐字稿由 voice_turn、資訊由 handleInfo 整理後印
+        Serial.printf("[hub] <- %s\n", js);
       handleText(js);
     }
     rxPop(len);
@@ -617,6 +661,7 @@ void onFormat(FormatCb cb) { s_fmt_cb = cb; }
 void onError(ErrorCb cb) { s_err_cb = cb; }
 void onText(TextCb cb) { s_text_cb = cb; }
 void onBinGate(BinGate g) { s_gate = g; }
+void requestInfo() { postSimple(Cmd::InfoReq); }
 
 void uploadBegin(uint32_t id, const char* up, const char* down, const char* pace, const char* mode) {
   CmdMsg m{};

@@ -54,7 +54,27 @@ npx wrangler secret put OPENAI_API_KEY   # 貼上你的 OpenAI API key；只存�
 
 ## GPT-Live（B3c＋B4，11-20）
 - 部署前一次性：`npm install`（裝 `opencc-js` 簡轉繁）。
-- 設定（`wrangler.toml` 的 `[vars]`，可用 `npx wrangler deploy --var 名稱:值` 暫時覆蓋）：`DAILY_MAX_TURNS`、`DAILY_MAX_AUDIO_SEC`（每日額度）、`OUT_GAIN`（回覆音量倍數，預設 1）、`GPT_VOICE`（聲音，預設 `meridian`）。
+- 設定（`wrangler.toml` 的 `[vars]`，可用 `npx wrangler deploy --var 名稱:值` 暫時覆蓋）：`DAILY_MAX_USD`／`DAILY_MAX_TURNS`（每日額度，A5-2 起以美金為主）、`OUT_GAIN`（回覆音量倍數，預設 1）、`GPT_VOICE`（聲音，預設 `meridian`）。
 - Friday 的記憶：改 `persona/friday.md`（進 repo）或 `persona/miles.local.md`（不進 repo，範本 `persona/miles.example.md`）後跑 `cloud/persona.sh`（不用重新部署；`cloud/persona.sh show` 看中控存的長度）。
 - 先導測試：`cloud/lab.sh info|pin|all|more`（報告存 `docs/lab/`，不進 repo）。
 - 協定（`mode`、`text`、`error`、`usage`）見 `../docs/M1B-架構.md` 第 4 節「B3c＋B4 協定」。
+
+## 資訊頁雲端資料（A5-2，11-20）：天氣、快訊、語音額度（美金）
+程式在 `src/info.js`；Cron Trigger 每 30 分鐘更新（`wrangler.toml` 的 `[triggers]`），裝置連上、每輪對話結束、換日時也會送。
+
+**一次性設定（secret 都不進 repo；指令先複製貼到終端機，停在提示時才去複製 key，畫面不顯示）**
+```bash
+# 1. 中央氣象署授權碼（opendata.cwa.gov.tw → 會員 → API授權碼）
+cd ~/Developer/m5sticks3/cloud && read -rs -p "貼上授權碼後按 Enter：" K && echo && printf '%s' "$K" | npx wrangler secret put CWA_KEY; unset K
+# 2. 天氣地點：縣市＋鄉鎮區，例「臺北市中正區」（個人資料，所以也用 secret）
+cd ~/Developer/m5sticks3/cloud && read -r -p "地點（例 臺北市中正區）：" K && printf '%s' "$K" | npx wrangler secret put WX_TOWN; unset K
+# 3. OpenAI 管理員金鑰（platform.openai.com/settings/organization/admin-keys 建立，只給讀取權限即可）：查餘額用
+cd ~/Developer/m5sticks3/cloud && read -rs -p "貼上 admin key 後按 Enter：" K && echo && printf '%s' "$K" | npx wrangler secret put OPENAI_ADMIN_KEY; unset K
+```
+三個都是選配：沒設 `CWA_KEY` 就沒天氣；沒設 `OPENAI_ADMIN_KEY` 時餘額＝`CREDIT_USD`－中控自己記的花費（只算這台裝置的語音）。
+
+**變數（`wrangler.toml` 的 `[vars]`，改完 `npx wrangler deploy`）**：`DAILY_MAX_USD`（每日上限，美金）、`CREDIT_USD`／`CREDIT_SINCE`（儲值總額與起算日，UTC；儲值後把金額加上去）、`LIVE_USD_PER_MIN` 等價格、`NEWS_FEEDS`（中央社 RSS）。
+
+**驗證**：`https://sticks3-hub.<子網域>.workers.dev/info?t=<HUB_TOKEN>` 看快取（加 `&refresh=1` 強制更新）。網址含 token，只在自己的瀏覽器開。
+
+**餘額怎麼算、誤差**：餘額＝`CREDIT_USD`－Costs API 從 `CREDIT_SINCE` 到昨天（UTC，台北早上 8 點換日）的花費－中控記的今天花費。Costs API 有延遲，剛過 UTC 換日那幾個小時「昨天」可能還沒結算完，餘額會高估幾分錢；中控自己記的今天花費是估計（GPT-Live 用 `usage.seconds`、上網查用搜尋次數與 token），跟後台可能差幾分錢。

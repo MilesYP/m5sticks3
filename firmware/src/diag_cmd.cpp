@@ -28,7 +28,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關｜q0/q1 合成波/EVA（表情＋資訊頁）｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜#文字 在 log 做記號｜? 目前設定");
+  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關｜q0/q1 合成波/EVA（表情＋資訊頁）｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜#文字 在 log 做記號｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -38,6 +38,9 @@ void run(char* cmd) {
   }
   for (char* c = cmd; *c; ++c) *c = (char)tolower((unsigned char)*c);
   switch (cmd[0]) {
+    case 'a':   // A5-2：要中控立即重送資訊頁雲端資料（天氣、快訊、美金額度）並強制更新
+      net_hub::requestInfo();
+      break;
     case 'w':
       if (cmd[1] == '0' || cmd[1] == '1') net_hub::setWifiEnabled(cmd[1] == '1');
       else printHelp();

@@ -19,7 +19,7 @@
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
-| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–5（A4 直橫雙版面＋合成波表情、**A5-1 資訊頁** 11-20）、**M1-B 全部完成**（11-20，助理 Friday；進度見 `docs/PROGRESS.md`） |
+| `firmware/` | **正式韌體**（PlatformIO 專案，第 4 節模組放在 `firmware/src/`） | M0 驗收通過；M1-A 切片 1–5（A4 直橫雙版面＋合成波表情、**A5-1 資訊頁** 11-20、A5-2 雲端資料實作完待驗收）、**M1-B 全部完成**（11-20，助理 Friday；進度見 `docs/PROGRESS.md`） |
 
 每個子資料夾是獨立的 PlatformIO 專案：VS Code「Open Folder」要開到子資料夾那一層。
 
@@ -161,6 +161,13 @@
 10. **電量色**：≥60% 霓虹綠 `#39FF14`（11-20 Miles 由藍改）、40–59 薄荷綠、20–39 黃、10–19 紅、<10 紅灰閃。
 11. **充電（A4b 用，`docs/lab/chg-1120-1651.txt`）**：開機狀態下 CHG_STAT 到充飽都不會穩定停（47 分鐘內「充電中」比例 85%→60%、每分鐘切換 6→38 次），電量 % 會跳 87～100 → **「充飽」看電壓**：有 USB（VBUS＞4.5V）且最近 5 分鐘電池平均 ≥ 4.10V、5 分鐘上升 < 15mV；平均 < 4.05V 或拔線就離開（這次數據回推約第 22 分鐘判為充飽）。
 
+12. **資訊頁雲端資料（A5-2，2026-11-20，待實機驗收）**：中控 `cloud/src/info.js` 送 `{"t":"info","k":"usd|wx|nw",…}`（每則 < 300 bytes，裝置收件解析緩衝 512 bytes；快訊一則一個訊息）→ `net_hub` 在主迴圈解析存進 `info_data`，**只存不重畫、不叫醒**（下一次每秒重畫時顯示）。q0／q1 都直接讀 `info_data`。中控斷線時保留上次的值並標資料時間（天氣標題、快訊標題列）、額度整行變暗。序列埠 `a`＝要中控重送並強制更新（60 秒內最多一次）。
+   - **小字的中文用 `efontTW_10`（細體）**：`efontTW_10_b` 的中文 10px 會糊成一塊（「濕」「餘」實測看不出來）；數字仍用 `efontTW_10_b`、字母仍用 `Font0`（`txt()` 三種字型逐段換，`nextRun()` 不切斷 UTF-8）。
+   - 額度：今日花費＝GPT-Live `usage.seconds`×$0.05/60（還開著的 session 用經過時間估）＋搜尋 $0.01／次＋後端 token；**今日花費存獨立的 `usd:<台北日期>`**，不跟 `quota:<日期>` 物件共用（兩條非同步路徑讀改寫會互蓋）。價格放 `wrangler.toml [vars]`，官方改價改那裡。
+   - 餘額＝`CREDIT_USD`－Costs API（admin key，到昨天 UTC）－中控記的 Costs 還沒涵蓋的天數（`spendutc:<UTC 日期>`）。OpenAI 沒有讀預付餘額的 API。
+   - 天氣：中央氣象署 F-D0047-0xx（未來 3 天逐 3 小時，依縣市），`parseCwa()` 新舊兩種 JSON 欄位都吃；地點 `WX_TOWN` 是 secret（個資不進 repo）。快訊：中央社 RSS（`NEWS_FEEDS`），合併去重取最新 6 則、截 36 字。
+   - 模擬：`LGFX_LINUX_FB` 編譯真的 M5GFX 繪圖核心（LGFXBase／fonts／lgfx_v1／panel／touch／platforms＋efont、IPA 字型 .c）＋模擬標頭（`M5Canvas` 是 `m5gfx::M5Canvas` 別名、全域 `RX`／`TX`），`-DINFO_SIM` 檢查字有沒有超出磚塊，輸出 PPM 自己看。
+
 ### 鐵則十：省電（P1，2026-11-20，待實機驗收）
 1. **起因**：充飽拔線 21 分鐘掉到 67%（電池 250mAh → 平均約 230mA，推估）。主因推估是表情頁 CPU 240MHz 不停畫（每 21ms 一張、每張 64KB 送螢幕）、背光從不調暗、Wi-Fi 一直連著；未量電流（Miles 選不買電流表，用體感＋序列埠 `h` 每分鐘電壓紀錄比較）。
 2. **只在 Desktop 降級，表情頁與資訊頁同一套**（`power_save.*`；資訊頁 11-20 Miles 要求，畫面本來就每秒一張，只套背光／CPU／Wi-Fi；資訊頁看靜置時間：10 秒變暗、30 秒微光＋降頻，表情頁仍跟想睡臉 6／11 秒）：語音中、情緒反應、換頁／過場中＝全速（跟 P1 之前一樣）；待機臉 30fps；想睡 10fps＋背光 45＋Wi-Fi `MAX_MODEM`；睡著 5fps＋背光 12＋Wi-Fi `MAX_MODEM`＋CPU 80MHz。表情一變（被拍、拿起、按 A）當圈就回全速、背光立刻亮。兩張畫面之間主迴圈最多睡 10ms 一圈（IMU、按鍵、待機收音照常處理）；資訊頁固定 10ms 一圈。其他模式不動。
@@ -217,6 +224,8 @@ firmware/src/
   killswitch.*        // 正面按鈕急停，最高優先（鐵則三）
   ui_expression.*     // 模式1：合成波表情（漸層眼＋嘴巴＋彈簧動畫＋符號＋側耳聆聽＋驚嚇彈珠台）、直橫版面、對話區、休息臉電量色（M1-A A4）
   ui_info.*           // 模式1：資訊頁（磚塊儀表板：時鐘／電量與功能 icon／IMU／天氣／CHIP 負載波形／MEM 長條／NET LINK／MODULES／快訊），直橫三版（M1-A A5-1）
+  info_data.*         // 資訊頁雲端資料（天氣、快訊、美金額度）：net_hub 收到 info 訊息存這裡，q0／q1 共用（M1-A A5-2）
+  ui_wxicon.h         // 天氣小圖示（向量，q0／q1 共用）（A5-2）
   ui_fx.*             // 換整頁的交叉淡化（切頁、轉向），畫面一律經 ui_fx::present 送上螢幕（M1-A A5-1）
   ui_modeswitch.*     // B 切模式的 EVA 風過場（條紋＋明朝體大字＋實際進度條），急停不走過場（11-20）
   ui_persona.*        // 本機角色像素動畫（素材在 firmware/persona_local/、不進 repo；規格 docs/persona-swap.md）（11-20）
@@ -228,7 +237,7 @@ firmware/src/
   audio_io.*          // ES8311 錄放音、PGA、雜訊量測、4MB 錄音環形緩衝（不限長度）、邊收邊播環形緩衝（播放 task 自餵）（M1-B 已建）
   voice_turn.*        // 一輪語音：錄（邊傳）→送尾巴→邊收邊解壓邊播；表情本機決定（M1-B 已建）
   adpcm.*             // IMA ADPCM／μ-law 解碼、8kHz→16kHz 升取樣（M1-B B3b-3／B3b-4 已建）
-  diag_cmd.*          // 序列埠診斷指令 w/s/p/g/f/u/m/x/r/b/i/k/e/j/v/c/h/o/y/n/t/#/?（M1-B B3.6 起；A4 加 h 充電紀錄、o 拿法、y 預覽表情、# 記號；A5-1 加 n 切頁、t 交叉淡化；EVA 加 q 風格；P1 加 z 省電、l 背光）
+  diag_cmd.*          // 序列埠診斷指令 a/w/s/p/g/f/u/m/x/r/b/i/k/e/j/v/c/h/o/y/n/t/#/?（A5-2 加 a 中控重送資訊頁資料）（M1-B B3.6 起；A4 加 h 充電紀錄、o 拿法、y 預覽表情、# 記號；A5-1 加 n 切頁、t 交叉淡化；EVA 加 q 風格；P1 加 z 省電、l 背光）
   ui_grok.*           // 模式1：M5GFX 幾何表情 + 音量連動 + 跑馬燈
   hid_injector.*      // 模式2：TinyUSB 跨平台鍵鼠 + 急停整合
   rf_transceiver.*    // 模式3：CC1101 學習/存/發 + RSSI 掃描

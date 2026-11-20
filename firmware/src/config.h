@@ -143,6 +143,7 @@ constexpr int      INFO_HEAP_BARS     = 30;     // MEM 長條：最近 30 根
 constexpr uint32_t INFO_HEAP_EVERY_MS = 2000;   // 每 2 秒一根（＝60 秒）
 constexpr float    INFO_LOOP_FULL_MS  = 40.0f;  // 波形頂端＝40ms
 constexpr float    INFO_LOOP_LIMIT_MS = 25.0f;  // 虛線＝每幀上限 25ms（鐵則八第 11 點）
+constexpr int      INFO_NEWS_PAGE_SEC = 8;      // A5-2：快訊每 8 秒換一頁（一頁 2 則；資訊頁本來就每秒重畫，不另外加重畫）
 constexpr float    INFO_TILT_FULL_G   = 0.6f;   // IMU 氣泡：傾斜這麼多 g 就到圓邊（與看方向同一個尺度）
 // 對時：Wi-Fi 連上後呼叫一次 configTzTime（SNTP 在背景跑，不等待）。台北 UTC+8、無夏令時間。
 constexpr const char* NTP_TZ      = "CST-8";

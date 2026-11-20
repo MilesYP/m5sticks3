@@ -14,11 +14,15 @@
 //   - 回答結束：最後一則有聲之後安靜超過 END_GAP_MS → audio_end（pcm＝這輪收到的上傳 PCM16 bytes、g=1、ms＝回覆長度）
 //   - 同一個 id 的 start（裝置斷線重送）→ 關舊 session、開新的（帶上下文）、重收整段
 //   - session closed（expired 等）時：還沒開口 → 帶上下文重開並重送這輪已收到的音訊；已在回答 → 用已收到的結束
-//   - 每日額度（台北日期）：turns／audioSec 超過 DAILY_MAX_TURNS／DAILY_MAX_AUDIO_SEC 就拒絕
+//   - 每日額度（台北日期，A5-2 起用美金）：今日花費（info.js 記帳＋還開著的 session 估計）≥ DAILY_MAX_USD
+//     或輪數 ≥ DAILY_MAX_TURNS（防程式出錯一直重開的保險）就拒絕。花費：session.closed 的 usage.seconds
+//     × 單價（沒收到就用連線經過時間）＋委派的搜尋次數與 token（info.js prices()）
 //   - B4：逐字稿每 TEXT_EVERY_MS 合併送 {"t":"text","role":"user|assistant","s":"…"}；Friday 的字也扣到 stop 之後
 import { LiveSession, XS_INSTRUCTIONS, XS_DELEGATION, historyToInput, bytesFromB64, pcmFromBytes } from "./gpt_live.js";
 import { makeStreamEncoder, decodeMulaw } from "./adpcm.js";
 import { toTw } from "./s2t.js";
+import { taipeiDate, quotaLimits, liveUsd, backendUsd } from "./info.js";
+export { taipeiDate, quotaLimits };
 
 // ── 先導測試定出的參數（docs/M1B-架構.md 第 4 節「B3c 先導測試」）──
 export const B3C = {
@@ -76,15 +80,7 @@ function rmsDb(pcm) {
 }
 const ZERO100 = new Int16Array(1600);
 
-// ── 每日額度 ──
-export function taipeiDate(now = Date.now()) {
-  return new Date(now + 8 * 3600e3).toISOString().slice(0, 10);
-}
-export function quotaLimits(env) {
-  const t = parseInt(env.DAILY_MAX_TURNS, 10);
-  const a = parseInt(env.DAILY_MAX_AUDIO_SEC, 10);
-  return { turns: Number.isFinite(t) ? t : 200, audioSec: Number.isFinite(a) ? a : 1800 };
-}
+// ── 每日額度：taipeiDate／quotaLimits 移到 info.js（A5-2 改美金）──
 
 // 字串依 UTF-8 長度切段（不切斷字元）
 export function splitUtf8(s, maxBytes) {
@@ -100,10 +96,13 @@ export function splitUtf8(s, maxBytes) {
 }
 
 export class GptLink {
-  constructor(storage, env, sendJson) {
+  constructor(storage, env, sendJson, info) {
     this.storage = storage;
     this.env = env;
     this.sendJson = sendJson;   // (ws, obj)
+    this.info = info;           // A5-2：InfoHub（記帳、送美金額度給裝置）
+    this.live = new Set();      // 還沒記帳的 GPT-Live session（估計今日花費用）
+    if (info) info.pendingFn = () => this.pendingUsd();
     this.sess = null;           // 目前可用的 LiveSession（已 started）
     this.opening = null;        // 正在開的 Promise
     this.turn = null;
@@ -128,11 +127,12 @@ export class GptLink {
       const key = "quota:" + taipeiDate();
       const q = (await this.storage.get(key)) || { turns: 0, audioSec: 0 };
       const L = quotaLimits(this.env);
-      if (q.turns >= L.turns || q.audioSec >= L.audioSec) {
-        this.log(`額度已滿：今天 ${q.turns} 輪／${q.audioSec.toFixed(0)} 秒（上限 ${L.turns} 輪／${L.audioSec} 秒）→ 拒絕`);
+      const usd = this.info ? await this.info.todayUsd() : 0;
+      if (q.turns >= L.turns || usd >= L.usd) {
+        this.log(`額度已滿：今天 $${usd.toFixed(3)}／${q.turns} 輪（上限 $${L.usd}／${L.turns} 輪）→ 拒絕`);
         if (prev && !prev.done) this.cancel(prev, "額度拒絕");
         this.turn = null;
-        this.sendJson(ws, { t: "error", code: "quota", s: `今日額度已用完（${q.turns}/${L.turns} 輪、${Math.round(q.audioSec)}/${L.audioSec} 秒）` });
+        this.sendJson(ws, { t: "error", code: "quota", s: usd >= L.usd ? `今日額度已用完（$${usd.toFixed(2)}/$${L.usd}）` : `今日額度已用完（${q.turns}/${L.turns} 輪）` });
         this.sendJson(ws, { t: "audio_end", n: 0, fmt: fmt.down, pcm: 0, g: 1, ms: 0 });
         this.sendJson(ws, { t: "state", v: "idle" });
         return false;
@@ -185,6 +185,7 @@ export class GptLink {
     const p = (async () => {
       const t0 = Date.now();
       const s = await LiveSession.open(this.env.OPENAI_API_KEY);
+      this.live.add(s);
       s.on((ev) => this.onLive(s, ev));
       const ctx = ((await this.storage.get("ctx")) || []).slice(-this.cfg.CTX_SEND);
       // Friday 的角色說明與使用者記憶（/persona 上傳）接在人設後面；instructions 上限 16,384 token，這兩份控制在幾千字內
@@ -205,6 +206,7 @@ export class GptLink {
           this.log("帶委派開 session 失敗，改不帶委派：" + e.message);
           s.close(3000);
           const s2 = await LiveSession.open(this.env.OPENAI_API_KEY);
+          this.live.add(s2);
           s2.on((ev) => this.onLive(s2, ev));
           await s2.start(opts);
           this.log(`session 就緒 ${Date.now() - t0} ms（帶上下文 ${ctx.length} 輪、不能上網查）`);
@@ -239,10 +241,28 @@ export class GptLink {
     s.close(15000).then((ev) => {
       this.log(`session 關閉（${why}）：${ev ? JSON.stringify(ev).slice(0, 300) : "15 秒內沒收到 session.closed（用量未確認）"}`);
       if (s.lastUsage) this.log("最後用量 " + JSON.stringify(s.lastUsage).slice(0, 300));
+      this.chargeSession(s, ev);
     });
   }
 
+  // A5-2：session 結束記帳一次（session.closed 的 usage.seconds 為準；沒有就用連線經過時間）
+  chargeSession(s, ev) {
+    if (!this.live.has(s)) return;
+    this.live.delete(s);
+    const secs = ev && ev.usage && Number.isFinite(ev.usage.seconds) ? ev.usage.seconds : (Date.now() - s.t0) / 1000;
+    const how = ev && ev.usage && Number.isFinite(ev.usage.seconds) ? "usage.seconds" : "經過時間估";
+    if (this.info) this.info.addSpend(liveUsd(this.env, secs), `GPT-Live ${secs.toFixed(0)} 秒（${how}）`).catch(() => {});
+  }
+  pendingUsd() {
+    let s = 0;
+    const now = Date.now();
+    for (const x of this.live) s += liveUsd(this.env, (now - x.t0) / 1000);
+    return s;
+  }
+
   onLive(s, ev) {
+    if (ev.type === "session.closed") this.chargeSession(s, ev);
+    else if (ev.type === "_socket.close") setTimeout(() => this.chargeSession(s, s.closedEv), 0);
     if (ev.type === "session.usage.updated") { this.lastUsage = ev; return; }
     if (ev.type === "error") { this.log("OpenAI error " + JSON.stringify(ev).slice(0, 300)); }
     if (ev.type === "session.closed" || ev.type === "_socket.close") {
@@ -291,6 +311,8 @@ export class GptLink {
         if (n.type === "response.completed" || n.type === "response.failed" || n.type === "response.incomplete" || n.type === "response.cancelled") {
           if (t.delegating > 0) t.delegating--;
           const u = n.response && n.response.usage;
+          const calls = ((n.response && n.response.output) || []).filter((o) => o && o.type === "web_search_call").length;
+          if (this.info) this.info.addSpend(backendUsd(this.env, u, calls), `委派 ${calls} 次搜尋＋token`).catch(() => {});
           this.log(`委派結束 ${n.type}，耗時 ${Date.now() - t.delegateAt} ms${u ? "｜後端用量 " + JSON.stringify(u).slice(0, 200) : ""}`);
           t.lastOutAt = Math.max(t.lastOutAt, Date.now());   // 查完後給模型時間開口
         } else if (n.type && n.type.includes("web_search") && n.type.endsWith("completed")) {
@@ -469,7 +491,7 @@ export class GptLink {
     const lat = t.outStarted ? t.firstOutAt - t.stopAt : null;
     this.log(`結束 id=${t.id ?? "-"}（${why}）：上傳 ${(t.upSamples / 16000).toFixed(1)} 秒｜開口 ${lat == null ? "—" : lat + " ms（stop 後）"}｜回覆 ${(ms / 1000).toFixed(1)} 秒（有聲 ${t.voicedN} 則）、${t.sentBytes} bytes｜音量：增益 ×${this.outGain()}、原始峰值 ${(20 * Math.log10((t.lvl.peak || 1) / 32768)).toFixed(1)} dBFS、柔壓 ${t.lvl.soft}／硬削 ${t.lvl.clip} 取樣｜你：${toTw(t.inTx.trim())}｜Friday：${toTw(t.outTx.trim())}`);
     if (this.lastUsage) this.sendJson(t.ws, { t: "usage", s: JSON.stringify(this.lastUsage.usage ?? this.lastUsage).slice(0, 400) });
-    this.account(t, true);
+    this.account(t, true).then(() => this.info && this.info.pushUsd()).catch(() => {});
     this.stopTick();
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {

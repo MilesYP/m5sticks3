@@ -35,6 +35,7 @@ const CLIP_MAX_SAMPLES = 16000 * 60;     // 存最近 60 秒
 const CLIP_CHUNK_BYTES = 100 * 1024;     // storage 單一值上限 128KiB，切 100KB 一塊
 import { runLab } from "./lab.js";
 import { GptLink } from "./gpt_turn.js";
+import { InfoHub } from "./info.js";
 import { concatPcm16, concatU8, decodeMulaw, encodeDown, normalizePcm } from "./adpcm.js";
 
 // B3b-3：裝置↔中控的音訊格式（start 帶 up／down，中控回 format 確認）
@@ -55,12 +56,19 @@ export class VoiceSession {
     this.turn = new WeakMap();    // ws → 目前這一輪的序號；送音訊途中序號變了＝被新一輪取消
     this.turnSeq = 0;
     // B3c：mode=gpt 的對話（GPT-Live 連線、上下文、額度）。有外連時 DO 不會休眠，這份物件留在記憶體。
-    this.gpt = new GptLink(this.storage, env, (ws, obj) => this.send(ws, obj));
+    // A5-2：資訊頁雲端資料（天氣、快訊、美金額度）；broadcast＝送給所有連著的裝置
+    this.info = new InfoHub(this.storage, env, (obj) => this.broadcast(obj));
+    this.gpt = new GptLink(this.storage, env, (ws, obj) => this.send(ws, obj), this.info);
   }
 
   async fetch(request) {
     if (new URL(request.url).pathname === "/lab") return runLab(request, this.env, this.storage);   // B3c 先導測試
     if (new URL(request.url).pathname === "/persona") return this.persona(request);              // Friday 記憶
+    if (new URL(request.url).pathname === "/cron") {                                              // A5-2：Cron Trigger
+      const n = await this.info.refresh(false);
+      return new Response("refreshed " + n + "\n");
+    }
+    if (new URL(request.url).pathname === "/info") return this.infoPage(request);                 // A5-2：查快取／強制更新
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 426 });
     }
@@ -70,6 +78,8 @@ export class VoiceSession {
     this.state.acceptWebSocket(server); // 休眠式：連線保持、閒置不計資源
     try { server.serializeAttachment({ t0: Date.now() }); } catch {}   // B3b-4：記連線開始時間（休眠後仍在）
     console.log("[ws] open");
+    // A5-2：裝置連上 → 先送快取的資訊頁資料，再看要不要更新（過期才抓）
+    setTimeout(() => this.sendInfo(server).then(() => this.info.refresh(false)).catch((e) => console.log("[info] " + e.message)), 300);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -139,6 +149,11 @@ export class VoiceSession {
 
       case "ping":
         this.send(ws, { t: "pong" });
+        break;
+
+      case "info_req":   // A5-2：裝置序列埠 a → 先回快取，再強制更新（60 秒內最多一次）
+        await this.sendInfo(ws);
+        this.info.forceRefresh().catch((e) => console.log("[info] " + e.message));
         break;
 
       case "history": {
@@ -253,6 +268,23 @@ export class VoiceSession {
     const f = (await this.storage.get("persona:friday")) || "";
     const m = (await this.storage.get("persona:miles")) || "";
     return new Response(`friday：${f.length} 字元｜miles：${m.length} 字元\n`);
+  }
+
+  // ── A5-2 資訊頁資料 ──
+  async sendInfo(ws) {
+    for (const m of await this.info.cachedMsgs()) this.send(ws, m);
+  }
+  broadcast(obj) {
+    for (const ws of this.state.getWebSockets()) this.send(ws, obj);
+  }
+  // GET /info?t=…（看快取）、/info?t=…&refresh=1（強制更新）：部署後驗證資料來源用
+  async infoPage(request) {
+    const url = new URL(request.url);
+    if (url.searchParams.get("refresh") === "1") await this.info.refresh(true);
+    const [wx, news, costs] = await Promise.all([this.storage.get("info:wx"), this.storage.get("info:news"), this.storage.get("info:costs")]);
+    const usd = await this.info.usdMsg();
+    const body = { usd, wx, news, costs, devices: this.state.getWebSockets().length };
+    return new Response(JSON.stringify(body, null, 2) + "\n", { headers: { "content-type": "application/json; charset=utf-8" } });
   }
 
   // ── 工具 ──

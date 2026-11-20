@@ -13,11 +13,27 @@ class_name = "VoiceSession"
 tag = "v1"
 new_sqlite_classes = ["VoiceSession"]
 
-# B3c 每日額度（台北日期；一般變數不是 secret）：超過就不開 OpenAI session，回 {"t":"error","code":"quota"}
-# 輪數＝GPT 模式按 A 的次數；音訊秒數＝上傳＋回覆。echo 模式不計。改完要重新 deploy。
+# A5-2：每 30 分鐘更新資訊頁雲端資料（天氣、快訊；Costs 每 3 小時）並推給連著的裝置
+[triggers]
+crons = ["*/30 * * * *"]
+
+# 每日額度（台北日期；一般變數不是 secret）：超過就不開 OpenAI session，回 {"t":"error","code":"quota"}
+# A5-2 起以美金為主：DAILY_MAX_USD；DAILY_MAX_TURNS 只是防程式出錯一直重開的保險。echo 模式不計。改完要重新 deploy。
 [vars]
+DAILY_MAX_USD = "2"
 DAILY_MAX_TURNS = "200"
-DAILY_MAX_AUDIO_SEC = "1800"
+# 價格（11-20 查 developers.openai.com；官方改價時改這裡）：gpt-live-1 每分鐘、web search 每次、後端 gpt-5.6-luna 每百萬 token
+LIVE_USD_PER_MIN = "0.05"
+SEARCH_USD = "0.01"
+BACKEND_IN_USD_PER_M = "0.2"
+BACKEND_CACHED_USD_PER_M = "0.02"
+BACKEND_OUT_USD_PER_M = "1.2"
+# 帳上餘額＝CREDIT_USD（CREDIT_SINCE 那天 00:00 UTC 起的儲值總額）− Costs API 到昨天的花費 − 中控記的今天花費
+# 儲值後改 CREDIT_USD（加上新儲值的金額）再 deploy。CREDIT_USD 留空＝不顯示餘額。
+CREDIT_USD = "10"
+CREDIT_SINCE = "2026-11-16"
+# 快訊來源（逗號分隔的 RSS 網址；中央社）
+NEWS_FEEDS = "https://feeds.feedburner.com/rsscna/politics,https://feeds.feedburner.com/rsscna/intworld,https://feeds.feedburner.com/rsscna/finance,https://feeds.feedburner.com/rsscna/technology,https://feeds.feedburner.com/rsscna/lifehealth,https://feeds.feedburner.com/rsscna/social"
 # 回覆音量：GPT 聲音固定放大倍數（11-20 實聽：2.5 較大聲但更爆，1 比較清楚）。暫調：npx wrangler deploy --var OUT_GAIN:3
 OUT_GAIN = "1"
 # 聲音（API 清單見 docs/M1B-架構.md；ChatGPT App 的 Ember 不在 API 裡）：meridian＝英語北美口音男聲

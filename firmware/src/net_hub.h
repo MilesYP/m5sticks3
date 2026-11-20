@@ -40,6 +40,9 @@ void onFormat(FormatCb cb);
 void onError(ErrorCb cb);
 void onText(TextCb cb);
 void onBinGate(BinGate g);
+// A5-2：資訊頁雲端資料（天氣、快訊、美金額度）收到後存進 info_data（不需回呼）；
+// requestInfo()＝序列埠 a：要中控立即重送並強制更新
+void requestInfo();
 
 // ── B3b-5 上傳工作（網路 task 執行）──
 // uploadBegin：先呼叫 audio_io::startRecording() 再呼叫。中控沒連上也可以，連上後才送。

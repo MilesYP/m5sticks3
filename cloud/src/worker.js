@@ -27,6 +27,13 @@ export default {
       return env.VOICE.get(env.VOICE.idFromName("miles")).fetch(request);
     }
 
+    if (url.pathname === "/info") {
+      // A5-2：查資訊頁雲端資料快取（?refresh=1 強制更新）；同樣要 token（含餘額）
+      const auth = await checkToken(url.searchParams.get("t"), env.HUB_TOKEN);
+      if (auth !== "ok") return new Response("unauthorized", { status: auth === "unset" ? 503 : 401 });
+      return env.VOICE.get(env.VOICE.idFromName("miles")).fetch(request);
+    }
+
     if (url.pathname === "/lab") {
       // B3c 先導測試：同樣要 token（會花 OpenAI 的錢），交給同一個 DO（錄音存在它的 storage）
       const auth = await checkToken(url.searchParams.get("t"), env.HUB_TOKEN);
@@ -51,6 +58,13 @@ export default {
     }
 
     return new Response("StickS3 hub is running. 開 /test 測試、/ws 連線", { status: 200 });
+  },
+
+  // A5-2：Cron Trigger（wrangler.toml [triggers]，每 30 分鐘）→ 叫 DO 更新天氣、快訊、Costs，並推給連著的裝置。
+  // /cron 只在這裡內部呼叫（fetch() 路由沒有轉送 /cron，外面打不進來）。
+  async scheduled(event, env, ctx) {
+    const stub = env.VOICE.get(env.VOICE.idFromName("miles"));
+    ctx.waitUntil(stub.fetch("https://hub.internal/cron").then((r) => r.text()).then((t) => console.log("[cron] " + t.trim())));
   },
 };
 
