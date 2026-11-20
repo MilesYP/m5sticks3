@@ -42,6 +42,7 @@ export const INFO = {
   NEWS_EVERY_MS: 30 * 60e3,
   COSTS_EVERY_MS: 3 * 3600e3,
   FORCE_MIN_MS: 60e3,
+  COSTS_MIN_MS: 10 * 60e3,   // Costs API 有頻率限制（11-20 連按 refresh 吃到 429）→ 強制更新也至少隔 10 分鐘
   NEWS_N: 6,
   NEWS_MAX_CHARS: 36,
   SPEND_KEEP_DAYS: 10,
@@ -303,7 +304,8 @@ export class InfoHub {
         if (force || !wx || now - wx.fetched > INFO.WX_EVERY_MS - 60e3) jobs.push(guard("wx", this.fetchWx()).then((w) => w && out.push(wxMsg(w))));
         if (force || !nw || now - nw.fetched > INFO.NEWS_EVERY_MS - 60e3) jobs.push(guard("news", this.fetchNews()).then((n) => n && out.push(...newsMsgs(n))));
         let usdDirty = lastDay !== taipeiDate();   // 換日（台北）→ 今日花費歸零要送
-        if (force || !costs || now - costs.fetched > INFO.COSTS_EVERY_MS - 60e3 || costs.through < utcDate()) {
+        const costsAge = costs ? now - costs.fetched : Infinity;
+        if (costsAge > INFO.COSTS_MIN_MS && (force || costsAge > INFO.COSTS_EVERY_MS - 60e3 || costs.through < utcDate())) {
           jobs.push(guard("costs", this.fetchCosts()).then((c) => { if (c) usdDirty = true; }));
         }
         await Promise.all(jobs.map((p) => p.catch((e) => this.log("更新失敗 " + (e && e.message)))));
@@ -333,7 +335,8 @@ export class InfoHub {
       (tw.town ? "&LocationName=" + encodeURIComponent(tw.town) : "");
     let r;
     try {
-      r = await fetch(u, { headers: { accept: "application/json" } });
+      // 照實表明身分的 User-Agent（Workers 預設不帶；不帶時被氣象署前端擋下）
+      r = await fetch(u, { headers: { accept: "application/json", "user-agent": "sticks3-hub/1.0 (personal desk weather display)" } });
     } catch (e) {
       return this.fail("wx", `連不到氣象署（${tw.dataset}）：${e && e.message}`);
     }
