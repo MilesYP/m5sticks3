@@ -15,7 +15,7 @@
 //   - 同一個 id 的 start（裝置斷線重送）→ 關舊 session、開新的（帶上下文）、重收整段
 //   - session closed（expired 等）時：還沒開口 → 帶上下文重開並重送這輪已收到的音訊；已在回答 → 用已收到的結束
 //   - 每日額度（台北日期）：turns／audioSec 超過 DAILY_MAX_TURNS／DAILY_MAX_AUDIO_SEC 就拒絕
-//   - B4：逐字稿每 TEXT_EVERY_MS 合併送 {"t":"text","role":"user|assistant","s":"…"}；小S 的字也扣到 stop 之後
+//   - B4：逐字稿每 TEXT_EVERY_MS 合併送 {"t":"text","role":"user|assistant","s":"…"}；Friday 的字也扣到 stop 之後
 import { LiveSession, XS_INSTRUCTIONS, XS_DELEGATION, historyToInput, bytesFromB64, pcmFromBytes } from "./gpt_live.js";
 import { makeStreamEncoder, decodeMulaw } from "./adpcm.js";
 import { toTw } from "./s2t.js";

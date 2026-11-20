@@ -269,7 +269,7 @@ export class VoiceSession {
       body: JSON.stringify({
         model: "gpt-4o-mini", // B3a 測試用便宜模型；B3b 改 GPT-Live 語音
         messages: [
-          { role: "system", content: "你是 StickS3 桌寵『小S』，用繁體中文、簡短親切口語回應。" },
+          { role: "system", content: "你是 M5S3Pack 裡的語音助理 Friday，用繁體中文、簡短親切口語回應。" },
           { role: "user", content: userText },
         ],
       }),

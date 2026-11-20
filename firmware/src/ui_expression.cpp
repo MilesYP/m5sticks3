@@ -132,7 +132,7 @@ void wrapInto(const char* text, size_t len, bool bot, int maxw, int prefix_w) {
 }
 
 const char* const PFX_USER = "你：";
-const char* const PFX_BOT  = "Friday：";   // 11-20：助理名 Friday（小S 是機器）
+const char* const PFX_BOT  = "Friday：";   // 11-20：助理名 Friday（機器是 M5S3Pack）
 
 void rewrap(int W) {
   s_cv.setFont(&fonts::efontTW_12);
@@ -161,8 +161,8 @@ void drawConv(int W, int H) {
   s_cv.setFont(&fonts::efontTW_12);
   s_cv.setTextSize(1);
   s_cv.setTextDatum(top_left);
-  // 要畫哪幾行：小S 還沒有字 → 你的話捲動顯示最後 5 行；
-  // 小S 有字 → 你的話固定前 USER_KEEP 行（太長在結尾加「…」），其餘行數給小S 捲動顯示最新的
+  // 要畫哪幾行：Friday 還沒有字 → 你的話捲動顯示最後 5 行；
+  // Friday 有字 → 你的話固定前 USER_KEEP 行（太長在結尾加「…」），其餘行數給Friday 捲動顯示最新的
   constexpr int USER_KEEP = 2;
   int idx[CONV_LINES];
   int nshow = 0, nuser = 0;
@@ -174,7 +174,7 @@ void drawConv(int W, int H) {
   } else {
     const int ku = nuser < USER_KEEP ? nuser : USER_KEEP;
     user_cut = nuser > ku;
-    for (int i = 0; i < ku; ++i) idx[nshow++] = i;           // 使用者的行排在前面（rewrap 先排你的再排小S）
+    for (int i = 0; i < ku; ++i) idx[nshow++] = i;           // 使用者的行排在前面（rewrap 先排你的再排Friday）
     const int room = CONV_LINES - ku;
     for (int i = (nbot > room ? s_nlines - room : nuser); i < s_nlines; ++i) idx[nshow++] = i;
   }

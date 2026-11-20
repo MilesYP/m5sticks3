@@ -218,9 +218,9 @@ function report(R, idx, span) {
   }
   L.push(`[送出] 錄音 ${R.sendWallMs} ms（牆上）＋ 之後持續送靜音 ${R.silenceSentMs} ms`);
   L.push(`[逐字稿] 使用者：${R.inTx || "（無）"}`);
-  L.push(`[逐字稿] 小S：${R.outTx || "（無）"}`);
+  L.push(`[逐字稿] Friday：${R.outTx || "（無）"}`);
   if (R.firstTx) L.push(`[逐字稿] 第一則 delta 原樣：${JSON.stringify(R.firstTx).slice(0, 240)}`);
-  if (R.lastTxOut) L.push(`[逐字稿] 小S 最後一則 delta 原樣：${JSON.stringify(R.lastTxOut).slice(0, 240)}`);
+  if (R.lastTxOut) L.push(`[逐字稿] Friday 最後一則 delta 原樣：${JSON.stringify(R.lastTxOut).slice(0, 240)}`);
   L.push(`[事件] ${Object.entries(R.types).map(([k, v]) => k + "×" + v).join("、")}`);
   if (R.errors.length) L.push(`[錯誤] ${R.errors.join("｜")}`);
   L.push(`[用量] 最後一次 session.usage.updated：${R.lastUsage ? JSON.stringify(R.lastUsage.usage).slice(0, 200) : "（無）"}｜session.closed 的 usage：${R.closedEv && R.closedEv.usage ? JSON.stringify(R.closedEv.usage) : "（無）"}`);

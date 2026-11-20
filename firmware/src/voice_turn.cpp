@@ -64,7 +64,7 @@ bool     s_gpt = true;           // B3c：預設接 GPT-Live（m0 改 echo）
 bool     s_turn_gpt = true;      // 這一輪實際用的模式（按下 A 時決定）
 uint32_t s_text_user = 0, s_text_bot = 0;   // 這一輪收到的逐字稿 bytes
 
-// ── B4 實機補（11-20）：小S 的字幕對齊聲音 ──
+// ── B4 實機補（11-20）：Friday 的字幕對齊聲音 ──
 // 中控給每段字標上「對應回覆音訊第幾 ms」，先存在這裡，喇叭播到那裡才顯示。
 constexpr size_t   CAP_POOL = 2048;
 constexpr int      CAP_SEGS = 64;
@@ -329,7 +329,7 @@ void onText(const char* role, const char* s, uint32_t ms) {
   if (s_st == St::Idle) return;   // 上一輪的晚到文字
   const bool bot = strcmp(role, "assistant") == 0;
   (bot ? s_text_bot : s_text_user) += strlen(s);
-  // 小S 的字：存起來等播到 ms 才顯示（序列埠照樣馬上印）；存不下就直接顯示
+  // Friday 的字：存起來等播到 ms 才顯示（序列埠照樣馬上印）；存不下就直接顯示
   if (!bot || !capPush(s, ms)) ui_expression::convText(bot, s);
   Serial.printf("[text] %s：%s\n", bot ? "Friday" : "你", s);
 }

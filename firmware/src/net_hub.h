@@ -31,7 +31,7 @@ typedef void (*FormatCb)(const char* up, const char* down);
 // B3c：中控回報錯誤（code＝"quota" 今日額度用完、"openai" 連不上 OpenAI…；s＝說明）
 typedef void (*ErrorCb)(const char* code, const char* s);
 // B4：逐字稿片段（role＝"user"／"assistant"，s＝新增的文字，UTF-8，已解開 JSON 跳脫）
-// ms（B4 實機補）：小S 的字對應到這輪回覆音訊的第幾 ms（播到那裡才顯示）；沒有＝0
+// ms（B4 實機補）：Friday 的字對應到這輪回覆音訊的第幾 ms（播到那裡才顯示）；沒有＝0
 typedef void (*TextCb)(const char* role, const char* s, uint32_t ms);
 typedef bool (*BinGate)(size_t len);   // B3b-5 反壓：現在收不收得下這則音訊；false → 留在佇列，下一圈再試
 void onBinary(BinCb cb);

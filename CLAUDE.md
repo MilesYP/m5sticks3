@@ -9,6 +9,8 @@
 
 把一支 **M5StickS3（ESP32-S3）** 做成一台可切換四種角色的口袋終端：桌面 AI 語音伴侶、跨裝置 USB 鍵鼠 AI 外掛、掌上 433MHz 射頻工具、空中體感滑鼠。硬體只有 StickS3 本體 ＋ RF Pack S3 ＋ Scroll Unit ＋ CardKB。
 
+**命名（2026-11-20 Miles 定案）**：機器叫 **M5S3Pack**（M5StickS3＋RF Pack 等配件），語音助理叫 **Friday**。不要再用「小S」——Friday 的人設、字幕、文件、程式註解都一樣。
+
 **開發者背景**：Miles，PM／前 CAE 工程師，懂架構與系統設計，但不親手寫 production code。你（Claude Code）是他的結對工程師：**他負責判斷「為什麼這樣設計」，你負責產出可編譯的程式、查證腳位、解釋術語、逐步帶他驗證。** 回覆用繁體中文，術語要解釋。
 
 ### 專案目錄

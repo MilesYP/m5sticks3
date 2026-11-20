@@ -26,7 +26,7 @@ void setOffline(bool offline);
 bool offline();
 // B4：對話區（直式：畫面下方最多 5 行，表情往上縮、眼睛在剩下的區域置中；橫式併入 M1-A A4）
 void convBegin();                          // 按下 A：清掉上一輪、展開對話區
-void convText(bool assistant, const char* utf8);   // 加一段逐字稿（使用者／小S），自動換行、只留最後 5 行
+void convText(bool assistant, const char* utf8);   // 加一段逐字稿（使用者／Friday），自動換行、只留最後 5 行
 void convEnd();                            // 這輪結束：停留幾秒後收起、表情回滿版
 // A3：休息臉（待機／想睡／睡著）的眼睛顏色改用電量色（Miles 11-20 方案一）；enabled=false 回規格固定色
 void setRestTint(bool enabled, uint8_t r, uint8_t g, uint8_t b);

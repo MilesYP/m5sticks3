@@ -5,7 +5,7 @@
 
 ---
 
-我在接手 M5StickS3 桌寵「小S」專案（~/Developer/m5sticks3，公開 repo MilesYP/m5sticks3）。這一片是 **M1-A / A4 直橫雙版面**：直拿、橫拿（兩個方向）畫面都正著看，對話區固定在藍鍵（A）那一側，只有文字方向跟著轉。
+我在接手 M5StickS3 桌寵專案（機器名 M5S3Pack，助理叫 Friday；不要再叫「小S」）（~/Developer/m5sticks3，公開 repo MilesYP/m5sticks3）。這一片是 **M1-A / A4 直橫雙版面**：直拿、橫拿（兩個方向）畫面都正著看，對話區固定在藍鍵（A）那一側，只有文字方向跟著轉。
 我是 PM、不親手寫 code；燒錄用 VS Code 的 PlatformIO 按鈕。回覆用繁體中文、術語要解釋。技術選擇請直接定，真的無法判斷才問我；動工前給一次計畫與要改的檔案，我說「開始實作」才寫。Cowork／橋接環境不能 git push（commit 前先請我允許刪檔），commit 後給我一行 `cd ~/Developer/m5sticks3 && git push`。橋接環境無法完整編譯：韌體用模擬標頭做語法檢查、純邏輯用 g++ 測（A3 曾用實測 log 重播邏輯，可比照）。
 
 【先讀】
