@@ -1,5 +1,4 @@
 #include "ui_info.h"
-#include "ui_info_eva.h"
 
 #include <M5Unified.h>
 #include <WiFi.h>
@@ -7,12 +6,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <initializer_list>
 
 #include "audio_io.h"
 #include "battery_ui.h"
 #include "config.h"
 #include "ui_fx.h"
-#include "imu_pet.h"
 #include "info_data.h"
 #include "input_hal.h"
 #include "mode_manager.h"
@@ -36,64 +35,58 @@ long s_last_sec = -1;
 Orient s_drawn_orient = Orient::Portrait;
 bool s_drawn_eva = false;
 
-// ── 合成波色盤（底色與表情頁相同；強調色取自表情頁的情緒色）──
+
+// ── A7 外觀統一（橘黑 EVA 系）：亮度分層＋三個狀態色；邊緣警示線紅黑、功能 icon 黑紅（跟 B 切模式過場呼應）──
 struct C3 { uint8_t r, g, b; };
-constexpr C3 K_BG   = {0x0A, 0x04, 0x20};
-constexpr C3 K_TILE = {0x1C, 0x12, 0x44};
-constexpr C3 K_DIM  = {0x7A, 0x6A, 0xA8};
-constexpr C3 K_TXT  = {0xF2, 0xE9, 0xFF};
-constexpr C3 K_PINK = {0xFF, 0x2B, 0xD6};
-constexpr C3 K_CYAN = {0x00, 0xF0, 0xFF};
-constexpr C3 K_YEL  = {0xFF, 0xD1, 0x66};
-constexpr C3 K_PUR  = {0xB3, 0x88, 0xEB};
-constexpr C3 K_GRN  = {0x39, 0xFF, 0x88};
-constexpr C3 K_ORG  = {0xFF, 0x9F, 0x1C};
-constexpr C3 K_BLUE = {0x4D, 0x8D, 0xFF};
-constexpr C3 K_VIO  = {0xFF, 0x3F, 0xD0};   // NET LINK 洋紅（P1 11-20 Miles：原深紫 9D5CFF 跟 CHIP 藍分不出來）
-constexpr C3 K_RED  = {0xFF, 0x4D, 0x6D};
+constexpr C3 K_BG    = {0x00, 0x00, 0x00};
+constexpr C3 K_FRAME = {0x6A, 0x3A, 0x00};   // 磚塊細框（暗橘）
+constexpr C3 K_UNLIT = {0x24, 0x13, 0x00};   // 七段數字沒亮的段、空格子
+constexpr C3 K_DIM   = {0xB0, 0x6A, 0x10};   // 次要文字（暗橘）
+constexpr C3 K_TXT   = {0xFF, 0x9B, 0x00};   // 主文字（琥珀橘）
+constexpr C3 K_HI    = {0xFF, 0xD0, 0x80};   // 強調（亮橘白）
+constexpr C3 K_RED   = {0xFF, 0x29, 0x23};   // 錯誤／警示線／啟用中的 icon
+constexpr C3 K_YEL   = {0xFF, 0xD0, 0x00};   // 注意
+constexpr C3 K_GRN   = {0x39, 0xFF, 0x14};   // 正常（電量 ≥60%、額度 <70%）
 inline uint16_t col(const C3& c) { return s_cv.color565(c.r, c.g, c.b); }
-inline uint16_t mixCol(const C3& a, const C3& b, float t) {
-  return s_cv.color565((uint8_t)(a.r + (b.r - a.r) * t), (uint8_t)(a.g + (b.g - a.g) * t), (uint8_t)(a.b + (b.b - a.b) * t));
-}
 
 // ── 版面（實際像素；直式 135×240，橫式 240×135、A 鍵在右；A 鍵在左＝左右鏡像）──
-struct Tile { const char* name; int16_t x, y, w, h; };
-enum { T_CLOCK, T_STAT, T_IMU, T_WX, T_CHIP, T_MEM, T_NET, T_MOD, T_NEWS, T_N };
+struct Tile { const char* name; const char* label; int16_t x, y, w, h; };
+enum { T_CLOCK, T_WX, T_PWR, T_SYS, T_ICON, T_NEWS, T_N };   // A7：不放 IMU（Miles）
+// 第三版（Miles 11-20）：大時鐘＋右側秒數與額度；天氣縮窄、跟 LINK icon 放在一起
 const Tile kPortrait[T_N] = {
-  {"clock", 2, 2, 89, 62},   {"stat", 93, 2, 40, 62},
-  {"imu", 2, 66, 32, 34},    {"wx", 36, 66, 97, 34},
-  {"chip", 2, 102, 65, 44},  {"mem", 69, 102, 64, 44},
-  {"net", 2, 148, 65, 44},   {"mod", 69, 148, 64, 44},
-  {"news", 2, 194, 131, 44},
+  {"clock", "TIME", 2, 5, 131, 50},
+  {"wx",    "WX",   2, 143, 76, 52},
+  {"pwr",   "PWR",  2, 57, 131, 40},
+  {"sys",   "SYS",  2, 99, 131, 42},
+  {"icon",  "LINK", 80, 143, 53, 52},
+  {"news",  "NEWS", 2, 197, 131, 38},
 };
-const Tile kLandRight[T_N] = {
-  {"clock", 2, 2, 148, 44},  {"stat", 152, 2, 86, 30},
-  {"imu", 2, 48, 34, 34},    {"wx", 38, 48, 112, 34},
-  {"chip", 2, 84, 73, 49},   {"mem", 77, 84, 73, 49},
-  {"net", 152, 34, 86, 44},  {"mod", 152, 80, 86, 24},
-  {"news", 152, 106, 86, 27},
+const Tile kLandRight[T_N] = {   // 第四版：電量（含額度）移到寬的那側；A 鍵側放天氣＋LINK＋快訊
+  {"clock", "TIME", 2, 5, 146, 44},
+  {"wx",    "WX",   150, 5, 88, 52},
+  {"pwr",   "PWR",  2, 51, 146, 40},
+  {"sys",   "SYS",  150, 59, 88, 72},      // 第六版：橫式晶片／記憶體上下疊在 A 鍵側
+  {"icon",  "LINK", -1, 0, 0, 0},          // 橫式不顯示 icon（Miles）
+  {"news",  "NEWS", 2, 93, 146, 38},
 };
 Tile s_t[T_N];
 bool s_land = false;
+int s_W = 135, s_H = 240;
 constexpr int PAD = 3;
-// 小字（11-20 Miles 兩輪實機）：英文字母用 Font0（細，好認）；數字與數字符號用 efontTW_10_b（粗體，對比清楚）。
-// Font0 字母 6px 寬、8px 高；efontTW_10_b 數字 5px 寬、10px 高 → 一行 10px，Font0 往下 1px 讓底部對齊。
 const lgfx::IFont* const THIN = &fonts::Font0;
 const lgfx::IFont* const BOLD = &fonts::efontTW_10_b;
 constexpr int THIN_DY = 1;
-constexpr int ROW1 = 12, ROW2 = 22, ROW3 = 32;   // 標題下面三行的 y（磚塊內）
 
 void layout(Orient o) {
   s_land = (o != Orient::Portrait);
   const Tile* src = s_land ? kLandRight : kPortrait;
-  const int W = s_land ? 240 : 135;
+  s_W = s_land ? 240 : 135; s_H = s_land ? 135 : 240;
   for (int i = 0; i < T_N; ++i) {
     s_t[i] = src[i];
-    if (o == Orient::LandALeft) s_t[i].x = W - src[i].x - src[i].w;   // A 鍵側在左 → 鏡像
+    if (o == Orient::LandALeft && s_t[i].w) s_t[i].x = s_W - src[i].x - src[i].w;
   }
 }
 
-// ── 文字：一律在磚塊內；模擬時檢查有沒有超出 ──
 #ifdef INFO_SIM
 void simCheck(int ti, const char* s, int x, int y, int w, int h) {
   const Tile& t = s_t[ti];
@@ -102,48 +95,24 @@ void simCheck(int ti, const char* s, int x, int y, int w, int h) {
 }
 #endif
 
-// 指定字型的一段字（大時鐘、中文標題）
-void txtF(int ti, int dx, int dy, const char* s, const C3& c, const lgfx::IFont* f, bool right = false) {
-  const Tile& t = s_t[ti];
-  s_cv.setFont(f);
-  const int w = s_cv.textWidth(s);
-  const int x = right ? t.x + t.w - PAD - w : t.x + PAD + dx;
-  const int y = t.y + dy;
-#ifdef INFO_SIM
-  simCheck(ti, s, x, y, w, s_cv.fontHeight());
-#endif
-  s_cv.setTextColor(col(c));
-  s_cv.drawString(s, x, y);
-}
-
-// 小字：數字（0-9 . : / % - +）粗體、其餘（字母、空白）細體，逐段換字型
-// A5-2：中文（UTF-8 非 ASCII，例「餘」「濕」）走 efontTW_10 細體（Font0 沒有中文字形；粗體中文 10px 會糊成一塊）
 enum { RUN_THIN, RUN_NUM, RUN_CJK };
 inline int runClass(char ch) {
   if ((uint8_t)ch >= 0x80) return RUN_CJK;
   return ((ch >= '0' && ch <= '9') || ch == '.' || ch == ':' || ch == '/' || ch == '%' || ch == '-' || ch == '+') ? RUN_NUM : RUN_THIN;
 }
 const lgfx::IFont* runFont(int k) { return k == RUN_NUM ? BOLD : k == RUN_CJK ? (const lgfx::IFont*)&fonts::efontTW_10 : THIN; }
-// 取一段同字型的字（不切斷 UTF-8）
 size_t nextRun(const char* p, char* run, size_t cap, int* kind) {
   *kind = runClass(*p);
   size_t n = 0;
   while (p[n] && runClass(p[n]) == *kind && n < cap - 1) { run[n] = p[n]; ++n; }
-  while (n > 0 && p[n] && ((uint8_t)p[n] & 0xC0) == 0x80) --n;   // 停在字中間 → 退回字首
+  while (n > 0 && p[n] && ((uint8_t)p[n] & 0xC0) == 0x80) --n;
   if (n == 0) n = 1;
   run[n] = '\0';
   return n;
 }
 int mixedWidth(const char* s) {
-  int w = 0;
-  char run[64];
-  for (const char* p = s; *p;) {
-    int k;
-    const size_t n = nextRun(p, run, sizeof run, &k);
-    s_cv.setFont(runFont(k));
-    w += s_cv.textWidth(run);
-    p += n;
-  }
+  int w = 0; char run[64];
+  for (const char* p = s; *p;) { int k; const size_t n = nextRun(p, run, sizeof run, &k); s_cv.setFont(runFont(k)); w += s_cv.textWidth(run); p += n; }
   return w;
 }
 void txt(int ti, int dx, int dy, const char* s, const C3& c, bool right = false) {
@@ -157,30 +126,93 @@ void txt(int ti, int dx, int dy, const char* s, const C3& c, bool right = false)
   s_cv.setTextColor(col(c));
   char run[64];
   for (const char* p = s; *p;) {
-    int k;
-    const size_t n = nextRun(p, run, sizeof run, &k);
+    int k; const size_t n = nextRun(p, run, sizeof run, &k);
     s_cv.setFont(runFont(k));
     x += s_cv.drawString(run, x, k == RUN_THIN ? y + THIN_DY : y);
     p += n;
   }
 }
-void header(int ti, const char* s, const C3& c) { txt(ti, 0, 1, s, c); }
+void txtF(int ti, int dx, int dy, const char* s, const C3& c, const lgfx::IFont* f, bool right = false) {
+  const Tile& t = s_t[ti];
+  s_cv.setFont(f);
+  const int w = s_cv.textWidth(s);
+  const int x = right ? t.x + t.w - PAD - w : t.x + PAD + dx;
+  const int y = t.y + dy;
+#ifdef INFO_SIM
+  simCheck(ti, s, x, y, w, s_cv.fontHeight());
+#endif
+  s_cv.setTextColor(col(c));
+  s_cv.drawString(s, x, y);
+}
 
-// 各塊的主色（標題字與外框）；電量塊跟著電量色
-const C3& batColor(int lv) { return lv < 0 ? K_DIM : lv >= 60 ? K_GRN : lv >= 20 ? K_YEL : K_RED; }
-C3 tileAccent(int i) {
-  switch (i) {
-    case T_CLOCK: return K_TXT;
-    case T_STAT:  return batColor(battery_ui::level());
-    case T_IMU:   return K_YEL;
-    case T_WX:    return K_CYAN;
-    case T_CHIP:  return K_BLUE;
-    case T_MEM:   return K_PUR;
-    case T_NET:   return K_VIO;
-    case T_MOD:   return K_GRN;
-    default:      return K_ORG;    // 快訊
+// ── EVA 元件 ──
+// 邊緣警示線：紅黑斜紋（Miles A7：跟 B 切模式過場呼應）
+void hazard(int y, int h) {
+  const uint16_t red = col(K_RED);
+  for (int row = 0; row < h; ++row)
+    for (int left = -row - 8; left < s_W; left += 12) {
+      const int a = left < 0 ? 0 : left, b = left + 6 < s_W ? left + 6 : s_W;
+      if (b > a) s_cv.drawFastHLine(a, y + row, b - a, red);
+    }
+}
+// 磚塊標題：六角實心標籤（琥珀底黑字），寬依文字
+int hexLabel(int ti, const char* s) {
+  const Tile& t = s_t[ti];
+  s_cv.setFont((uint8_t)s[0] >= 0x80 ? (const lgfx::IFont*)&fonts::efontTW_10 : THIN);
+  const int w = s_cv.textWidth(s) + 8, h = 10;
+  const int x = t.x + 1, y = t.y + 1;
+  for (int row = 0; row < h; ++row) {
+    const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
+    const int in = fc * 3 / (h / 2);
+    s_cv.drawFastHLine(x + in, y + row, w - 2 * in, col(K_TXT));
+  }
+  s_cv.setTextColor(col(K_BG));
+  s_cv.drawString(s, x + 4, (uint8_t)s[0] >= 0x80 ? y : y + 1);
+  return w;
+}
+void frame(int ti) {
+  const Tile& t = s_t[ti];
+  if (!t.w) return;
+  s_cv.drawRect(t.x, t.y, t.w, t.h, col(K_FRAME));
+  // 四角亮一點（EVA 取景框感）
+  const uint16_t c = col(K_DIM);
+  s_cv.drawFastHLine(t.x, t.y, 4, c); s_cv.drawFastVLine(t.x, t.y, 4, c);
+  s_cv.drawFastHLine(t.x + t.w - 4, t.y + t.h - 1, 4, c); s_cv.drawFastVLine(t.x + t.w - 1, t.y + t.h - 4, 4, c);
+}
+// 七段數字（A7 Miles：原本太糊 → 每段兩端削尖、段與段之間留 1px 縫，沒亮的段更暗）
+void hseg(int x, int y, int len, int t, uint16_t c) {
+  for (int r = 0; r < t; ++r) {
+    const int in = r < (t - 1) / 2 ? (t - 1) / 2 - r : r - t / 2 > 0 ? r - t / 2 : 0;
+    if (len - 2 * in > 0) s_cv.drawFastHLine(x + in, y + r, len - 2 * in, c);
   }
 }
+void vseg(int x, int y, int len, int t, uint16_t c) {
+  for (int k = 0; k < t; ++k) {
+    const int in = k < (t - 1) / 2 ? (t - 1) / 2 - k : k - t / 2 > 0 ? k - t / 2 : 0;
+    if (len - 2 * in > 0) s_cv.drawFastVLine(x + k, y + in, len - 2 * in, c);
+  }
+}
+void seg7(int x, int y, int w, int h, int n, const C3& on) {
+  constexpr uint8_t mask[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x40};
+  const int t = w >= 11 ? 3 : 2;
+  const int mid = (h - t) / 2;                 // 中間那段的 y
+  const int hl = w - 2;                        // 橫段長（左右各讓 1px 縫）
+  const int vu = mid - 1, vl = h - t - mid - 1;   // 上、下直段長（上下各讓縫）
+  const uint16_t c1 = col(on), c0 = col(K_UNLIT);
+  auto c = [&](int i) { return (mask[n] & (1 << i)) ? c1 : c0; };
+  hseg(x + 1, y, hl, t, c(0));                       // a
+  vseg(x + w - t, y + 1, vu, t, c(1));               // b
+  vseg(x + w - t, y + mid + 1, vl + t - 1, t, c(2)); // c
+  hseg(x + 1, y + h - t, hl, t, c(3));               // d
+  vseg(x, y + mid + 1, vl + t - 1, t, c(4));         // e
+  vseg(x, y + 1, vu, t, c(5));                       // f
+  hseg(x + 1, y + mid, hl, t, c(6));                 // g
+}
+void seg7pair(int x, int y, int w, int h, int v, const C3& on) {
+  seg7(x, y, w, h, v < 0 ? 10 : (v / 10) % 10, on);
+  seg7(x + w + 2, y, w, h, v < 0 ? 10 : v % 10, on);
+}
+const C3& batColor(int lv) { return lv < 0 ? K_DIM : lv >= 60 ? K_GRN : lv >= 20 ? K_YEL : K_RED; }
 
 // ── 歷史資料 ──
 uint8_t  s_loop_hist[cfg::INFO_HIST_SEC];    // 每秒主迴圈最長一圈（ms，封頂 255）
@@ -287,203 +319,212 @@ void drawIcon(int i, int cx, int cy, uint16_t c) {
   }
 }
 
-void wifiBars(int x, int y, int bars, bool up) {   // 右下角對齊在 (x, y)，寬 11、高 8
-  for (int i = 0; i < 4; ++i) {
-    const int h = 2 + i * 2;
-    const C3& c = (up && i < bars) ? K_GRN : K_DIM;
-    s_cv.fillRect(x - 11 + i * 3, y - h, 2, h, col(c));
-  }
-  if (!up) {   // 沒連上：打叉
-    s_cv.drawLine(x - 11, y - 8, x - 4, y - 1, col(K_RED));
-    s_cv.drawLine(x - 4, y - 8, x - 11, y - 1, col(K_RED));
-  }
-}
-
-// ── 各磚塊 ──
+// ── 時鐘：七段數字 HH:MM＋小秒數；右邊日期、開機時間；最下一行語音額度 ──
 const char* kWday[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-
-void uptimeStr(char* b, size_t n) {
-  const uint32_t s = millis() / 1000;
-  const uint32_t h = s / 3600, m = (s / 60) % 60;
-  if (h < 24) snprintf(b, n, "UP %lu:%02lu", (unsigned long)h, (unsigned long)m);
-  else snprintf(b, n, "UP %lud%02luh", (unsigned long)(h / 24), (unsigned long)(h % 24));
-}
-
-// A5-2：語音額度一行。直式「$0.42/2 餘8.37」、橫式「$0.42/$2.00 餘$8.37」；
-// 今日花費依用掉上限的比例變色（<70% 綠、≥70% 黃、≥90% 紅），中控斷線時整行變暗（顯示上次的值）
-void drawUsd(int dy) {
+// 語音額度兩行（放在秒數下面）：「$0.42/2」＋「餘8.37」；今日花費依比例綠／黃／紅，斷線變暗
+void drawUsd(int ti, int dx, int dy) {
   const info_data::Usd& u = info_data::usd();
-  char line[48];
-  info_data::formatUsd(line, sizeof line, u, s_land);
-  if (!u.valid) { txt(T_CLOCK, 0, dy, line, K_DIM); return; }
-  const bool live = net_hub::linkUp();
+  const lgfx::IFont* F = &fonts::efontTW_12;   // 第五版（Miles）：額度字放大到 12px
+  if (!u.valid) { txtF(ti, dx, dy, "GPT -", K_DIM, F); return; }
+  char head[16], cap[12], left[16];
+  snprintf(head, sizeof head, "$%.2f", u.today);
+  snprintf(cap, sizeof cap, "/%d", (int)(u.cap + 0.5f));
   const int lv = info_data::usdLevel();
-  const C3& tc = !live ? K_DIM : lv == 2 ? K_RED : lv == 1 ? K_YEL : K_GRN;
-  const size_t cut = strcspn(line, "/");   // 「$0.42」｜「/2 餘8.37」
-  char head[16];
-  snprintf(head, sizeof head, "%.*s", (int)cut, line);
-  txt(T_CLOCK, 0, dy, head, tc);
-  txt(T_CLOCK, mixedWidth(head), dy, line + cut, K_DIM);
+  const C3& tc = !net_hub::linkUp() ? K_DIM : lv == 2 ? K_RED : lv == 1 ? K_YEL : K_GRN;
+  txtF(ti, dx, dy, head, tc, F);
+  const int hw = s_cv.textWidth(head);
+  txtF(ti, dx + hw, dy, cap, K_DIM, F);
+  if (u.left >= 0) { snprintf(left, sizeof left, u.left >= 100 ? "餘%.0f" : "餘%.2f", u.left); txtF(ti, dx, dy + 12, left, K_DIM, F); }
 }
-
+// ── 斜體七段數字（第六版：參考 EVA「活動限界」計時器——字往右斜、段兩端削尖、段間留縫）──
+// 每 SLANT_STEP 列往右偏 1px（整數斜率：階梯每階一樣高，邊緣乾淨；原本 0.17 四捨五入，階梯高低不一看起來糊）
+constexpr int SLANT_STEP = 6;
+constexpr float SLANT = 1.0f / SLANT_STEP;
+inline void shRow(int x, int y, int len, int base, uint16_t c) {   // base＝數字底部 y
+  if (len > 0) s_cv.drawFastHLine(x + (base - 1 - y) / SLANT_STEP, y, len, c);
+}
+void hsegI(int x, int y, int len, int t, int base, uint16_t c) {
+  for (int r = 0; r < t; ++r) {
+    const int in = r < (t - 1) / 2 ? (t - 1) / 2 - r : r - t / 2 > 0 ? r - t / 2 : 0;
+    shRow(x + in, y + r, len - 2 * in, base, c);
+  }
+}
+void vsegI(int x, int y, int len, int t, int base, uint16_t c) {
+  const int tip = (t - 1) / 2;
+  for (int r = 0; r < len; ++r) {
+    const int in = r < tip ? tip - r : (len - 1 - r) < tip ? tip - (len - 1 - r) : 0;
+    shRow(x + in, y + r, t - 2 * in, base, c);
+  }
+}
+void seg7I(int x, int y, int w, int h, int n, const C3& on) {
+  constexpr uint8_t mask[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x40};
+  const int t = w >= 11 ? 3 : 2, base = y + h;
+  const int mid = (h - t) / 2, hl = w - 2, vu = mid - 1, vl = h - t - mid - 1;
+  const uint16_t c1 = col(on), c0 = s_cv.color565(0x1A, 0x0E, 0x00);   // 時鐘的暗段再暗一點，亮的「1」才不會被吃掉
+  auto c = [&](int i) { return (n >= 0 && (mask[n] & (1 << i))) ? c1 : c0; };
+  hsegI(x + 1, y, hl, t, base, c(0));
+  vsegI(x + w - t, y + 1, vu, t, base, c(1));
+  vsegI(x + w - t, y + mid + 1, vl + t - 1, t, base, c(2));
+  hsegI(x + 1, y + h - t, hl, t, base, c(3));
+  vsegI(x, y + mid + 1, vl + t - 1, t, base, c(4));
+  vsegI(x, y + 1, vu, t, base, c(5));
+  hsegI(x + 1, y + mid, hl, t, base, c(6));
+}
+// 兩位數；lead＝十位是 0 時不亮（EVA 計時器的暗 8）
+void seg7IPair(int x, int y, int w, int h, int v, const C3& on, bool blankLead = false) {
+  const int tens = v < 0 ? 10 : (v / 10) % 10;
+  seg7I(x, y, w, h, (blankLead && tens == 0) ? -1 : tens, on);
+  seg7I(x + w + 3, y, w, h, v < 0 ? 10 : v % 10, on);
+}
+void colonI(int x, int y, int h, const C3& on) {   // 斜體冒號：兩個小方塊跟著斜
+  const int base = y + h;
+  for (int k : {h / 3, h * 2 / 3}) {
+    const int yy = y + k - 1;
+    for (int r = 0; r < 3; ++r) shRow(x, yy + r, 3, base, col(on));
+  }
+}
+// NERV 樣式狀態框（跟內部／外部一樣）：亮＝實心底黑字，暗＝細框暗字
+void nervBox(int x, int y, int w, int h, const char* s, bool active, const C3& on) {
+  if (active) s_cv.fillRect(x, y, w, h, col(on));
+  else s_cv.drawRect(x, y, w, h, col(K_FRAME));
+  s_cv.setFont(&fonts::Font2);
+  s_cv.setTextColor(active ? col(K_BG) : col(K_DIM));
+  s_cv.drawString(s, x + (w - s_cv.textWidth(s)) / 2, y + (h - 14) / 2);
+}
+// 時鐘（第六版，Miles 11-20：參考 EVA「活動限界まで」）
+//   左上：「台北時間」粗體大字＋小字 TAIPEI LOCAL TIME；右上：日期
+//   下面：最左 AM／PM 兩個 NERV 框上下疊，斜體七段 12 小時制時:分＋小秒數，整組靠右
 void drawClock(bool ok, const struct tm& lt) {
-  char hm[8], ss[4], date[12], up[16];
-  if (ok) {
-    snprintf(hm, sizeof hm, "%02d:%02d", lt.tm_hour, lt.tm_min);
-    snprintf(ss, sizeof ss, "%02d", lt.tm_sec);
-    snprintf(date, sizeof date, "%s %02d/%02d", kWday[lt.tm_wday % 7], lt.tm_mon + 1, lt.tm_mday);
-  } else {
-    strcpy(hm, "--:--"); strcpy(ss, "--"); strcpy(date, "--- --/--");
-  }
-  uptimeStr(up, sizeof up);
   const Tile& t = s_t[T_CLOCK];
-  txtF(T_CLOCK, 0, 3, hm, ok ? K_TXT : K_DIM, &fonts::Font4);
-  const int hw = s_cv.textWidth(hm);
-  txtF(T_CLOCK, hw + 2, 13, ss, K_CYAN, &fonts::Font2);
-  if (!s_land) {                   // 直式：日期／開機時間／語音額度各一行（小字一行約 16 字，「FRI 11/20 UP 2:14」17 字放不下）
-    txt(T_CLOCK, 0, 30, date, K_YEL);
-    txt(T_CLOCK, 0, 40, up, K_DIM);
-    drawUsd(50);
-  } else {                         // 橫式：日期、開機時間在時鐘右邊；語音額度在下面整行
-    txt(T_CLOCK, 0, 4, date, K_YEL, true);
-    txt(T_CLOCK, 0, 15, up, K_DIM, true);
-    drawUsd(32);
-  }
-  (void)t;
+  s_cv.setFont(&fonts::efontTW_16_b);
+  s_cv.setTextColor(col(K_HI));
+  s_cv.drawString("台北時間", t.x + PAD, t.y + 2);
+  const int lw = s_cv.textWidth("台北時間");
+  s_cv.setFont(&fonts::TomThumb);
+  s_cv.setTextColor(col(K_DIM));
+  s_cv.drawString("TAIPEI", t.x + PAD + lw + 3, t.y + 4);
+  s_cv.drawString(s_land ? "LOCAL TIME" : "TIME", t.x + PAD + lw + 3, t.y + 11);   // 直式太窄：只寫 TIME，避免撞到星期
+  char date[16];
+  if (ok) snprintf(date, sizeof date, "%02d.%02d", lt.tm_mon + 1, lt.tm_mday);
+  else strcpy(date, "--.--");
+  txt(T_CLOCK, 0, 1, date, K_HI, true);
+  if (ok) txt(T_CLOCK, 0, 10, kWday[lt.tm_wday % 7], K_DIM, true);
+  // 12 小時制
+  const int h12 = !ok ? -1 : (lt.tm_hour % 12 == 0 ? 12 : lt.tm_hour % 12);
+  const bool pm = ok && lt.tm_hour >= 12;
+  const int dw = s_land ? 14 : 15, dh = s_land ? 24 : 28;
+  const int sw = 8, sh = 14;                                   // 秒數
+  const int y = t.y + t.h - dh - 3;
+  // 從右往左排
+  const int slantPad = (int)(dh * SLANT) + 1;
+  const int right = t.x + t.w - PAD - slantPad;
+  const int sx = right - (2 * sw + 3);
+  seg7IPair(sx, y + dh - sh, sw, sh, ok ? lt.tm_sec : -1, K_DIM);
+  const int mx = sx - 5 - (2 * dw + 3);
+  seg7IPair(mx, y, dw, dh, ok ? lt.tm_min : -1, K_TXT);
+  const int cx = mx - 7;
+  colonI(cx + 1, y, dh, K_TXT);
+  const int hx = cx - 3 - (2 * dw + 3);
+  seg7IPair(hx, y, dw, dh, h12, K_TXT, true);
+  // AM／PM 框：最左、上下疊，高度跟數字一樣
+  const int bw = 22, bh = (dh - 2) / 2;
+  const int bx = t.x + 2;
+  nervBox(bx, y, bw, bh, "AM", ok && !pm, K_TXT);
+  nervBox(bx, y + bh + 2, bw, bh, "PM", pm, K_TXT);
 }
 
-void drawStat() {
-  const Tile& t = s_t[T_STAT];
-  const int lv = battery_ui::level();
-  const int mv = battery_ui::voltageMv();
-  const bool chg = battery_ui::charging();
-  char pct[8], volt[8];
-  if (lv >= 0) snprintf(pct, sizeof pct, "%d%%", lv); else strcpy(pct, "--%");
-  if (mv > 0) snprintf(volt, sizeof volt, "%d.%02dV", mv / 1000, (mv % 1000) / 10); else strcpy(volt, "-.--V");
-  const C3& pc = batColor(lv);
-  // 11-20 Miles：電量用粗體「100」會糊成一坨 → 電量、電壓都用細體
-  txtF(T_STAT, 0, 2 + THIN_DY, pct, chg ? K_YEL : pc, THIN);
-  if (chg) {   // 充電中：百分比後面一個小閃電
-    const int bx = t.x + PAD + s_cv.textWidth(pct) + 1, by = t.y + 3;   // 字型還是上一行設的細體
-    s_cv.drawLine(bx + 3, by, bx, by + 4, col(K_YEL));
-    s_cv.drawLine(bx, by + 4, bx + 3, by + 4, col(K_YEL));
-    s_cv.drawLine(bx + 3, by + 4, bx, by + 7, col(K_YEL));
-  }
-  int iy0, cell, perRow;
-  if (!s_land) {
-    txtF(T_STAT, 0, 13 + THIN_DY, volt, K_DIM, THIN);
-    iy0 = t.y + 37; cell = 11; perRow = 3;
-  } else {
-    txtF(T_STAT, 0, 2 + THIN_DY, volt, K_DIM, THIN, true);
-    iy0 = t.y + 23; cell = 13; perRow = 6;
-  }
-  const int barY = s_land ? t.y + 14 : t.y + 25, barW = t.w - PAD * 2;
-  const int barH = s_land ? 3 : 4;
-  s_cv.fillRect(t.x + PAD, barY, barW, barH, mixCol(K_TILE, K_DIM, 0.4f));
-  if (lv > 0) s_cv.fillRect(t.x + PAD, barY, barW * (lv > 100 ? 100 : lv) / 100, barH, col(pc));
-  const int x0 = t.x + (t.w - cell * perRow) / 2 + cell / 2;
-  for (int i = 0; i < IC_N; ++i) {
-    const int r = i / perRow, c = i % perRow;
-    drawIcon(i, x0 + c * cell, iy0 + r * 14, col(iconActive(i) ? K_CYAN : K_DIM));
-  }
-}
-
-void drawImu() {
-  const Tile& t = s_t[T_IMU];
-  header(T_IMU, "IMU", K_YEL);
-  const int cx = t.x + t.w / 2, cy = t.y + 12 + (t.h - 12) / 2, r = 10;
-  s_cv.drawCircle(cx, cy, r, col(K_DIM));
-  s_cv.drawCircle(cx, cy, 4, mixCol(K_TILE, K_DIM, 0.5f));
-  float right, up, z;
-  if (imu_pet::tilt(&right, &up, &z)) {
-    auto cl = [](float v) { return v < -1 ? -1.0f : v > 1 ? 1.0f : v; };
-    // 氣泡：左右看「畫面右方向」的重力分量、上下看前後傾（螢幕法線 z）
-    const int dx = (int)lroundf(cl(right / cfg::INFO_TILT_FULL_G) * (r - 3));
-    const int dy = (int)lroundf(cl(z / cfg::INFO_TILT_FULL_G) * (r - 3));
-    s_cv.fillCircle(cx + dx, cy + dy, 2, col(K_PINK));
-  }
-}
-
-// A5-2：天氣（中央氣象署鄉鎮預報，中控每 30 分鐘更新）
-//   標題列：WEATHER＋地點（右）；中控斷線時地點換成資料時間（例 18:30）
-//   下面左半：圖示＋大字溫度（Font2）；右半上：天氣描述（efontTW_12，放得下幾個字就幾個）；
-//   右半下：水滴＋濕度、雨傘＋降雨機率（11-20 Miles：「濕」「雨」小字擠成一團 → 改圖示）
+// ── 天氣（A7 第三版：縮窄，跟 LINK icon 並排）：標題列地點／資料時間；圖示＋溫度；描述；濕度、降雨機率 ──
 void drawWeather() {
   const Tile& t = s_t[T_WX];
-  header(T_WX, "WEATHER", K_CYAN);
+  hexLabel(T_WX, "WX");
   const info_data::Weather& w = info_data::weather();
-  if (!w.valid) { txt(T_WX, 0, ROW1 + 2, "--", K_DIM); return; }
+  if (!w.valid) { txt(T_WX, 0, 14, "--", K_DIM); return; }
   const bool live = net_hub::linkUp();
   char hdr[20];
-  if (live) snprintf(hdr, sizeof hdr, "%s", w.loc);
-  else info_data::formatAt(hdr, sizeof hdr, w.at);
-  txt(T_WX, 0, 1, hdr, live ? K_TXT : K_DIM, true);
-  // 圖示 14×14：中心 (x+PAD+7, y+20)
-  ui_wxicon::draw(s_cv, t.x + PAD + 7, t.y + 21, 7, w.icon, col(K_YEL), col(K_TXT), col(K_CYAN));
-  // 溫度：Font2 大字＋度數小圈
+  if (live) snprintf(hdr, sizeof hdr, "%s", w.loc); else info_data::formatAt(hdr, sizeof hdr, w.at);
+  txt(T_WX, 0, 1, hdr, live ? K_HI : K_DIM, true);
+  ui_wxicon::draw(s_cv, t.x + PAD + 7, t.y + 20, 7, w.icon, col(K_YEL), col(K_HI), col(K_TXT));
   char tb[12] = "--";
   if (w.temp > -100) snprintf(tb, sizeof tb, "%d", w.temp);
-  const int tx = PAD + 17;
-  txtF(T_WX, tx - PAD, 13, tb, K_TXT, &fonts::Font2);
+  txtF(T_WX, 18, 12, tb, K_HI, &fonts::Font2);
   const int tw = s_cv.textWidth(tb);
-  s_cv.drawCircle(t.x + tx + tw + 2, t.y + 16, 1, col(K_TXT));
-  // 右半：從溫度後面留 6px 開始
-  const int rx = tx + tw + 8;                       // 相對磚塊左緣
-  const int room = t.w - PAD - rx;                  // 右半可用寬度
+  s_cv.drawCircle(t.x + PAD + 18 + tw + 2, t.y + 15, 1, col(K_HI));
   char d[40];
-  info_data::utf8Prefix(d, sizeof d, w.desc, room / 12);
-  txtF(T_WX, rx - PAD, 12, d, K_TXT, &fonts::efontTW_12);
-  // 濕度、降雨機率：圖示＋數字，中間留空
+  info_data::utf8Prefix(d, sizeof d, w.desc, (t.w - 2 * PAD) / 12);
+  txtF(T_WX, 0, 28, d, K_TXT, &fonts::efontTW_12);
   char rb[12] = "--", pb[12] = "--";
   if (w.rh >= 0) snprintf(rb, sizeof rb, "%d%%", w.rh);
   if (w.pop >= 0) snprintf(pb, sizeof pb, "%d%%", w.pop);
-  const int ry = 24;
-  // 11-20 Miles：濕度、降雨機率的數字改細體（Font0），跟電量、電壓一樣
   auto thinW = [&](const char* v) { s_cv.setFont(THIN); return (int)s_cv.textWidth(v); };
-  if (7 + thinW(rb) + 4 + 9 + thinW(pb) > room) {   // 放不下（例 100%／100% 配上負溫度）→ 拿掉 %
-    if (w.rh >= 0) snprintf(rb, sizeof rb, "%d", w.rh);
-    if (w.pop >= 0) snprintf(pb, sizeof pb, "%d", w.pop);
-  }
-  const bool tight = 7 + thinW(rb) + 4 + 9 + thinW(pb) > room;   // 還是放不下 → 間距縮小
-  const C3& pc = w.pop >= 50 ? K_CYAN : K_DIM;
-  int x = rx;
-  ui_wxicon::drop(s_cv, t.x + x, t.y + ry + 1, col(K_DIM));
-  x += tight ? 6 : 7;
-  txtF(T_WX, x - PAD, ry + THIN_DY, rb, K_DIM, THIN);
-  x += thinW(rb) + (tight ? 2 : 4);
-  ui_wxicon::umbrella(s_cv, t.x + x, t.y + ry + 1, col(pc));
-  x += tight ? 8 : 9;
+  const C3& pc = w.pop >= 50 ? K_YEL : K_DIM;
+  int x = PAD; const int ry = 41;
+  ui_wxicon::drop(s_cv, t.x + x, t.y + ry + 1, col(K_DIM)); x += 7;
+  txtF(T_WX, x - PAD, ry + THIN_DY, rb, K_DIM, THIN); x += thinW(rb) + 5;
+  ui_wxicon::umbrella(s_cv, t.x + x, t.y + ry + 1, col(pc)); x += 9;
   txtF(T_WX, x - PAD, ry + THIN_DY, pb, pc, THIN);
 }
 
-void drawChip() {
-  const Tile& t = s_t[T_CHIP];
-  header(T_CHIP, "CHIP", K_BLUE);   // 11-20：外框跟標題同色，CHIP 改藍（避免和 WEATHER 同為青色）
-  const float tc = temperatureRead();
-  char tb[10];
-  if (isnan(tc)) strcpy(tb, "--C"); else snprintf(tb, sizeof tb, "%dC", (int)lroundf(tc));
-  txtF(T_CHIP, 0, 1 + THIN_DY, tb, tc >= 60 ? K_RED : K_ORG, THIN, true);   // 11-20 Miles：溫度用粗體看不清 → 細體
-  // 波形：每秒一點（主迴圈最長一圈），頂端 40ms、虛線 25ms
-  const int gx = t.x + PAD, gw = t.w - PAD * 2;
-  const int gy = t.y + 12, gh = t.h - 12 - 12;
-  const float full = cfg::INFO_LOOP_FULL_MS;
-  const int ly = gy + gh - (int)(gh * cfg::INFO_LOOP_LIMIT_MS / full);
-  for (int x = 0; x < gw; x += 4) s_cv.drawFastHLine(gx + x, ly, 2, col(K_DIM));
-  const int n = s_loop_n < gw ? s_loop_n : gw;
-  int px = -1, py = 0;
-  for (int k = 0; k < n; ++k) {   // 最新的在右邊
-    const int idx = (s_loop_pos - n + k + cfg::INFO_HIST_SEC * 2) % cfg::INFO_HIST_SEC;
-    const float v = s_loop_hist[idx] > full ? full : s_loop_hist[idx];
-    const int x = gx + gw - n + k, y = gy + gh - 1 - (int)((gh - 1) * v / full);
-    if (px >= 0) s_cv.drawLine(px, py, x, y, col(s_loop_hist[idx] > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_CYAN));
-    else s_cv.drawPixel(x, y, col(K_CYAN));
-    px = x; py = y;
+// efontTW_16_b 的四個原生字形，32×16、每列 MSB first。
+constexpr uint8_t kInternalLabel[] = {
+  0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x18, 0x7E,
+  0x1F, 0x00, 0xFF, 0xA6, 0x03, 0x00, 0x63, 0x66,
+  0x7F, 0xFC, 0x36, 0x6C, 0x63, 0x0C, 0x36, 0x6C,
+  0x63, 0x8C, 0x34, 0x68, 0x63, 0x8C, 0xFF, 0xAC,
+  0x66, 0xCC, 0x00, 0x66, 0x66, 0xCC, 0x00, 0x66,
+  0x6C, 0x6C, 0x7F, 0x63, 0x68, 0x34, 0x63, 0x73,
+  0x60, 0x0C, 0x63, 0x6B, 0x60, 0x0C, 0x63, 0x6E,
+  0x60, 0x3C, 0x7F, 0x60, 0x00, 0x00, 0x00, 0x60,
+};
+constexpr uint8_t kExternalLabel[] = {
+  0x0C, 0x60, 0x18, 0x00, 0x0C, 0x60, 0x18, 0x7E,
+  0x0F, 0xA0, 0xFF, 0xA6, 0x19, 0xA0, 0x63, 0x66,
+  0x19, 0xA0, 0x36, 0x6C, 0x31, 0xA0, 0x36, 0x6C,
+  0x3B, 0x70, 0x34, 0x68, 0x6D, 0x6C, 0xFF, 0xAC,
+  0xC7, 0x66, 0x00, 0x66, 0x06, 0x63, 0x00, 0x66,
+  0x06, 0x60, 0x7F, 0x63, 0x0C, 0x60, 0x63, 0x73,
+  0x0C, 0x60, 0x63, 0x6B, 0x18, 0x60, 0x63, 0x6E,
+  0x30, 0x60, 0x7F, 0x60, 0x60, 0x60, 0x00, 0x60,
+};
+
+// ── 電量（A7：沿用 EVA 版——內部／外部框上下疊、七段大百分比、十格電量條、電壓）──
+void powerBox(int x, int y, int w, const uint8_t* label, bool active) {
+  constexpr int h = 18;
+  if (active) s_cv.fillRect(x, y, w, h, col(K_GRN));
+  else s_cv.drawRect(x, y, w, h, col(K_FRAME));
+  s_cv.drawBitmap(x + (w - 32) / 2, y + 1, label, 32, 16, active ? col(K_BG) : col(K_DIM));
+}
+void drawPwr() {
+  const Tile& t = s_t[T_PWR];
+  const int lv = battery_ui::level(), mv = battery_ui::voltageMv();
+  const bool ext = battery_ui::externalPower();
+  const int bw = 36, bx = t.x + 2, by = t.y + 2;
+  powerBox(bx, by, bw, kInternalLabel, !ext);
+  powerBox(bx, by + 18, bw, kExternalLabel, ext);
+  const C3& pc = batColor(lv);
+  const int rx = bx + bw + 5, rw = t.x + t.w - PAD - rx;   // 右半
+  // 七段百分比：兩位數 13×22；100 用三位 10×22
+  const int dh = 22, dy = t.y + 3;
+  int x = rx;
+  if (lv >= 100) {
+    for (int k = 0; k < 3; ++k) { seg7(x, dy, 9, dh, k == 0 ? 1 : 0, pc); x += 11; }
+  } else {
+    seg7pair(x, dy, 13, dh, lv, pc);
+    x += 13 * 2 + 2 + 2;
   }
-  char fb[8], lb[10];
-  snprintf(fb, sizeof fb, "%luM", (unsigned long)getCpuFrequencyMhz());
-  snprintf(lb, sizeof lb, "%ums", (unsigned)s_loop_now_ms);
-  txt(T_CHIP, 0, t.h - 11, fb, K_DIM);
-  txt(T_CHIP, 0, t.h - 11, lb, s_loop_now_ms > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_CYAN, true);
+  txt(T_PWR, x - t.x - PAD + 1, dy - t.y + dh - 10, "%", pc);
+  // 右欄（第四版，Miles：額度跟電量放一起）：電壓、今日花費／上限、餘額
+  const int cx = x + 8 - t.x - PAD;                  // 相對磚塊內容左緣
+  char volt[10];
+  if (mv > 0) snprintf(volt, sizeof volt, "%d.%02dV", mv / 1000, (mv % 1000) / 10); else strcpy(volt, "-.--V");
+  txtF(T_PWR, cx, 2, volt, K_DIM, &fonts::TomThumb);   // 第五版：電壓改小字（TomThumb 3×5）
+  drawUsd(T_PWR, cx, 8);
+  // 十格電量條（右半最下面）
+  const int gy = t.y + t.h - 6;
+  const int lit = lv < 0 ? 0 : (lv * 10 + 50) / 100;
+  for (int i = 0; i < 10; ++i) {
+    const int l = rx + i * rw / 10;
+    s_cv.fillRect(l, gy, rx + (i + 1) * rw / 10 - l - 1, 4, i < lit ? col(pc) : col(K_UNLIT));
+  }
 }
 
 void kb(char* b, size_t n, uint32_t bytes) {
@@ -491,142 +532,186 @@ void kb(char* b, size_t n, uint32_t bytes) {
   else snprintf(b, n, "%luK", (unsigned long)(bytes >> 10));
 }
 
-void drawMem() {
-  const Tile& t = s_t[T_MEM];
-  header(T_MEM, "MEM", K_PUR);
+// ── 晶片＋記憶體同一塊（第五版：左右各有自己的標籤）──
+//   左半 CHIP：標籤＋溫度＋頻率；波形＝每秒主迴圈最長一圈（ms，頂 40ms、紅虛線 25ms 上限）；底列目前 ms
+//   右半 MEM：標籤；長條＝heap 剩餘（每 2 秒一根、共 60 秒，紅線＝開機以來最低）；底列 heap 剩餘、PSRAM 剩餘
+int hexLabelAt(int x, int y, const char* s) {
+  s_cv.setFont(THIN);
+  const int w = s_cv.textWidth(s) + 8, h = 10;
+  for (int row = 0; row < h; ++row) {
+    const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
+    const int in = fc * 3 / (h / 2);
+    s_cv.drawFastHLine(x + in, y + row, w - 2 * in, col(K_TXT));
+  }
+  s_cv.setTextColor(col(K_BG));
+  s_cv.drawString(s, x + 4, y + 1);
+  return w;
+}
+// 不綁磚塊的小字（模擬時檢查超出整個 SYS 磚）
+int txtAt(int x, int y, const char* str, const C3& c, bool draw = true) {
+  const int w = mixedWidth(str);
+  if (!draw) return w;
+#ifdef INFO_SIM
+  simCheck(T_SYS, str, x, y, w, 10);
+#endif
+  s_cv.setTextColor(col(c));
+  char run[64];
+  for (const char* p = str; *p;) {
+    int k; const size_t n = nextRun(p, run, sizeof run, &k);
+    s_cv.setFont(runFont(k));
+    x += s_cv.drawString(run, x, k == RUN_THIN ? y + THIN_DY : y);
+    p += n;
+  }
+  return w;
+}
+// 晶片：標籤＋溫度｜負載波形｜頻率、這一秒最長一圈
+void chipPart(int x, int y, int w, int h) {
+  hexLabelAt(x - 2, y, "CHIP");
+  const float tc = temperatureRead();
+  char tb[10], fb[10], ms[8];
+  if (isnan(tc)) strcpy(tb, "--C"); else snprintf(tb, sizeof tb, "%dC", (int)lroundf(tc));
+  txtAt(x + w - mixedWidth(tb), y, tb, tc >= 60 ? K_RED : K_TXT);
+  const int gy = y + 12, gh = h - 12 - 11;
+  s_cv.drawRect(x, gy, w, gh, col(K_UNLIT));
+  const float full = cfg::INFO_LOOP_FULL_MS;
+  const int ly = gy + gh - (int)(gh * cfg::INFO_LOOP_LIMIT_MS / full);
+  for (int k = 0; k < w; k += 4) s_cv.drawFastHLine(x + k, ly, 2, col(K_RED));
+  const int n = s_loop_n < w - 2 ? s_loop_n : w - 2;
+  int px = -1, py = 0;
+  for (int k = 0; k < n; ++k) {
+    const int idx = (s_loop_pos - n + k + cfg::INFO_HIST_SEC * 2) % cfg::INFO_HIST_SEC;
+    const float v = s_loop_hist[idx] > full ? full : s_loop_hist[idx];
+    const int xx = x + w - 1 - n + k, yy = gy + gh - 2 - (int)((gh - 3) * v / full);
+    if (px >= 0) s_cv.drawLine(px, py, xx, yy, col(s_loop_hist[idx] > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_TXT));
+    px = xx; py = yy;
+  }
+  snprintf(fb, sizeof fb, "%luM", (unsigned long)getCpuFrequencyMhz());
+  snprintf(ms, sizeof ms, "%ums", (unsigned)s_loop_now_ms);
+  txtAt(x, y + h - 10, fb, K_DIM);
+  txtAt(x + w - mixedWidth(ms), y + h - 10, ms, s_loop_now_ms > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_TXT);
+}
+// 記憶體：標籤＋開機最低｜heap 長條（紅線＝最低）｜目前剩、PSRAM 剩
+void memPart(int x, int y, int w, int h) {
+  hexLabelAt(x - 2, y, "MEM");
   const uint32_t lo = ESP.getMinFreeHeap();
-  char lb[12], cur[10], ps[12];
-  kb(cur, sizeof cur, lo);
-  snprintf(lb, sizeof lb, "lo%s", cur);
-  txt(T_MEM, 0, 1, lb, K_DIM, true);
-  // 長條：heap 剩餘，每根 2px（最新在右），頂端＝歷史最大值，紅線＝開機以來最低
-  const int gx = t.x + PAD, gw = t.w - PAD * 2;
-  const int gy = t.y + 12, gh = t.h - 12 - 12;
+  char lob[10], lol[14], hb[10], psb[10], pb[12];
+  kb(lob, sizeof lob, lo);
+  snprintf(lol, sizeof lol, "lo%s", lob);
+  txtAt(x + w - mixedWidth(lol), y, lol, K_DIM);
+  const int gy = y + 12, gh = h - 12 - 11;
+  s_cv.drawRect(x, gy, w, gh, col(K_UNLIT));
   uint32_t top = lo;
   for (int k = 0; k < s_heap_n; ++k) if (s_heap_hist[k] > top) top = s_heap_hist[k];
-  if (top == 0) top = 1;
-  const int maxBars = gw / 2;
-  const int n = s_heap_n < maxBars ? s_heap_n : maxBars;
-  for (int k = 0; k < n; ++k) {
-    const int idx = (s_heap_pos - n + k + cfg::INFO_HEAP_BARS * 2) % cfg::INFO_HEAP_BARS;
-    const int h = (int)((uint64_t)gh * s_heap_hist[idx] / top);
-    s_cv.fillRect(gx + gw - (n - k) * 2, gy + gh - h, 1, h, col(K_PUR));
+  if (!top) top = 1;
+  const int maxBars = (w - 2) / 3, nb = s_heap_n < maxBars ? s_heap_n : maxBars;
+  for (int k = 0; k < nb; ++k) {
+    const int idx = (s_heap_pos - nb + k + cfg::INFO_HEAP_BARS * 2) % cfg::INFO_HEAP_BARS;
+    const int hh = (int)((uint64_t)(gh - 2) * s_heap_hist[idx] / top);
+    s_cv.fillRect(x + w - 1 - (nb - k) * 3, gy + gh - 1 - hh, 2, hh, col(K_TXT));
   }
-  const int ly = gy + gh - (int)((uint64_t)gh * lo / top);
-  s_cv.drawFastHLine(gx, ly, gw, col(K_RED));
-  kb(cur, sizeof cur, ESP.getFreeHeap());
-  char psb[10];
+  s_cv.drawFastHLine(x + 1, gy + gh - 1 - (int)((uint64_t)(gh - 2) * lo / top), w - 2, col(K_RED));
+  kb(hb, sizeof hb, ESP.getFreeHeap());
   kb(psb, sizeof psb, ESP.getFreePsram());
-  snprintf(ps, sizeof ps, "P%s", psb);
-  txt(T_MEM, 0, t.h - 11, cur, K_PUR);
-  txt(T_MEM, 0, t.h - 11, ps, K_DIM, true);
+  snprintf(pb, sizeof pb, "P%s", psb);
+  txtAt(x, y + h - 10, hb, K_TXT);
+  txtAt(x + w - mixedWidth(pb), y + h - 10, pb, K_DIM);
+}
+// 晶片＋記憶體同一塊：直式左右並排；橫式（A 鍵側窄高）上下疊
+void drawSys() {
+  const Tile& t = s_t[T_SYS];
+  const int x = t.x + PAD, w = t.w - 2 * PAD;
+  if (!s_land) {
+    const int gap = 6, half = (w - gap) / 2;
+    chipPart(x, t.y + 1, half, t.h - 2);
+    memPart(x + half + gap, t.y + 1, w - half - gap, t.h - 2);
+  } else {
+    const int hh = (t.h - 2) / 2;
+    chipPart(x, t.y + 1, w, hh);
+    s_cv.drawFastHLine(t.x + 2, t.y + 1 + hh, t.w - 4, col(K_FRAME));
+    memPart(x, t.y + 2 + hh, w, t.h - 3 - hh);
+  }
 }
 
-void drawNet() {
-  const Tile& t = s_t[T_NET];
-  header(T_NET, "NET LINK", K_VIO);   // 11-20 Miles：NET LINK 紫、MODULES 綠、快訊橘
+// ── LINK：只有 icon（Miles A7：不顯示 Wi-Fi 文字）。黑紅：啟用＝紅底黑圖，未啟用＝暗橘框 ──
+enum { L_WIFI, L_CLOUD, L_BT, L_RF, L_NRF, L_IR, L_USB, L_MOUSE, L_GROVE, L_N, L_DBM = L_N };
+void glyphWifi(int cx, int cy, uint16_t c, int bars) {
+  for (int i = 0; i < 4; ++i) { const int h = 2 + i * 2; s_cv.fillRect(cx - 5 + i * 3, cy + 4 - h, 2, h, i < bars ? c : col(K_UNLIT)); }
+}
+void glyphCloud(int cx, int cy, uint16_t c) {
+  s_cv.fillCircle(cx - 2, cy + 1, 2, c); s_cv.fillCircle(cx + 1, cy - 1, 3, c); s_cv.fillRect(cx - 4, cy + 1, 9, 3, c);
+}
+void glyphGrove(int cx, int cy, uint16_t c) {   // 插頭
+  s_cv.fillRect(cx - 3, cy - 1, 7, 5, c); s_cv.drawFastVLine(cx - 2, cy - 4, 3, c); s_cv.drawFastVLine(cx + 2, cy - 4, 3, c);
+}
+void drawLink() {
+  const Tile& t = s_t[T_ICON];
+  if (!t.w) return;   // 橫式不顯示
   const bool up = net_hub::wifiUp();
   const int rssi = up ? (int)WiFi.RSSI() : 0;
   const int bars = !up ? 0 : rssi >= cfg::WIFI_BARS_4 ? 4 : rssi >= cfg::WIFI_BARS_3 ? 3 : rssi >= cfg::WIFI_BARS_2 ? 2 : 1;
-  wifiBars(t.x + t.w - PAD, t.y + 10, bars, up);
-  char rb[8];
-  if (up) snprintf(rb, sizeof rb, "%d", rssi); else strcpy(rb, "OFF");
-  const bool cloud = net_hub::linkUp();
-  const char* vs = voice_turn::stateName();
-  txt(T_NET, 0, ROW1, "WiFi", K_TXT);
-  txt(T_NET, 0, ROW1, rb, up ? K_TXT : K_RED, true);
-  txt(T_NET, 0, ROW2, "CLOUD", K_TXT);
-  txt(T_NET, 0, ROW2, cloud ? "ON" : "OFF", cloud ? K_GRN : K_RED, true);
-  txt(T_NET, 0, ROW3, "VOICE", K_TXT);
-  txt(T_NET, 0, ROW3, vs, strcmp(vs, "IDLE") == 0 ? K_DIM : K_PINK, true);
-}
-
-void drawMod() {
-  header(T_MOD, "MODULES", K_GRN);
-  const GroveDevice g = input_hal::device();
-  const char* gn = g == GroveDevice::None ? "none" : input_hal::deviceName();
-  const C3& gc = g == GroveDevice::None ? K_DIM : K_TXT;
-  if (!s_land) {   // 直式寬 64：「GROVE」與值放不進同一行
-    txt(T_MOD, 0, ROW1, "GROVE", K_TXT);
-    txt(T_MOD, 0, ROW2, gn, gc, true);
-    txt(T_MOD, 0, ROW3, "FW", K_TXT);
-    txt(T_MOD, 0, ROW3, audio_io::buildTag(), K_DIM, true);
-  } else {
-    txt(T_MOD, 0, 1, audio_io::buildTag(), K_DIM, true);
-    txt(T_MOD, 0, ROW1, "GROVE", K_TXT);
-    txt(T_MOD, 0, ROW1, gn, gc, true);
+  const bool on[L_N] = {up, net_hub::linkUp(), iconActive(IC_BT), iconActive(IC_RF), iconActive(IC_NRF), iconActive(IC_IR),
+                        iconActive(IC_USB), iconActive(IC_MOUSE), input_hal::device() != GroveDevice::None};
+  // 橫式（第五版）：Wi-Fi 後面多一格訊號強度 dBm，湊成 2 排×5
+  const int nCells = s_land ? L_N + 1 : L_N;
+  const int perRow = s_land ? 5 : 3, cell = 14, sz = cell - 2;
+  const int rows = (nCells + perRow - 1) / perRow;
+  const int x0 = t.x + (t.w - perRow * cell) / 2 + 1;
+  const int y0 = t.y + (t.h - rows * cell) / 2 + 1;
+  for (int c = 0; c < nCells; ++c) {
+    const int bx = x0 + (c % perRow) * cell, by = y0 + (c / perRow) * cell;
+    if (s_land && c == 1) {   // dBm 格：小字
+      char db[8];
+      if (up) snprintf(db, sizeof db, "%d", rssi); else strcpy(db, "--");
+      s_cv.setFont(&fonts::TomThumb);
+      s_cv.setTextColor(col(up ? K_TXT : K_DIM));
+      s_cv.drawString(db, bx + (sz - s_cv.textWidth(db)) / 2, by + 4);
+      continue;
+    }
+    const int i = s_land && c > 1 ? c - 1 : c;
+    const int cx = bx + sz / 2, cy = by + sz / 2;
+    uint16_t g;
+    if (on[i]) { s_cv.fillRoundRect(bx, by, sz, sz, 2, col(K_RED)); g = col(K_BG); }
+    else { s_cv.drawRoundRect(bx, by, sz, sz, 2, col(K_FRAME)); g = col(K_DIM); }
+    switch (i) {
+      case L_WIFI:  glyphWifi(cx, cy, g, up ? bars : 4); break;
+      case L_CLOUD: glyphCloud(cx, cy, g); break;
+      case L_GROVE: glyphGrove(cx, cy, g); break;
+      default: drawIcon(i - L_BT, cx, cy, g); break;   // IC_BT..IC_MOUSE 順序相同
+    }
   }
 }
 
-// 快訊一則標題截到 maxChars 字（超過換成「…」結尾）
+// ── 快訊 ──
 void newsLine(char* out, size_t cap, const char* s, int maxChars) {
   const size_t n = info_data::utf8Prefix(out, cap, s, maxChars);
-  if (s[n] && cap > 4) {   // 被截斷：最後一字換成「…」
-    const size_t m = info_data::utf8Prefix(out, cap - 3, s, maxChars - 1);
-    snprintf(out + m, cap - m, "…");
-  }
+  if (s[n] && cap > 4) { const size_t m = info_data::utf8Prefix(out, cap - 3, s, maxChars - 1); snprintf(out + m, cap - m, "…"); }
 }
-
-// A5-2：快訊（中央社 RSS，中控每 30 分鐘更新 6 則）。每 cfg::INFO_NEWS_PAGE_SEC 秒換一頁。
-//   直式 131×44：標題列「快訊」＋資料時間＋頁碼，下面 2 則（efontTW_12，一行 10 字）
-//   橫式 86×27：2 則、一行 6 字、沒有標題列；中控斷線時第 1 行改成「快訊 18:30」
-// 沒有快訊時畫合成波地平線（A5-1 原樣）
 void drawNews() {
   const Tile& t = s_t[T_NEWS];
+  const int lw = hexLabel(T_NEWS, "NEWS");
   const info_data::News& nw = info_data::news();
-  if (nw.n > 0) {
-    const bool live = net_hub::linkUp();
-    const int per = 2;
-    const int pages = (nw.n + per - 1) / per;
-    const long now = synced() ? (long)time(nullptr) : (long)(millis() / 1000);
-    const int page = (int)((now / cfg::INFO_NEWS_PAGE_SEC) % pages);
-    char at[8], line[64];
-    info_data::formatAt(at, sizeof at, nw.at);
-    const C3& tc = live ? K_TXT : K_DIM;
-    if (!s_land) {
-      txtF(T_NEWS, 0, 1, "快訊", K_ORG, &fonts::efontTW_12);
-      char pg[24];
-      snprintf(pg, sizeof pg, "%d/%d", page + 1, pages);
-      txt(T_NEWS, 0, 2, pg, K_DIM, true);
-      txt(T_NEWS, 28, 2, at, live ? K_DIM : K_ORG);
-      for (int k = 0; k < per; ++k) {
-        const int i = page * per + k;
-        if (i >= nw.n) break;
-        newsLine(line, sizeof line, nw.item[i], 10);
-        txtF(T_NEWS, 0, 16 + k * 13, line, tc, &fonts::efontTW_12);
-      }
-    } else {
-      int k0 = 0;
-      if (!live) {
-        snprintf(line, sizeof line, "快訊 %s", at);
-        txt(T_NEWS, 0, 2, line, K_ORG);
-        k0 = 1;
-      }
-      for (int k = k0; k < per; ++k) {
-        const int i = page * per + k - k0;
-        if (i >= nw.n) break;
-        newsLine(line, sizeof line, nw.item[i], 6);
-        txtF(T_NEWS, 0, 1 + k * 13, line, tc, &fonts::efontTW_12);
-      }
-    }
-    return;
+  if (nw.n <= 0) { txt(T_NEWS, lw + 2, 1, "-", K_DIM); return; }
+  const bool live = net_hub::linkUp();
+  const int per = 2;
+  const int pages = (nw.n + per - 1) / per;
+  const long now = synced() ? (long)time(nullptr) : (long)(millis() / 1000);
+  const int page = (int)((now / cfg::INFO_NEWS_PAGE_SEC) % pages);
+  char at[8], pg[16], line[80];
+  info_data::formatAt(at, sizeof at, nw.at);
+  snprintf(pg, sizeof pg, "%d/%d", page + 1, pages);
+  txt(T_NEWS, lw + 2, 1, at, live ? K_DIM : K_RED);
+  txt(T_NEWS, 0, 1, pg, K_DIM, true);
+  const int chars = (t.w - 2 * PAD) / 12;
+  for (int k = 0; k < per; ++k) {
+    const int i = page * per + k;
+    if (i >= nw.n) break;
+    newsLine(line, sizeof line, nw.item[i], chars);
+    txtF(T_NEWS, 0, 12 + k * 13, line, live ? (k == 0 ? K_HI : K_TXT) : K_DIM, &fonts::efontTW_12);
   }
-  s_cv.setClipRect(t.x, t.y, t.w, t.h);
-  const int hy = t.y + (s_land ? 12 : 22);   // 地平線
-  for (int i = 0; i < 5; ++i) {
-    const int y = hy + (i * i * (t.y + t.h - hy)) / 16;
-    if (y < t.y + t.h) s_cv.drawFastHLine(t.x, y, t.w, mixCol(K_TILE, K_PINK, 0.25f + i * 0.1f));
-  }
-  const int cx = t.x + t.w / 2;
-  for (int i = -5; i <= 5; ++i)
-    s_cv.drawLine(cx + i * t.w / 12, hy, cx + i * t.w / 3, t.y + t.h + 10, mixCol(K_TILE, K_PINK, 0.3f));
-  s_cv.clearClipRect();
-  txtF(T_NEWS, 0, 1, "快訊", K_ORG, &fonts::efontTW_12);
-  const int hw = s_cv.textWidth("快訊");
-  txt(T_NEWS, hw + 4, 2, "-", K_DIM);
 }
 
 void drawAll(bool eva) {
+  (void)eva;   // A7：資訊頁只剩一版
   const Orient o = ui_expression::orientation();
   const uint8_t rot = o == Orient::Portrait ? 0 : o == Orient::LandALeft ? cfg::ORIENT_ROT_A_LEFT : cfg::ORIENT_ROT_A_RIGHT;
   s_cv.setRotation(rot);
@@ -635,39 +720,17 @@ void drawAll(bool eva) {
   struct tm lt = {};
   const bool ok = synced();
   if (ok) { const time_t now = time(nullptr); localtime_r(&now, &lt); }
-
-  if (eva) {
-    const bool wifi = net_hub::wifiUp();
-    float right, up, z;
-    const ui_info_eva::Status status = {
-      lt, ok, battery_ui::level(), battery_ui::voltageMv(),
-      battery_ui::externalPower(), temperatureRead(),
-      wifi, net_hub::linkUp(), wifi ? (int)WiFi.RSSI() : 0,
-      net_hub::lastRttMs(), net_hub::pingIntervalSeconds(),
-      M5.Mic.isRunning(), imu_pet::tilt(&right, &up, &z),
-      ESP.getFreePsram(), ESP.getPsramSize(), ESP.getFreeHeap(), ESP.getHeapSize(),
-      s_loop_hist, s_loop_n, s_loop_pos, s_loop_now_ms,
-    };
-    ui_info_eva::draw(s_cv, o, status);
-    return;
-  }
-
   layout(o);
   s_cv.fillScreen(col(K_BG));
-  // 11-20 Miles：磚塊加 1px 亮邊（邊緣銳利），外框顏色跟該塊標題字同色（電量塊跟著電量色）
-  for (int i = 0; i < T_N; ++i) {
-    s_cv.fillRoundRect(s_t[i].x, s_t[i].y, s_t[i].w, s_t[i].h, 3, col(K_TILE));
-    s_cv.drawRoundRect(s_t[i].x, s_t[i].y, s_t[i].w, s_t[i].h, 3, mixCol(K_TILE, tileAccent(i), 0.8f));
-  }
+  hazard(0, s_land ? 3 : 4);
+  hazard(s_H - (s_land ? 3 : 4), s_land ? 3 : 4);
+  for (int i = 0; i < T_N; ++i) frame(i);
   s_cv.setTextDatum(textdatum_t::top_left);
   drawClock(ok, lt);
-  drawStat();
-  drawImu();
   drawWeather();
-  drawChip();
-  drawMem();
-  drawNet();
-  drawMod();
+  drawPwr();
+  drawSys();
+  drawLink();
   drawNews();
 }
 
