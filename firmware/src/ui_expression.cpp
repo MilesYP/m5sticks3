@@ -7,7 +7,6 @@
 #include "battery_ui.h"
 #include "config.h"
 #include "ui_fx.h"
-#include "ui_persona.h"
 #include "ui_labels.h"   // A7：狀態大字點陣圖（不連結整套 efontTW_24，見 tools/gen_kanji.py）
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -15,7 +14,7 @@
 //  畫的時候乘上比例 sc（直式 1.0、橫式 0.8）再加上臉中心的像素座標。
 //  A7（11-20，Miles 參考圖定案）：像素臉——黑底六角格、狀態列「FRIDAY・狀態」＋電量 %、取景角、左上狀態大字、
 //   掃描線眼睛與嘴巴（每 3 列空 1 列）、五官與符號一律淡琥珀（警報時框格變紅）、右側強度方格、對話框兩版都用 EVA「受信」版。
-//   原本合成波畫法保留在 PIXEL=false 的分支（對照用）。角色臉（ui_persona）套同一套底、狀態列與取景角。
+//   原本合成波畫法保留在 PIXEL=false 的分支（對照用）。11-21 Miles：EVA 角色臉（ui_persona）刪除，只剩這一個表情頁。
 //  畫布用 M5Canvas::setRotation 轉向（只換畫圖座標，緩衝區仍是 135×240，推上螢幕不變）。
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -964,7 +963,6 @@ void render() {
   // ── 版面：臉的區域避開 A 鍵側的對話區 ──
   const int W = s_cv.width(), H = s_cv.height();
   const bool land = landscape();
-  const bool eva = ui_persona::active();
   const int cs = (int)(convExtent(true) * s_conv_k + 0.5f);   // A7：對話框一律 EVA 版
   int fx0 = 0, fw = W, fh = H;
   if (!land) fh = H - cs;
@@ -978,26 +976,6 @@ void render() {
   if (PIXEL) { s_face_l = fx0 + fw * (land ? 0.76f : 0.5f); s_sym_top = 13 + 4; }   // 像素臉：符號只在右半邊、狀態列以下（左上留給狀態大字）
   auto X = [&](float d) { return fcx + d * sc; };
   auto Y = [&](float d) { return fcy + d * sc; };
-
-  // 本機角色（ui_persona，素材不在公開 repo）：臉的區域改畫像素動畫，對話區與斷線圖示照舊
-  if (eva) {
-    s_cv.fillScreen(TFT_BLACK);
-    const PxTheme th = pxTheme(shown, s_offline);
-    const int top = 13, fy1 = land ? H : fh;
-    s_cv.setClipRect(fx0, top, fw, fy1 - top);
-    pxHexGrid(W, H, fade(th.accent, 0.18f));
-    s_cv.clearClipRect();
-    ui_persona::draw(&s_cv, fx0, top, fw, fy1 - top, shown, now, s_offline);
-    pxBrackets(fx0 + 4, top + 4, fw - 8, fy1 - top - 8, c565(th.accent));
-    const int lvB = s_px_battery;
-    pxHeader(fx0, fw, shown, th.accent, lvB < 0 ? fade(th.accent, 0.6f) : lvB >= 60 ? s_cv.color565(0x39, 0xFF, 0x14) : lvB >= 20 ? s_cv.color565(0xFF, 0xD0, 0x00) : s_cv.color565(0xFF, 0x29, 0x23));
-    s_cv.setTextSize(1);
-    s_cv.setFont(&fonts::Font0);
-    drawConv(W, H, true);
-    if (s_offline) drawWifiOff(fx0 + fw - 16, 20);
-    ui_fx::present(&s_cv);
-    return;
-  }
 
   // 看方向（睡著不動）
   {
@@ -1298,9 +1276,11 @@ void render() {
     pxMeter(fx0 + fw - 13, fy1 - 14, total, n, c565(th.accent), 0);
     pxBrackets(fx0 + 4, top + 4, fw - 8, fy1 - top - 8, c565(th.accent));
     // 左上狀態大字最後畫、底下先塗黑：表情不會蓋到字（Miles 11-20）
+    // 11-21 Miles：狀態大字改成「有底色的標籤」（跟內部／外部框一樣：實心底＋黑字），蓋到表情也不突兀
     if (const ui_labels::Bmp* lab = ui_labels::find(kPxLabel[static_cast<int>(shown)])) {
-      s_cv.fillRect(fx0 + 7, top + 6, lab->w + 2, lab->h + 2, TFT_BLACK);
-      s_cv.drawBitmap(fx0 + 8, top + 7, lab->bits, lab->w, lab->h, fade(th.accent, 0.42f));
+      const int bx = fx0 + 8, by = top + 6, bw = lab->w + 6, bh = lab->h + 4;
+      s_cv.fillRect(bx, by, bw, bh, c565(th.accent));
+      s_cv.drawBitmap(bx + 3, by + 2, lab->bits, lab->w, lab->h, TFT_BLACK);
     }
     const int lvB = s_px_battery;
     const uint16_t bc = lvB < 0 ? fade(th.accent, 0.6f) : lvB >= 60 ? s_cv.color565(0x39, 0xFF, 0x14) : lvB >= 20 ? s_cv.color565(0xFF, 0xD0, 0x00) : s_cv.color565(0xFF, 0x29, 0x23);

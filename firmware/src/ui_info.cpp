@@ -17,7 +17,6 @@
 #include "mode_manager.h"
 #include "net_hub.h"
 #include "ui_expression.h"
-#include "ui_persona.h"
 #include "voice_turn.h"
 #include "ui_wxicon.h"
 #include "ui_labels.h"   // A7：「台北時間」點陣圖（不連結整套 efontTW_16_b）
@@ -763,8 +762,8 @@ void loop() {
 void render() {
   if (!s_ready || !s_shown) return;
   const long sec = currentSec();
-  const bool eva = ui_persona::active();
-  const bool themeChanged = eva != s_drawn_eva;
+  const bool eva = false;   // 11-21：只剩一版（EVA 角色刪除）
+  const bool themeChanged = false;
   const bool turned = ui_expression::orientation() != s_drawn_orient;
   if (!s_dirty && !turned && !themeChanged && sec == s_last_sec) return;
   const uint32_t t0 = micros();
