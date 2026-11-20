@@ -36,6 +36,7 @@
 ### 2026-11-21｜M1-A / A7 外觀統一驗收通過＋交接｜Claude Code（Cowork 橋接）
 - 做了什麼：A7 標 ✅（27-a7a～a7o：單一 NERV 資訊頁＋單一像素表情頁、六角符號徽章、初號機浮水印、受信對話框、低電量閃爍、背景快取＋螢幕部分更新、Wi-Fi 家裡優先）；A5-2、P1 一併標 ✅。執行計劃 md／html 更新（M1-A 9／11 片、新增 A8 列）；介面規格新增**第 0 節 A7 定案畫面**（模擬器實際輸出）；畫面模擬器搬進 repo `tools/sim/`（`build.sh face|info|anim|lowbat|bench`）；寫 `docs/KICKOFF_A8_A4b.md`。
 - 驗收結果：27-a7o 實機——全速 16～18ms、開心 18～21ms；開機直連家裡 Wi-Fi。
+- 27-a7p（Miles）：資訊頁供電磚「內部／外部」移到最右邊，電量、額度、十格條在左。
 - 下一步：新 session 貼 `docs/KICKOFF_A8_A4b.md`：A8 搖晃液體符號、A4b 充電表情（樣式配合像素臉重新提案），並評估 B5 新聞快報、B6 Hey Friday＋MCP。
 
 ### 2026-11-21｜A7：背景快取＋天氣磚重排（27-a7g）｜Claude Code（Cowork 橋接）

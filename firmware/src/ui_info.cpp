@@ -506,11 +506,12 @@ void drawPwr() {
   const Tile& t = s_t[T_PWR];
   const int lv = battery_ui::level(), mv = battery_ui::voltageMv();
   const bool ext = battery_ui::externalPower();
-  const int bw = 36, bx = t.x + 2, by = t.y + 2;
+  // 11-21 Miles：內部／外部移到最右邊，電量、額度、十格條在左
+  const int bw = 36, bx = t.x + t.w - 2 - bw, by = t.y + 2;
   powerBox(bx, by, bw, kInternalLabel, !ext);
   powerBox(bx, by + 18, bw, kExternalLabel, ext);
   const C3& pc = batColor(lv);
-  const int rx = bx + bw + 5, rw = t.x + t.w - PAD - rx;   // 右半
+  const int rx = t.x + PAD, rw = bx - 5 - rx;              // 左邊（內部／外部框的左側）
   // 七段百分比：兩位數 13×22；100 用三位 10×22
   const int dh = 22, dy = t.y + 3;
   int x = rx;
@@ -527,7 +528,7 @@ void drawPwr() {
   if (mv > 0) snprintf(volt, sizeof volt, "%d.%02dV", mv / 1000, (mv % 1000) / 10); else strcpy(volt, "-.--V");
   txtF(T_PWR, cx, 2, volt, K_DIM, &fonts::TomThumb);   // 第五版：電壓改小字（TomThumb 3×5）
   drawUsd(T_PWR, cx, 8);
-  // 十格電量條（右半最下面）
+  // 十格電量條（左邊最下面）
   const int gy = t.y + t.h - 6;
   const int lit = lv < 0 ? 0 : (lv * 10 + 50) / 100;
   for (int i = 0; i < 10; ++i) {
