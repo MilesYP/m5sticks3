@@ -406,35 +406,50 @@ void drawImu() {
 
 // A5-2：天氣（中央氣象署鄉鎮預報，中控每 30 分鐘更新）
 //   標題列：WEATHER＋地點（右）；中控斷線時地點換成資料時間（例 18:30）
-//   第 2 行：圖示＋天氣描述（efontTW_12，直式 6 字、橫式 7 字）
-//   第 3 行：溫度、濕度、降雨機率（小字）
+//   下面左半：圖示＋大字溫度（Font2）；右半上：天氣描述（efontTW_12，放得下幾個字就幾個）；
+//   右半下：水滴＋濕度、雨傘＋降雨機率（11-20 Miles：「濕」「雨」小字擠成一團 → 改圖示）
 void drawWeather() {
   const Tile& t = s_t[T_WX];
   header(T_WX, "WEATHER", K_CYAN);
   const info_data::Weather& w = info_data::weather();
   if (!w.valid) { txt(T_WX, 0, ROW1 + 2, "--", K_DIM); return; }
+  const bool live = net_hub::linkUp();
   char hdr[20];
-  if (net_hub::linkUp()) snprintf(hdr, sizeof hdr, "%s", w.loc);
+  if (live) snprintf(hdr, sizeof hdr, "%s", w.loc);
   else info_data::formatAt(hdr, sizeof hdr, w.at);
-  txt(T_WX, 0, 1, hdr, net_hub::linkUp() ? K_TXT : K_DIM, true);
-  // 圖示 12×12：左上 (x+PAD, y+12)
-  ui_wxicon::draw(s_cv, t.x + PAD + 6, t.y + 18, 6, w.icon, col(K_YEL), col(K_TXT), col(K_CYAN));
-  char d[40];
-  info_data::utf8Prefix(d, sizeof d, w.desc, s_land ? 7 : 6);
-  txtF(T_WX, 15, 11, d, K_TXT, &fonts::efontTW_12);
-  char row[48], tb[12] = "--", rb[12] = "--", pb[12] = "--";
+  txt(T_WX, 0, 1, hdr, live ? K_TXT : K_DIM, true);
+  // 圖示 14×14：中心 (x+PAD+7, y+20)
+  ui_wxicon::draw(s_cv, t.x + PAD + 7, t.y + 21, 7, w.icon, col(K_YEL), col(K_TXT), col(K_CYAN));
+  // 溫度：Font2 大字＋度數小圈
+  char tb[12] = "--";
   if (w.temp > -100) snprintf(tb, sizeof tb, "%d", w.temp);
+  const int tx = PAD + 17;
+  txtF(T_WX, tx - PAD, 13, tb, K_TXT, &fonts::Font2);
+  const int tw = s_cv.textWidth(tb);
+  s_cv.drawCircle(t.x + tx + tw + 2, t.y + 16, 1, col(K_TXT));
+  // 右半：從溫度後面留 6px 開始
+  const int rx = tx + tw + 8;                       // 相對磚塊左緣
+  const int room = t.w - PAD - rx;                  // 右半可用寬度
+  char d[40];
+  info_data::utf8Prefix(d, sizeof d, w.desc, room / 12);
+  txtF(T_WX, rx - PAD, 12, d, K_TXT, &fonts::efontTW_12);
+  // 濕度、降雨機率：圖示＋數字，中間留空
+  char rb[12] = "--", pb[12] = "--";
   if (w.rh >= 0) snprintf(rb, sizeof rb, "%d%%", w.rh);
   if (w.pop >= 0) snprintf(pb, sizeof pb, "%d%%", w.pop);
-  // 溫度用亮色、其餘暗色：分三段畫
-  snprintf(row, sizeof row, "%s°", tb);
-  txt(T_WX, 0, 23, row, K_TXT);
-  int x = mixedWidth(row) + 5;
-  snprintf(row, sizeof row, "濕%s", rb);
-  txt(T_WX, x, 23, row, K_DIM);
-  x += mixedWidth(row) + 5;
-  snprintf(row, sizeof row, "雨%s", pb);
-  txt(T_WX, x, 23, row, w.pop >= 50 ? K_CYAN : K_DIM);
+  const int ry = 24;
+  if (7 + mixedWidth(rb) + 4 + 9 + mixedWidth(pb) > room) {   // 放不下（例 100%／100% 配上負溫度）→ 拿掉 %
+    if (w.rh >= 0) snprintf(rb, sizeof rb, "%d", w.rh);
+    if (w.pop >= 0) snprintf(pb, sizeof pb, "%d", w.pop);
+  }
+  int x = rx;
+  ui_wxicon::drop(s_cv, t.x + x, t.y + ry + 1, col(K_DIM));
+  x += 7;
+  txt(T_WX, x - PAD, ry, rb, K_DIM);
+  x += mixedWidth(rb) + 4;
+  ui_wxicon::umbrella(s_cv, t.x + x, t.y + ry + 1, col(w.pop >= 50 ? K_CYAN : K_DIM));
+  x += 9;
+  txt(T_WX, x - PAD, ry, pb, w.pop >= 50 ? K_CYAN : K_DIM);
 }
 
 void drawChip() {

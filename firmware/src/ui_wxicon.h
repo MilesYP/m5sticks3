@@ -29,6 +29,24 @@ inline void sun(lgfx::LGFXBase& g, int cx, int cy, int r, uint16_t c) {
   }
 }
 
+// 濕度：水滴（寬 5、高 7，左上角 x,y）
+inline void drop(lgfx::LGFXBase& g, int x, int y, uint16_t c) {
+  g.drawPixel(x + 2, y, c);
+  g.drawFastHLine(x + 1, y + 1, 3, c);
+  g.drawFastHLine(x + 1, y + 2, 3, c);
+  g.fillRect(x, y + 3, 5, 3, c);
+  g.drawFastHLine(x + 1, y + 6, 3, c);
+}
+// 降雨機率：雨傘（寬 7、高 8，左上角 x,y）
+inline void umbrella(lgfx::LGFXBase& g, int x, int y, uint16_t c) {
+  g.drawFastHLine(x + 2, y, 3, c);
+  g.drawFastHLine(x + 1, y + 1, 5, c);
+  g.drawFastHLine(x, y + 2, 7, c);
+  g.drawFastVLine(x + 3, y + 3, 4, c);
+  g.drawPixel(x + 2, y + 7, c);
+  g.drawPixel(x + 1, y + 6, c);
+}
+
 inline void draw(lgfx::LGFXBase& g, int cx, int cy, int r, info_data::WxIcon ic, uint16_t sunC, uint16_t cloudC,
                  uint16_t rainC) {
   using info_data::WxIcon;

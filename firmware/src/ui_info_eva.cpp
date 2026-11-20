@@ -262,13 +262,18 @@ void weatherRow(M5Canvas& cv, int x, int y, int width, const ui_info_eva::Status
   else if (w.pop >= 0) snprintf(tail, sizeof tail, "%d%%", w.pop);
   else strcpy(tail, "");
   int xx = x + 14;
-  xx += mixed(cv, xx, y, tb, kAmber) + 4;
-  const int tw = mixed(cv, 0, y, tail, kDim, false);
-  const int room = x + width - tw - 3 - xx;
+  xx += mixed(cv, xx, y, tb, kAmber) + 6;
+  const bool umb = s.linkUp && w.pop >= 0;          // 降雨機率前面畫雨傘（斷線時這格是資料時間）
+  const int tw = mixed(cv, 0, y, tail, kDim, false) + (umb ? 9 : 0);
+  const int room = x + width - tw - 6 - xx;
   char d[40];
-  info_data::utf8Prefix(d, sizeof d, w.desc, room > 0 ? room / 10 : 0);
-  mixed(cv, xx, y, d, kDim);
-  mixed(cv, x + width - tw, y, tail, s.linkUp && w.pop >= 50 ? kYellow : kDim);
+  info_data::utf8Prefix(d, sizeof d, w.desc, room > 0 ? room / 12 : 0);
+  cv.setFont(&fonts::efontTW_12);   // 11-20 Miles：10px 中文太擠 → 描述用 12px
+  cv.setTextColor(kDim);
+  cv.drawString(d, xx, y - 2);
+  const uint16_t pc = s.linkUp && w.pop >= 50 ? kYellow : kDim;
+  if (umb) ui_wxicon::umbrella(cv, x + width - tw, y, pc);
+  mixed(cv, x + width - tw + (umb ? 9 : 0), y, tail, pc);
 }
 
 // A5-2：語音額度一行「GPT $0.42/2 餘8.37」；今日花費依比例綠／黃／紅，中控斷線時變暗
