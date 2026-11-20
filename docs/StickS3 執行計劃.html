@@ -249,13 +249,15 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
         <div class="ttl"><span class="code">G</span><b>Grove 配件驗收（CardKB／Scroll）</b><span class="pill st-doing">1／2 片</span></div>
         <p>11-19 到貨。G1 偵測通過（CardKB <code>5F</code>、Scroll <code>40</code>）；G2 功能驗收（<code>grove-test/</code>）待確認。可與 B3c 並行。</p></li>
       <li class="is-doing"><i class="pin st-doing"></i>
-        <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-doing">2／4 片</span></div>
-        <p>圓角眼睛＋情緒，固定配色、平滑過渡。九種表情已定案，剩 IMU 互動與直橫雙版面。</p>
+        <div class="ttl"><span class="code">M1-A</span><b>表情（RoboEyes 風＋互動）</b><span class="pill st-doing">3／6 片</span></div>
+        <p>圓角眼睛＋情緒，固定配色、平滑過渡。<b>A3 IMU 互動 11-20 通過</b>：搖、拍、靜置會反應，睡著聽到聲音會醒，休息臉顏色跟電量。下一片 A4 直橫雙版面，再來 A5 資訊頁。</p>
         <ul class="slices">
           <li class="ok"><span class="sc">A1</span>離線 Idle 臉：呼吸＋眨眼</li>
           <li class="ok"><span class="sc">A2</span>九種表情定案、固定配色</li>
-          <li><span class="sc">A3</span>IMU 互動：搖晃／拍打／睡著</li>
-          <li><span class="sc">A4</span>直橫雙版面</li>
+          <li class="ok"><span class="sc">A3</span>IMU 互動：搖晃／拍打／睡著＋休息臉電量色</li>
+          <li><span class="sc">A4</span>直橫雙版面（下一片）</li>
+          <li><span class="sc">A5-1</span>資訊頁（本機資料，短按 A）</li>
+          <li><span class="sc">A5-2</span>資訊頁（天氣、快訊）</li>
         </ul></li>
       <li><i class="pin st-done"></i>
         <div class="ttl"><span class="code">M1-B</span><b>語音對話（常駐）</b><span class="pill st-done">完成 11-20</span></div>
@@ -337,7 +339,7 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
     <tbody>
       <tr><td>0 開箱與環境</td><td>硬體驗收</td><td>✅ Bruce 已刷、PlatformIO 可編譯燒錄</td></tr>
       <tr><td>1 Hello StickS3</td><td><code>selftest/</code>、M0</td><td>✅ 自檢與 M0 實機驗收都通過</td></tr>
-      <tr><td>2 IMU 感測器</td><td>M1-A 切片 A3、M4</td><td>⏳ 下一批要做</td></tr>
+      <tr><td>2 IMU 感測器</td><td>M1-A 切片 A3、M4</td><td>🔵 A3 ✅ 11-20；M4 待做</td></tr>
       <tr><td>3 Scroll Unit／I2C</td><td>G1 偵測、G2 功能驗收</td><td>🔵 偵測通過（0x40）；功能驗收待做</td></tr>
       <tr><td>4 紅外線</td><td>M1.5（IR1～IR3）</td><td>🟠 已排入・腳位待驗</td></tr>
       <tr><td>5 CardKB＋狀態機</td><td>M0 狀態機、G1／G2、M1-B 靜音輸入</td><td>🔵 狀態機已驗收、CardKB 偵測通過（0x5F）；按鍵碼表待 G2</td></tr>
@@ -381,14 +383,16 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
     </tbody>
   </table></div>
 
-  <div class="grp">M1-A 表情<span>4 片・2 完成</span></div>
+  <div class="grp">M1-A 表情<span>6 片・3 完成</span></div>
   <div class="tblwrap"><table class="sltbl">
     <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
     <tbody>
       <tr class="ok"><td class="c">A1</td><td>離線 Idle 臉：PSRAM sprite 畫圓角青色眼睛，上下呼吸（±9px／約 2 秒）＋隨機眨眼</td><td>開機即見表情，不連網</td><td class="s">✅ 11-16</td></tr>
       <tr class="ok"><td class="c">A2</td><td>九種表情：Idle／Listening／Thinking／Speaking／Happy／Angry／Scared／Sleepy／Asleep，固定配色、眼型與過渡</td><td>實機逐一確認九種</td><td class="s">✅ 11-16</td></tr>
-      <tr><td class="c">A3</td><td>IMU 互動：搖晃→驚嚇、拍打→生氣、靜置久→想睡→睡著；取代目前按 A 循環切表情的測試用法</td><td>搖、拍、放著不動各觸發一次</td><td class="s">⏳ 排在 B4 之後</td></tr>
-      <tr><td class="c">A4</td><td>直橫雙版面：文字條物理位置固定在藍鍵側，只有文字方向跟著轉；橫式支援兩個傾斜方向</td><td>轉動裝置，文字始終可讀</td><td class="s">⏳ 排在 B4 之後</td></tr>
+      <tr class="ok"><td class="c">A3</td><td>IMU 互動：靜置 6 秒想睡、11 秒睡著，拿起或按 A 醒；用力搖→驚嚇；拍機身→開心／生氣（睡著時→生氣）；睡著聽到拍手或講話→驚嚇／生氣；傾斜→眼睛看過去；語音優先。休息臉顏色跟電量（≥60 藍、40–59 綠、20–39 黃、10–19 紅、&lt;10 紅灰閃爍）。門檻先量測再定（<code>CLAUDE.md</code> 鐵則八）</td><td>放著不動、搖、拍、睡著拍手、語音中搖拍、B 急停、<code>c</code> 假裝電量看五色、傾斜看方向</td><td class="s">✅ 11-20</td></tr>
+      <tr><td class="c">A4</td><td>直橫雙版面：文字條物理位置固定在藍鍵側，只有文字方向跟著轉；橫式支援兩個傾斜方向</td><td>轉動裝置，文字始終可讀</td><td class="s">🟠 下一片</td></tr>
+      <tr><td class="c">A5-1</td><td>資訊頁（本機資料）：Desktop 短按 A（&lt;0.6 秒）切換，按住仍是說話；時間、電量、IMU、CPU、記憶體、Wi-Fi、配件；直式＋橫式。版面照介面規格第 3 節</td><td>短按 A 進出、數值正確、轉向重排、長按照常說話</td><td class="s">⏳ A4 之後</td></tr>
+      <tr><td class="c">A5-2</td><td>資訊頁（雲端資料）：天氣、快訊、已存訊號數由中控定時送來</td><td>天氣快訊顯示且會更新、斷線顯示上次資料</td><td class="s">⏳ A5-1 之後</td></tr>
     </tbody>
   </table></div>
 

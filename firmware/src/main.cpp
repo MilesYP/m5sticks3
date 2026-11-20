@@ -12,10 +12,12 @@
 
 #include "config.h"
 #include "diag_cmd.h"
+#include "imu_pet.h"
 #include "input_hal.h"
 #include "killswitch.h"
 #include "mode_manager.h"
 #include "audio_io.h"
+#include "battery_ui.h"
 #include "net_hub.h"
 #include "ui_expression.h"
 #include "ui_status.h"
@@ -49,7 +51,7 @@ void setup() {
   auto m5cfg = M5.config();
   M5.begin(m5cfg);
   Serial.begin(115200);
-  Serial.println("\n===== M5StickS3 firmware M1-A =====");
+  Serial.println("\n===== M5StickS3 firmware M1-A / A3 =====");
 
   input_hal::begin();
   killswitch::begin();
@@ -61,6 +63,8 @@ void setup() {
   voice_turn::begin();           // 一輪語音：錄→傳中控→收回→播（B3b-2）
   audio_io::setDiagLabel(net_hub::configLabel);  // 錄音那一行附 Wi-Fi 設定（B3.6）
   diag_cmd::begin();             // 序列埠診斷指令（B3.6）
+  imu_pet::begin();              // A3：IMU 桌寵互動（序列埠 j／v 量測）
+  battery_ui::begin();           // A3：休息臉顏色跟電量（序列埠 c 假裝電量）
   ui_status::printReport();
 }
 
@@ -116,6 +120,9 @@ void loop() {
   // 錄音餵資料、播完切回麥克風（B3b-1）；一輪語音的上傳／等待／收尾（B3b-2）
   audio_io::loop();
   voice_turn::loop();
+
+  imu_pet::loop();      // A3：讀 IMU、搖／拍／靜置／睡著聽聲音 → 表情（非阻塞）
+  battery_ui::loop();   // A3：每 5 秒讀電量 → 休息臉顏色
 
   // (3) 重畫
   updateOffline();

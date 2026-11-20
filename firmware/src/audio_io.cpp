@@ -9,7 +9,7 @@
 #include "config.h"
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "21-b3c"
+#define AUDIO_BUILD_TAG "22-a3"
 
 namespace {
 
@@ -84,6 +84,15 @@ std::atomic<bool>     s_rec_armed{false};    // 已按滿最短時間，可以�
 std::atomic<uint32_t> s_silence_ms{0};       // 連續沒有人聲多久
 uint32_t s_vad_pos = 0;                      // 下一塊要做 VAD 的位置
 float    s_vad_lo = 0.0f, s_vad_hi = -120.0f;
+
+// A3：待機收音（睡著時聽聲音、量測用）。一次只排一塊 50ms：按 A 時最多擋住正式錄音 50ms，
+// 落在本來就會切掉的開頭 60ms 內。抓到的聲音只算指標，不存、不上傳。
+constexpr size_t SB_CHUNK = SAMPLE_RATE / 20;   // 800 取樣＝50ms
+int16_t  s_sb_buf[SB_CHUNK];
+bool     s_sb_on = false;
+bool     s_sb_inflight = false;
+float    s_sb_lo = 0.0f, s_sb_hi = -120.0f;
+uint32_t s_sb_n = 0;
 
 // 一塊（100ms）的人聲指標：一階差分 RMS（dBFS），與量測行的「高頻底噪」同一個算法
 float chunkLevelDb(const int16_t* p, size_t n) {
@@ -419,6 +428,7 @@ void startRecording() {
   if (!M5.Mic.isRunning()) micOn();
   // B3b-5：先換代（網路 task 的舊上傳工作看到就停），再重設進度。
   // 不再清零整個緩衝（4MB 約要 100ms）：只會送真的錄到的部分，尾端未寫完的那幾毫秒落在切掉的 60ms 內。
+  s_sb_inflight = false;                      // A3：待機收音那塊作廢（最多再佔隊列 50ms）
   s_rec_gen.fetch_add(1, std::memory_order_acq_rel);
   s_rec_armed.store(false, std::memory_order_release);
   s_rec_ended.store(false, std::memory_order_release);
@@ -468,6 +478,22 @@ void loop() {
       else s_silence_ms.store(s_silence_ms.load() + (uint32_t)(CHUNK * 1000 / SAMPLE_RATE));
       s_vad_pos += CHUNK;
     }
+  }
+
+  // A3 待機收音：沒在錄音、沒在播、麥克風開著才抓；其他時候放棄手上那塊
+  if (s_sb_on && !s_recording && !s_st_active && M5.Mic.isRunning()) {
+    if (s_sb_inflight && M5.Mic.isRecording() == 0) {
+      const float db = chunkLevelDb(s_sb_buf, SB_CHUNK);
+      if (db < s_sb_lo) s_sb_lo = db;
+      if (db > s_sb_hi) s_sb_hi = db;
+      ++s_sb_n;
+      s_sb_inflight = false;
+    }
+    if (!s_sb_inflight && M5.Mic.isRecording() == 0) {
+      s_sb_inflight = M5.Mic.record(s_sb_buf, SB_CHUNK, SAMPLE_RATE);
+    }
+  } else {
+    s_sb_inflight = false;
   }
 
   // B3b-4 邊收邊播：緩衝夠了開始播、斷音後補夠再繼續、播完切回麥克風
@@ -606,6 +632,20 @@ int16_t* rxBuffer() { return s_rx; }
 size_t rxCapacityBytes() { return s_rx ? ANALYZE_MAX * sizeof(int16_t) : 0; }
 
 bool isPlaying() { return M5.Speaker.isPlaying(); }
+
+// ── A3 待機收音 ──
+void setStandbyListen(bool on) {
+  s_sb_on = on;
+  if (!on) s_sb_inflight = false;
+  s_sb_lo = 0.0f; s_sb_hi = -120.0f; s_sb_n = 0;
+}
+bool standbyListen() { return s_sb_on; }
+void standbyStats(float* lo, float* hi, uint32_t* n) {
+  *n = s_sb_n;
+  *lo = s_sb_n ? s_sb_lo : -120.0f;
+  *hi = s_sb_hi;
+  s_sb_lo = 0.0f; s_sb_hi = -120.0f; s_sb_n = 0;
+}
 uint32_t recordedSamples() { return (uint32_t)s_len; }
 float lastPeak() { return s_peak; }
 float headPeak() { return s_head_peak; }

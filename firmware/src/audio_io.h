@@ -31,6 +31,12 @@ bool     recArmed();           // 已按滿 VOICE_MIN_PRESS_MS（網路 task 這
 uint32_t silenceMs();          // 錄音中連續沒有人聲多久（ms）；VAD 見 config.h
 void     vadStats(float* lo_db, float* hi_db);   // 上次呼叫以來每塊人聲指標的最低／最高（dBFS），呼叫後重設
 
+// ── A3 待機收音（睡著時聽聲音、量測用）──
+// 開著時，沒在錄音／播放的空檔每 50ms 抓一塊，算和 VAD 同一個指標（一階差分 RMS，dBFS）；聲音不存。
+void setStandbyListen(bool on);
+bool standbyListen();
+void standbyStats(float* lo_db, float* hi_db, uint32_t* n);   // 上次呼叫以來的最低／最高與塊數，呼叫後重設
+
 int16_t* rxBuffer();                  // 收中控回傳音訊用的 PSRAM 緩衝（只留前 6 秒，算 SNR）
 size_t rxCapacityBytes();
 bool isPlaying();              // 喇叭是否還在放

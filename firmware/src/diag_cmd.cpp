@@ -5,6 +5,8 @@
 #include <ctype.h>
 
 #include "audio_io.h"
+#include "battery_ui.h"
+#include "imu_pet.h"
 #include "input_hal.h"
 #include "net_hub.h"
 #include "voice_turn.h"
@@ -20,7 +22,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜? 目前設定");
+  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -75,6 +77,15 @@ void run(char* cmd) {
       break;
     case 'e':   // 11-19 Grove 診斷：重開 5V＋L3B、印電源狀態、重掃 I2C
       input_hal::rescan();
+      break;
+    case 'j':   // A3：IMU 量測（j 切換、j1 開、j0 關）
+      imu_pet::setMeasureImu(cmd[1] == '1' ? true : cmd[1] == '0' ? false : !imu_pet::measureImu());
+      break;
+    case 'v':   // A3：待機聲音量測（v 切換、v1 開、v0 關）
+      imu_pet::setMeasureSound(cmd[1] == '1' ? true : cmd[1] == '0' ? false : !imu_pet::measureSound());
+      break;
+    case 'c':   // A3：假裝電量（驗收休息臉各色）；c 單獨＝恢復真實讀數
+      battery_ui::setOverride(isdigit((unsigned char)cmd[1]) ? atoi(cmd + 1) : -1);
       break;
     case '?':
       printConfig();

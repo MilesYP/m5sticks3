@@ -39,7 +39,8 @@ const MoodSpec kMoods[] = {
   {"Sleepy",    127, 184, 180, 0.50f, 1.00f, 0, 1, 0, 0, 0, 0, 0},
   {"Asleep",     61, 107, 105, 0.07f, 1.00f, 0, 0, 0, 0, 0, 0, 0},
 };
-constexpr uint8_t kMoodCount = sizeof(kMoods) / sizeof(kMoods[0]);
+static_assert(sizeof(kMoods) / sizeof(kMoods[0]) == static_cast<size_t>(Mood::Asleep) + 1,
+              "kMoods 要和 enum class Mood 一一對應");
 
 Mood s_mood = Mood::Idle;
 MoodSpec s_cur = kMoods[0];        // 目前畫面上的值，每幀往目標值靠近（平滑過渡）
@@ -57,6 +58,16 @@ constexpr float    EASE_PER_MS  = 0.010f;  // 過渡速度：越大換表情越�
 
 // B3b-4 斷線提示
 bool     s_offline = false;
+
+// A3 休息臉電量色、低電量閃爍、看向傾斜方向
+bool     s_tint_on = false;
+float    s_tint_r = 0, s_tint_g = 0, s_tint_b = 0;
+bool     s_low_blink = false;
+float    s_gaze_tx = 0, s_gaze_ty = 0;   // 目標（−1～1）
+float    s_gaze_x = 0, s_gaze_y = 0;     // 目前（平滑）
+constexpr float GAZE_EASE_PER_MS = 0.006f;
+constexpr uint8_t BLINK_RED_R = 226, BLINK_RED_G = 75, BLINK_RED_B = 74;
+constexpr uint8_t BLINK_GRAY_R = 95, BLINK_GRAY_G = 94, BLINK_GRAY_B = 90;
 
 // ── B4 對話區 ──
 // 字型：M5GFX 內建繁中點陣 efontTW_12（12px）。一行約 10 個中文字（135px 扣左右邊界）。
@@ -264,8 +275,14 @@ void convEnd() {
   s_conv_hide_at = millis() + ((s_user_len || s_bot_len) ? CONV_HOLD_MS : 0) + 1;
 }
 
-void debugNextMood() {
-  s_mood = static_cast<Mood>((static_cast<uint8_t>(s_mood) + 1) % kMoodCount);
+void setRestTint(bool enabled, uint8_t r, uint8_t g, uint8_t b) {
+  s_tint_on = enabled;
+  s_tint_r = r; s_tint_g = g; s_tint_b = b;
+}
+void setLowBatteryBlink(bool on) { s_low_blink = on; }
+void setGaze(float x, float y) {
+  s_gaze_tx = x < -1 ? -1 : x > 1 ? 1 : x;
+  s_gaze_ty = y < -1 ? -1 : y > 1 ? 1 : y;
 }
 
 void render() {
@@ -279,9 +296,15 @@ void render() {
   float k = dt * EASE_PER_MS;
   if (k > 1.0f) k = 1.0f;
   const MoodSpec& t = target();
-  s_cur.r = approach(s_cur.r, t.r, k);
-  s_cur.g = approach(s_cur.g, t.g, k);
-  s_cur.b = approach(s_cur.b, t.b, k);
+  // A3：休息臉（待機／想睡／睡著）改用電量色；想睡、睡著調暗，保留「睏」的感覺
+  float tr = t.r, tg = t.g, tb = t.b;
+  if (s_tint_on && (s_mood == Mood::Idle || s_mood == Mood::Sleepy || s_mood == Mood::Asleep)) {
+    const float dim = (s_mood == Mood::Idle) ? 1.0f : (s_mood == Mood::Sleepy) ? 0.75f : 0.45f;
+    tr = s_tint_r * dim; tg = s_tint_g * dim; tb = s_tint_b * dim;
+  }
+  s_cur.r = approach(s_cur.r, tr, k);
+  s_cur.g = approach(s_cur.g, tg, k);
+  s_cur.b = approach(s_cur.b, tb, k);
   s_cur.h_scale    = approach(s_cur.h_scale, t.h_scale, k);
   s_cur.w_scale    = approach(s_cur.w_scale, t.w_scale, k);
   s_cur.lid_angry  = approach(s_cur.lid_angry, t.lid_angry, k);
@@ -342,14 +365,32 @@ void render() {
   const int breathe = (int)(sinf(now / breathe_div) * 9.0f);
   // 驚嚇：左右快速發抖
   const int jitter = (int)(sinf(now * 0.09f) * 2.5f * s_cur.shake);
+  // A3：看向傾斜方向（睡著時眼睛閉著，不移動）
+  {
+    float gk = dt * GAZE_EASE_PER_MS;
+    if (gk > 1.0f) gk = 1.0f;
+    const bool asleep = (s_mood == Mood::Asleep);
+    s_gaze_x = approach(s_gaze_x, asleep ? 0.0f : s_gaze_tx, gk);
+    s_gaze_y = approach(s_gaze_y, asleep ? 0.0f : s_gaze_ty, gk);
+  }
+  const int gaze_dx = (int)(s_gaze_x * cfg::PET_GAZE_MAX_X_PX);
+  const int gaze_dy = (int)(s_gaze_y * cfg::PET_GAZE_MAX_Y_PX);
 
   // 思考中：眼睛往上抬，並緩慢左右游移（像在想事情）
   const int think_up = (int)(12.0f * s_cur.think);
   const int think_dx = (int)(sinf(now / 700.0f) * 7.0f * s_cur.think);
 
-  const int ey = cy - eh / 2 + breathe - think_up;     // 眼睛上緣 y
+  const int ey = cy - eh / 2 + breathe - think_up + gaze_dy;   // 眼睛上緣 y
   // B3b-4：斷線時眼睛（含漣漪、嘴巴）一律灰色
-  const float cr = s_offline ? OFF_R : s_cur.r, cg = s_offline ? OFF_G : s_cur.g, cb = s_offline ? OFF_B : s_cur.b;
+  float cr = s_offline ? OFF_R : s_cur.r, cg = s_offline ? OFF_G : s_cur.g, cb = s_offline ? OFF_B : s_cur.b;
+  // A3：低電量紅灰閃爍蓋過情緒色；語音（聆聽／思考／說話）中不閃，斷線時維持灰
+  if (s_low_blink && !s_offline && s_mood != Mood::Listening && s_mood != Mood::Thinking &&
+      s_mood != Mood::Speaking) {
+    const bool red = ((millis() / cfg::BAT_BLINK_MS) % 2) == 0;
+    cr = red ? BLINK_RED_R : BLINK_GRAY_R;
+    cg = red ? BLINK_RED_G : BLINK_GRAY_G;
+    cb = red ? BLINK_RED_B : BLINK_GRAY_B;
+  }
   const uint16_t col = s_cv.color565((uint8_t)cr, (uint8_t)cg, (uint8_t)cb);
 
   // ── 繪製 ──
@@ -369,7 +410,7 @@ void render() {
   }
 
   for (int side = -1; side <= 1; side += 2) {          // -1 = 左眼, +1 = 右眼
-    const int ex = cx + side * gap + jitter + think_dx; // 眼睛中心 x
+    const int ex = cx + side * gap + jitter + think_dx + gaze_dx; // 眼睛中心 x
     const int L = ex - ew / 2;
     const int R = ex + ew / 2;
     s_cv.fillSmoothRoundRect(L, ey, ew, eh, r, col);
