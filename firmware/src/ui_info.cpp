@@ -442,29 +442,30 @@ void drawWeather() {
   char hdr[20];
   if (live) snprintf(hdr, sizeof hdr, "%s", w.loc); else info_data::formatAt(hdr, sizeof hdr, w.at);
   txt(T_WX, 0, 1, hdr, live ? K_HI : K_DIM, true);
-  // 11-21 Miles「內容跟框不合」：左欄放大圖示；右欄溫度在上、描述在下（不再被雨絲壓到）；
-  // 濕度靠左、降雨機率靠右，撐滿整個框寬
-  constexpr int IC = 24;                                       // 左欄寬（圖示）
-  ui_wxicon::draw(s_cv, t.x + PAD + IC / 2 - 1, t.y + 24, 8, w.icon, col(K_YEL), col(K_HI), col(K_TXT));
-  char tb[12] = "--";
-  if (w.temp > -100) snprintf(tb, sizeof tb, "%d", w.temp);
-  txtF(T_WX, IC, 12, tb, K_HI, &fonts::Font2);
-  const int tw = s_cv.textWidth(tb);
-  s_cv.drawCircle(t.x + PAD + IC + tw + 2, t.y + 15, 1, col(K_HI));
-  char d[40];
-  info_data::utf8Prefix(d, sizeof d, w.desc, (t.w - 2 * PAD - IC) / 12);
-  txtF(T_WX, IC, 27, d, K_TXT, &fonts::efontTW_12);
+  // 11-21 Miles（27-a7h）：圖示、氣溫、描述集中在左邊；右邊一小欄上下放濕度、降雨機率，中間一條細分隔線
   char rb[12] = "--", pb[12] = "--";
   if (w.rh >= 0) snprintf(rb, sizeof rb, "%d%%", w.rh);
   if (w.pop >= 0) snprintf(pb, sizeof pb, "%d%%", w.pop);
   auto thinW = [&](const char* v) { s_cv.setFont(THIN); return (int)s_cv.textWidth(v); };
+  const int rw0 = thinW(rb), pw0 = thinW(pb);
+  const int RC = (rw0 > pw0 ? rw0 : pw0) + 8;                  // 右欄寬：圖示 6＋間距 2＋數字（照實際數字寬）
+  const int rx = t.w - 2 * PAD - RC;                           // 右欄左緣（磚內座標）
+  s_cv.drawFastVLine(t.x + PAD + rx - 3, t.y + 14, 34, col(K_FRAME));
   const C3& pc = w.pop >= 50 ? K_YEL : K_DIM;
-  const int ry = 41;
-  ui_wxicon::drop(s_cv, t.x + PAD, t.y + ry + 1, col(K_DIM));
-  txtF(T_WX, 7, ry + THIN_DY, rb, K_DIM, THIN);
-  const int pw = thinW(pb), px = t.w - 2 * PAD - pw;           // 降雨機率靠右
-  ui_wxicon::umbrella(s_cv, t.x + PAD + px - 9, t.y + ry + 1, col(pc));
-  txtF(T_WX, px, ry + THIN_DY, pb, pc, THIN);
+  ui_wxicon::drop(s_cv, t.x + PAD + rx, t.y + 19, col(K_DIM));
+  txtF(T_WX, rx + 8, 18 + THIN_DY, rb, K_DIM, THIN);
+  ui_wxicon::umbrella(s_cv, t.x + PAD + rx, t.y + 35, col(pc));
+  txtF(T_WX, rx + 8, 34 + THIN_DY, pb, pc, THIN);
+  // 左邊：圖示＋氣溫一列，描述一列
+  ui_wxicon::draw(s_cv, t.x + PAD + 7, t.y + 21, 7, w.icon, col(K_YEL), col(K_HI), col(K_TXT));
+  char tb[12] = "--";
+  if (w.temp > -100) snprintf(tb, sizeof tb, "%d", w.temp);
+  txtF(T_WX, 18, 13, tb, K_HI, &fonts::Font2);
+  const int tw = s_cv.textWidth(tb);
+  s_cv.drawCircle(t.x + PAD + 18 + tw + 2, t.y + 16, 1, col(K_HI));
+  char d[40];
+  info_data::utf8Prefix(d, sizeof d, w.desc, (rx - 4) / 12);
+  txtF(T_WX, 0, 33, d, K_TXT, &fonts::efontTW_12);
 }
 
 // efontTW_16_b 的四個原生字形，32×16、每列 MSB first。
