@@ -289,7 +289,7 @@ void rewrap(bool eva) {
 }
 
 // A7（11-21 Miles）：表情背景淡淡的浮水印——原創字樣（不用 EVA 的商標字），
-// 小字機號＋大字「星期五」＋三條斜槓，壓在臉區左下、在臉之下。
+// 小字機號＋大字「初號機」（Miles：第一台機器，致敬）＋三條斜槓，壓在臉區左下、在臉之下。
 void pxWatermark(int fx0, int top, int fw, int fy1, uint16_t col) {
   const ui_labels::Bmp* big = ui_labels::find("wm_big");
   if (!big) return;
