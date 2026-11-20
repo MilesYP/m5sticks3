@@ -387,7 +387,7 @@ void uploadStep() {
 
 // ── 11-21 Miles：多組 Wi-Fi，家裡優先 ──
 // secrets.h 有定義 WIFI_SSID_HOME／WIFI_PASS_HOME 時，家裡排第一、手機熱點（WIFI_SSID）第二。
-// 背景掃描（不卡）：開機、Wi-Fi 開、連不上 20 秒都重選；連在熱點上時每 60 秒掃一次，掃到家裡就換過去（錄放音中不換）。
+// 背景掃描（不卡）：開機、Wi-Fi 開、連不上 20 秒都重選；連在熱點上時每 60 秒掃一次，掃到家裡就換過去（錄放音中、上傳還沒送完都不換）。
 struct WifiNet { const char* ssid; const char* pass; const char* tag; };
 const WifiNet kNets[] = {
 #if defined(WIFI_SSID_HOME) && defined(WIFI_PASS_HOME)
@@ -431,7 +431,7 @@ void wifiPickStep(bool wifi) {
   }
   bool start = s_need_pick;
   if (!start && !wifi && now - s_wifi_try_ms > 20000) start = true;   // 連不上 20 秒：重新挑
-  if (!start && wifi && kNetCount > 1 && s_net_idx > 0 && !net_hub::s_voice_on.load() &&
+  if (!start && wifi && kNetCount > 1 && s_net_idx > 0 && !net_hub::s_voice_on.load() && !s_job.active &&
       now - s_last_pref_scan > 60000) start = true;                    // 在熱點上：定期看家裡回來了沒
   if (!start) return;
   s_need_pick = false;
