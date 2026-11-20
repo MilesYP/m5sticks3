@@ -178,6 +178,7 @@ void draw(uint32_t now) {
                 fillWidth - s_filled_pixels, barHeight - 2 * inset, C_AMBER);
   s_filled_pixels = fillWidth;
   s_cv.pushSprite(0, 0);
+  ui_fx::invalidate();   // 11-21：螢幕被這頁蓋掉，表情／資訊頁下次整張送
 }
 
 }  // namespace

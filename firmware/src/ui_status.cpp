@@ -1,3 +1,4 @@
+#include "ui_fx.h"
 #include "ui_status.h"
 
 #include <M5Unified.h>
@@ -84,6 +85,7 @@ void render(bool force) {
   if (mode_manager::current() == Mode::Safe) drawKilled();
   else drawNormal();
   s_canvas.pushSprite(0, 0);
+  ui_fx::invalidate();   // 11-21：螢幕被狀態頁蓋掉，表情／資訊頁下次整張送
 }
 
 void printReport() {

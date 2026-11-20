@@ -11,6 +11,7 @@
 //   - 要換整頁的那一刻（還沒畫新內容前）呼叫 begin(目前顯示中的畫布)：把舊畫面存一份。
 //   - 主迴圈每圈呼叫 loop()：淡化中就把「舊畫面 × (1−t) ＋ 最新畫面 × t」推上螢幕。
 //  記憶體：舊畫面＋混合結果各一張 135×240×2（PSRAM 共約 128KB）。序列埠 t 開／關（比較用）。
+//  11-21（27-a7m）部分更新：present 只把跟上一張不同的矩形送上螢幕（影子緩衝再 64KB）；t2 關、t3 開。
 // ─────────────────────────────────────────────────────────────────────────
 #pragma once
 
@@ -23,6 +24,8 @@ void start(m5gfx::M5Canvas* showing);      // 開始換整頁：showing＝螢幕
 void present(m5gfx::M5Canvas* cv);         // 畫面畫好了：沒在淡化就直接送上螢幕；淡化中只記下來，由 loop() 混合後送
 void loop();                        // 每圈呼叫（畫完之後）
 void cancel();                      // 離開 Desktop 等：停止淡化
+void invalidate();                  // 11-21：別的畫面直接推過螢幕 → 下一次 present 整張送
+void setPartial(bool on);           // 11-21：部分更新開關（序列埠 t2 關／t3 開）
 bool active();
 void setEnabled(bool on);           // 序列埠 t0／t1
 bool enabled();
