@@ -398,7 +398,8 @@ const WifiNet kNets[] = {
 constexpr int kNetCount = sizeof(kNets) / sizeof(kNets[0]);
 bool     s_scanning = false;
 int      s_net_idx = -1;
-uint32_t s_wifi_try_ms = 0, s_last_pref_scan = 0;
+uint32_t s_wifi_try_ms = 0, s_last_pref_scan = 0, s_pick_at = 0;
+int      s_scan_fail = 0;
 
 void wifiConnect(int i) {
   s_net_idx = i;
@@ -415,21 +416,28 @@ void wifiPickStep(bool wifi) {
     const int n = WiFi.scanComplete();
     if (n == WIFI_SCAN_RUNNING) return;
     s_scanning = false;
+    if (n < 0) {   // 11-21：掃描失敗（Wi-Fi 正在連線時常見）≠「沒看到」→ 1 秒後重掃，連續 3 次失敗才退回熱點
+      WiFi.scanDelete();
+      if (++s_scan_fail >= 3 && !wifi) { s_scan_fail = 0; netlog("[wifi] 掃描連續失敗，直接試熱點\n"); wifiConnect(kNetCount - 1); }
+      else { s_need_pick = true; s_pick_at = now + 1000; }
+      return;
+    }
+    s_scan_fail = 0;
     int best = -1, rssi = 0;
     for (int i = 0; i < kNetCount && best < 0; ++i)
       for (int j = 0; j < n; ++j)
         if (WiFi.SSID(j) == kNets[i].ssid) { best = i; rssi = WiFi.RSSI(j); break; }
     WiFi.scanDelete();
     if (best < 0) {   // 都沒掃到（可能隱藏或剛開熱點）：沒連線就照舊試最後一組（熱點）
-      if (!wifi) { netlog("[wifi] 掃描沒看到已知網路，直接試熱點\n"); wifiConnect(kNetCount - 1); }
+      if (!wifi) { netlog("[wifi] 掃到 %d 個網路，沒有已知的，直接試熱點\n", n); wifiConnect(kNetCount - 1); }
       return;
     }
     if (wifi && s_net_idx >= 0 && s_net_idx <= best) return;   // 已經連在一樣或更優先的網路
-    if (wifi) netlog("[wifi] 掃到「%s」%d dBm，優先順序較高 → 換過去\n", kNets[best].ssid, rssi);
+    netlog("[wifi] 掃到 %d 個網路，選「%s」%d dBm\n", n, kNets[best].ssid, rssi);
     wifiConnect(best);
     return;
   }
-  bool start = s_need_pick;
+  bool start = s_need_pick && (int32_t)(now - s_pick_at) >= 0;
   if (!start && !wifi && now - s_wifi_try_ms > 20000) start = true;   // 連不上 20 秒：重新挑
   if (!start && wifi && kNetCount > 1 && s_net_idx > 0 && !net_hub::s_voice_on.load() && !s_job.active &&
       now - s_last_pref_scan > 60000) start = true;                    // 在熱點上：定期看家裡回來了沒
@@ -437,8 +445,10 @@ void wifiPickStep(bool wifi) {
   s_need_pick = false;
   s_last_pref_scan = now;
   s_wifi_try_ms = now;
+  if (!wifi) WiFi.disconnect(false);   // 11-21：還在試連（或重連）時掃描會失敗 → 先停掉連線嘗試再掃
   if (WiFi.scanNetworks(true) == WIFI_SCAN_FAILED) {
-    if (!wifi) wifiConnect(kNetCount - 1);
+    if (++s_scan_fail >= 3 && !wifi) { s_scan_fail = 0; wifiConnect(kNetCount - 1); }
+    else { s_need_pick = true; s_pick_at = now + 1000; }
   } else {
     s_scanning = true;
   }
@@ -454,7 +464,10 @@ void netTask(void*) {
     while (s_cmdq && xQueueReceive(s_cmdq, &m, 0) == pdTRUE) handleCmd(m);
 
     if (s_wifi_drop_new.exchange(false)) {
-      netlog("[wifi] 斷線，原因碼 %u（RSSI %d dBm）\n", (unsigned)s_wifi_reason.load(), (int)WiFi.RSSI());
+      const unsigned rc = s_wifi_reason.load();
+      const char* hint = (rc == 15 || rc == 2 || rc == 202 || rc == 204) ? "，可能是密碼錯"
+                       : (rc == 201) ? "，找不到這個網路（不在範圍或不是 2.4GHz）" : "";
+      netlog("[wifi] 斷線，原因碼 %u%s（RSSI %d dBm）\n", rc, hint, (int)WiFi.RSSI());
       s_wifi_logged = false;
     }
     const bool wifi = s_wifi_on && WiFi.status() == WL_CONNECTED;
