@@ -1,4 +1,5 @@
 #include "ui_info.h"
+#include "ui_info_eva.h"
 
 #include <M5Unified.h>
 #include <WiFi.h>
@@ -16,6 +17,7 @@
 #include "mode_manager.h"
 #include "net_hub.h"
 #include "ui_expression.h"
+#include "ui_persona.h"
 #include "voice_turn.h"
 
 #ifdef INFO_SIM
@@ -30,6 +32,7 @@ bool s_shown = false;
 bool s_dirty = true;
 long s_last_sec = -1;
 Orient s_drawn_orient = Orient::Portrait;
+bool s_drawn_eva = false;
 
 // ── 合成波色盤（底色與表情頁相同；強調色取自表情頁的情緒色）──
 struct C3 { uint8_t r, g, b; };
@@ -495,12 +498,33 @@ void drawNews() {   // A5-2 才有快訊；沒有內容時畫合成波地平線
   txt(T_NEWS, hw + 4, 2, "- A5-2", K_DIM);
 }
 
-void drawAll() {
+void drawAll(bool eva) {
   const Orient o = ui_expression::orientation();
   const uint8_t rot = o == Orient::Portrait ? 0 : o == Orient::LandALeft ? cfg::ORIENT_ROT_A_LEFT : cfg::ORIENT_ROT_A_RIGHT;
   s_cv.setRotation(rot);
-  layout(o);
   s_drawn_orient = o;
+  s_drawn_eva = eva;
+  struct tm lt = {};
+  const bool ok = synced();
+  if (ok) { const time_t now = time(nullptr); localtime_r(&now, &lt); }
+
+  if (eva) {
+    const bool wifi = net_hub::wifiUp();
+    float right, up, z;
+    const ui_info_eva::Status status = {
+      lt, ok, battery_ui::level(), battery_ui::voltageMv(),
+      battery_ui::externalPower(), temperatureRead(),
+      wifi, net_hub::linkUp(), wifi ? (int)WiFi.RSSI() : 0,
+      net_hub::lastRttMs(), net_hub::pingIntervalSeconds(),
+      M5.Mic.isRunning(), imu_pet::tilt(&right, &up, &z),
+      ESP.getFreePsram(), ESP.getPsramSize(), ESP.getFreeHeap(), ESP.getHeapSize(),
+      s_loop_hist, s_loop_n, s_loop_pos, s_loop_now_ms,
+    };
+    ui_info_eva::draw(s_cv, o, status);
+    return;
+  }
+
+  layout(o);
   s_cv.fillScreen(col(K_BG));
   // 11-20 Miles：磚塊加 1px 亮邊（邊緣銳利），外框顏色跟該塊標題字同色（電量塊跟著電量色）
   for (int i = 0; i < T_N; ++i) {
@@ -508,10 +532,6 @@ void drawAll() {
     s_cv.drawRoundRect(s_t[i].x, s_t[i].y, s_t[i].w, s_t[i].h, 3, mixCol(K_TILE, tileAccent(i), 0.8f));
   }
   s_cv.setTextDatum(textdatum_t::top_left);
-  struct tm lt;
-  memset(&lt, 0, sizeof lt);
-  const bool ok = synced();
-  if (ok) { const time_t now = time(nullptr); localtime_r(&now, &lt); }
   drawClock(ok, lt);
   drawStat();
   drawImu();
@@ -552,15 +572,18 @@ void loop() {
 void render() {
   if (!s_ready || !s_shown) return;
   const long sec = currentSec();
-  if (!s_dirty && sec == s_last_sec && ui_expression::orientation() == s_drawn_orient) return;
+  const bool eva = ui_persona::active();
+  const bool themeChanged = eva != s_drawn_eva;
   const bool turned = ui_expression::orientation() != s_drawn_orient;
+  if (!s_dirty && !turned && !themeChanged && sec == s_last_sec) return;
   const uint32_t t0 = micros();
-  drawAll();                       // 畫在記憶體裡的畫布
+  drawAll(eva);                       // 畫在記憶體裡的畫布
   const uint32_t t1 = micros();
   ui_fx::present(&s_cv);           // 整張 64KB 經 SPI（40MHz）送上螢幕（換整頁時由 ui_fx 交叉淡化）
   const uint32_t t2 = micros();
-  if (s_dirty || turned)
-    Serial.printf("[ui] 資訊頁重畫（%s，%s）：畫 %.1f ms＋送上螢幕 %.1f ms\n", s_dirty ? "切過來" : "轉向",
+  if (s_dirty || turned || themeChanged)
+    Serial.printf("[ui] 資訊頁重畫（%s，%s）：畫 %.1f ms＋送上螢幕 %.1f ms\n",
+                  themeChanged ? (eva ? "EVA" : "合成波") : s_dirty ? "切過來" : "轉向",
                   ui_expression::orientName(s_drawn_orient), (t1 - t0) / 1000.0f, (t2 - t1) / 1000.0f);
   s_dirty = false;
   s_last_sec = sec;

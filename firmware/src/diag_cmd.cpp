@@ -13,6 +13,7 @@
 #include "ui_expression.h"
 #include "ui_fx.h"
 #include "ui_info.h"
+#include "ui_persona.h"
 #include "voice_turn.h"
 
 namespace {
@@ -26,7 +27,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關｜#文字 在 log 做記號｜? 目前設定");
+  Serial.println("[diag] 指令：w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關｜q0/q1 合成波/EVA（表情＋資訊頁）｜#文字 在 log 做記號｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -118,6 +119,15 @@ void run(char* cmd) {
       break;
     case 't':   // A5-1：換頁交叉淡化（t 切換、t1 開、t0 關），比較用
       ui_fx::setEnabled(cmd[1] == '1' ? true : cmd[1] == '0' ? false : !ui_fx::enabled());
+      break;
+    case 'q':   // q0 用合成波、q1 用角色＋EVA 資訊頁（需 persona_assets.h）
+      if (!ui_persona::available()) {
+        Serial.println("[ui] 沒有本機角色（firmware/src/persona_assets.h），見 docs/persona-swap.md");
+      } else {
+        ui_persona::setEnabled(cmd[1] != '0');
+        Serial.printf("[ui] 表情與資訊頁：%s（角色 %s）\n",
+                      ui_persona::active() ? "EVA" : "合成波", ui_persona::name());
+      }
       break;
     case 'h':   // A4 量測：充電紀錄（h 印出、h0 清空）
       if (cmd[1] == '0') battery_ui::clearLog();

@@ -210,6 +210,9 @@ firmware/src/
   ui_expression.*     // 模式1：合成波表情（漸層眼＋嘴巴＋彈簧動畫＋符號＋側耳聆聽＋驚嚇彈珠台）、直橫版面、對話區、休息臉電量色（M1-A A4）
   ui_info.*           // 模式1：資訊頁（磚塊儀表板：時鐘／電量與功能 icon／IMU／天氣／CHIP 負載波形／MEM 長條／NET LINK／MODULES／快訊），直橫三版（M1-A A5-1）
   ui_fx.*             // 換整頁的交叉淡化（切頁、轉向），畫面一律經 ui_fx::present 送上螢幕（M1-A A5-1）
+  ui_modeswitch.*     // B 切模式的 EVA 風過場（條紋＋明朝體大字＋實際進度條），急停不走過場（11-20）
+  ui_persona.*        // 本機角色像素動畫（素材在 firmware/persona_local/、不進 repo；規格 docs/persona-swap.md）（11-20）
+  kanji_bitmaps.h     // tools/gen_kanji.py 產生的 1-bit 大字（Noto Serif CJK TC Black，OFL）
   imu_pet.*           // 模式1：IMU 桌寵互動——搖／拍／靜置／睡著聽聲音 → 表情；拿法判斷、線性加速度；序列埠 j／v／o（M1-A A3／A4）
   battery_ui.*        // 休息臉顏色跟電量：平滑＋遲滯分級；序列埠 c 假裝電量（M1-A A3 已建）
   net_hub.*           // Wi-Fi＋中控 WebSocket：網路 task（core 0）、指令／收件／log 佇列、μ-law 邊錄邊傳、斷線重送、token、RTT、省電、[link]（M1-B 已建）

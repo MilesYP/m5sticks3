@@ -154,6 +154,8 @@ constexpr int      WIFI_BARS_4 = -55, WIFI_BARS_3 = -65, WIFI_BARS_2 = -75;
 // 換整頁（切頁、轉向）時舊畫面溶解成新畫面的時間（交叉淡化，遮住由上而下刷新）；序列埠 t 開關
 // 11-20 第一版「背光關掉再亮回 140ms」Miles 實機：遮住了刷新，但黑一下看起來更慢 → 改交叉淡化
 constexpr uint32_t UI_XFADE_MS = 120;
+// B 切模式的過場（EVA 風，11-20 定案）：新模式資源準備好之後，進度條再跑這麼久才換到新模式的畫面
+constexpr uint32_t UI_MODESWITCH_MS = 450;
 
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔

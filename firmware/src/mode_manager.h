@@ -19,6 +19,7 @@ const char* name(Mode m);
 const char* currentName();
 
 void next();                  // 四個模式循環（Safe 中呼叫無效）
+Mode peekNext();              // next() 會切到哪個模式（過場畫面要先知道）
 void switchTo(Mode m);        // 先 exit() 舊模式，再 enter() 新模式
 void emergencyStop();         // 目前模式 exit() → Safe
 void resumeFromSafe();        // 解除急停 → 重新 enter() 急停前的模式

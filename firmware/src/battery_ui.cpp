@@ -240,4 +240,11 @@ const char* tierName() { return s_tier < 0 ? "-" : kTiers[s_tier].name; }
 int voltageMv() { return s_vbat_mv; }
 bool charging() { return s_charging; }
 
+bool externalPower() {
+  const uint8_t source = readSource();
+  // PWR_SRC 的 5VIN 是 USB 輸入；5VINOUT 不是 USB 輸入。
+  if (source != 0xFF) return (source & m5::M5PM1_Class::vin) != 0;
+  return M5.Power.getVBUSVoltage() >= 4500;
+}
+
 }  // namespace battery_ui

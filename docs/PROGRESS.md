@@ -33,6 +33,13 @@
 
 ---
 
+### 2026-11-20｜UI EVA 風：切模式過場＋本機角色＋EVA 資訊頁｜Claude（Cowork 橋接）＋Codex
+- 做了什麼：Miles 定案 EVA 風資訊頁與切模式過場（提案圖兩張，琥珀橘主色、黃黑條紋、六角格、七段數字、明朝體大字）。實作 `ui_modeswitch.*`：B 短按先把過場推上螢幕，再跑 `mode_manager::next()`，進度條在資源好之前停 25%、好了再跑 `UI_MODESWITCH_MS`（450ms）；進 Desktop 用 `ui_fx` 交叉淡化到表情頁；急停 `cancel()` 不走過場。`mode_manager::peekNext()`。`tools/gen_kanji.py` → `kanji_bitmaps.h`（語音／外部操作／射頻／體感／緊急停止／內部／外部）。本機角色管線：`tools/sprite2h.py`（PNG 序列 → 8-bit 調色盤＋索引、`--demo` 測試素材、`--clean`）、`ui_persona.*`（`__has_include("persona_assets.h")` 才啟用，整數倍放大＋取景框，接在 `ui_expression::render` 版面計算之後，對話區照舊）、序列埠 `q0/q1`、`.gitignore` 加 `firmware/persona_local/`、`firmware/src/persona_assets.h`。規格與交接 prompt：`docs/persona-swap.md`。
+- Codex 後續（本機套用、11-20 晚）：Desktop 風格 `q0` 合成波／`q1` EVA（初號機像素角色＋獨立 EVA 資訊頁 `ui_info_eva.*`），有素材時開機預設 q1、沒素材固定 q0（Miles：保留機制，未來可能有 q2、q3…）。EVA 對話框（黑底琥珀框、警戒斜紋、「受信 // FRIDAY」，使用者暖白、Friday 琥珀）。EVA 資訊頁六角標籤兩排三格、「內部／外部」16px 粗體點陣，供電來源走 `battery_ui::externalPower()`（M5PM1 5VIN，不用有 30 秒遲滯的充電狀態）。過場直式中央、橫式左紅字右進度條（A 左／A 右），固定警戒斜紋、結束直接切畫面，獨立於 q0／q1。
+- 驗收結果：**通過（Miles 11-20 實機）**——q0／q1、短按 A 切頁、B 過場三種拿法、USB 拔插內部／外部、直式與橫式 A 左／A 右。EVA 頁的 `j` 迴圈時間未量。
+- 下一步：Miles 在 Mac 編譯燒錄 → 驗收過場（B 循環四模式、直橫拿、急停中斷）與角色管線（`--demo` 素材）→ commit＋push → 資訊頁 EVA 版。
+- 待辦／未決：資訊頁 EVA 版；KILLED 頁改 EVA 版（`kanji_bitmaps.h` 已含「緊急停止」）；過場期間 `j` 迴圈時間。
+
 ### 2026-11-20｜M1-A / A5-1 資訊頁本機資料｜Claude Code（Cowork 橋接）
 - 做了什麼：新增 `ui_info.*`（資訊頁，自己的 PSRAM 畫布、直式＋橫式 A 左／A 右）與 `ui_fx.*`（換整頁交叉淡化）。Desktop **短按 A（<0.6 秒）切頁**：接在語音誤觸路徑（`voice_turn::onRelease()` 回 true），在資訊頁按住滿 0.6 秒自動回表情頁（`faceWanted()`），Friday 在講時短按＝打斷不切頁。欄位（Miles 選方案一磚塊＋合成波）：時鐘（NTP `configTzTime`，台北）＋日期＋開機時間（UP）＋`GPT -`（A5-2 填美金額度）｜電量％＋電壓＋6 個功能 icon（藍牙、RF、nRF24、紅外線、USB、滑鼠，Desktop 下全灰）｜IMU 氣泡｜WEATHER（A5-2）｜CHIP 溫度＋頻率＋主迴圈負載波形 60 秒｜MEM heap 長條 60 秒＋開機最低值＋PSRAM｜NET LINK Wi-Fi 4 格＋dBm、CLOUD、VOICE｜MODULES Grove、FW｜快訊（A5-2，底下畫地平線）。外框跟標題同色（時鐘淡白、電量跟電量色、IMU 黃、天氣青、CHIP 藍、MEM 淡紫、NET LINK 深紫、MODULES 綠、快訊橘）。新增 getter：`battery_ui::voltageMv/charging`、`imu_pet::tilt`、`voice_turn::stateName/faceWanted`、`audio_io::buildTag`。序列埠 `n`（切頁）、`t`（交叉淡化開關）。`AUDIO_BUILD_TAG` 24-a5。
 - 同片調整表情（Miles 實機逐項要求）：右上符號放大約一倍並改向量畫（！？♪、愛心、四角星、Z、生氣青筋），直式右上／橫式臉旁、夾在螢幕與臉區域內；驚嚇大汗滴；眼睛光暈 3 圈；休息臉電量色變亮；橫式臉比例 0.8→1.0；地平線變淡、橫格越遠越暗；電量 ≥60% 改霓虹綠 `#39FF14`。

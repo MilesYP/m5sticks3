@@ -70,6 +70,8 @@ const char* configLabel();
 
 // ── B3b-4 斷線量測與畫面提示 ──
 uint32_t linkDownMs();               // 中控斷線多久了（ms）；連著時回 0
+uint32_t lastRttMs();                 // 最近一次 pong RTT；尚未量測為 0
+uint32_t pingIntervalSeconds();       // 0＝定期 ping 關閉
 void setPingInterval(uint32_t sec);  // 序列埠 i<秒>：ping 間隔（0＝不 ping）
 
 }  // namespace net_hub

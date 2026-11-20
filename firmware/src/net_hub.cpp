@@ -166,7 +166,8 @@ bool     s_ws_started = false;
 bool     s_wifi_on = true;
 bool     s_wifi_logged = false;
 uint32_t s_last_ping = 0, s_ping_sent = 0;
-uint32_t s_link_since = 0, s_last_pong = 0, s_last_rtt = 0;
+uint32_t s_link_since = 0, s_last_pong = 0;
+std::atomic<uint32_t> s_last_rtt{0};   // 網路 task 寫入，資訊頁讀取
 uint32_t s_rx_link = 0, s_tx_link = 0, s_drops = 0;
 
 // 量測（網路 task 寫、主迴圈讀；只是診斷數字，不需要嚴格同步）
@@ -201,7 +202,7 @@ void logLinkDown(const char* why, size_t len) {
   netlog("[link] 斷線 #%lu｜連線維持 %.1f s｜距上次 pong %.1f s（最後 RTT %lu ms）｜這次連線收 %.1f KB／送 %.1f KB｜"
          "RSSI %d dBm｜省電 %s｜%s｜原因：%.*s\n",
          (unsigned long)s_drops, (now - s_link_since) / 1000.0f,
-         s_last_pong ? (now - s_last_pong) / 1000.0f : -1.0f, (unsigned long)s_last_rtt,
+         s_last_pong ? (now - s_last_pong) / 1000.0f : -1.0f, (unsigned long)s_last_rtt.load(),
          s_rx_link / 1024.0f, s_tx_link / 1024.0f, (int)WiFi.RSSI(), WiFi.getSleep() ? "開" : "關",
          wifi, len ? (int)len : 1, len ? why : "-");
 }
@@ -243,7 +244,7 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
         if (s_ping_sent) {
           s_last_rtt = s_last_pong - s_ping_sent;
           s_ping_sent = 0;
-          netlog("[hub] <- pong（RTT %lu ms）\n", (unsigned long)s_last_rtt);
+          netlog("[hub] <- pong（RTT %lu ms）\n", (unsigned long)s_last_rtt.load());
         }
         break;
       }
@@ -657,6 +658,9 @@ uint32_t linkDownMs() {
   if (s_link.load()) return 0;
   return millis() - s_down_since.load();   // 0（開機後還沒連上過）→ 從開機起算
 }
+
+uint32_t lastRttMs() { return s_last_rtt.load(); }
+uint32_t pingIntervalSeconds() { return s_ping_ms.load() / 1000; }
 
 void setPingInterval(uint32_t sec) {
   s_ping_ms.store(sec * 1000);

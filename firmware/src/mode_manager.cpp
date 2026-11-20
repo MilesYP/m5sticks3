@@ -67,6 +67,11 @@ void switchTo(Mode m) {
   ops(m).enter();
 }
 
+Mode peekNext() {
+  if (s_current == Mode::Safe) return s_current;
+  return static_cast<Mode>((static_cast<uint8_t>(s_current) + 1) % kCycleCount);
+}
+
 void next() {
   if (s_current == Mode::Safe) return;
   switchTo(static_cast<Mode>((static_cast<uint8_t>(s_current) + 1) % kCycleCount));

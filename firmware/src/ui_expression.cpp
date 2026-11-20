@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "ui_fx.h"
+#include "ui_persona.h"
 
 // ─────────────────────────────────────────────────────────────────────────
 //  座標約定：表情用「設計單位」描述（直式 135×240 時 1 單位＝1px），相對於臉的中心點；
@@ -181,6 +182,9 @@ void emit(PK kind, char ch, float x, float y, const Rgb& col, float size, float 
 // ── B4 對話區 ──
 constexpr int      CONV_LINES_PORTRAIT = 5;
 constexpr int      CONV_PAD     = 3;
+constexpr int      EVA_CONV_PAD = 4;
+constexpr int      EVA_CONV_HEADER = 16;
+constexpr int      EVA_CONV_LAND_WIDTH = 80;
 constexpr uint32_t CONV_HOLD_MS = 5000;
 constexpr size_t   USER_CAP     = 480;
 constexpr size_t   BOT_CAP      = 1500;
@@ -191,6 +195,7 @@ bool     s_conv_on = false;
 uint32_t s_conv_hide_at = 0;
 float    s_conv_k = 0.0f;
 bool     s_conv_dirty = false;
+bool     s_conv_wrapped_eva = false;
 // pfx＝這一行先畫前綴（直式：段落第一行前綴＋字；橫式：前綴自己一行、len＝0）
 struct ConvLine { const char* p; uint16_t len; bool bot; bool pfx; };
 constexpr int MAX_LINES = 120;
@@ -245,48 +250,84 @@ void wrapInto(const char* text, size_t len, bool bot, int maxw, int prefix_w) {
 
 int convHeight() { return CONV_LINES_PORTRAIT * 14 + CONV_PAD * 2; }   // efontTW_12：每行 12px＋行距 2px
 bool landscape() { return s_orient != Orient::Portrait; }
+int convExtent(bool eva) { return eva && landscape() ? EVA_CONV_LAND_WIDTH : convHeight(); }
+
+const char* convPrefix(bool bot, bool eva) {
+  if (eva) return bot ? "F: " : "> ";
+  return bot ? PFX_BOT : PFX_USER;
+}
 bool land_sym() { return s_orient != Orient::Portrait; }
 
-void addSeg(const char* text, size_t len, bool bot, int maxw) {
-  if (landscape()) {
+void addSeg(const char* text, size_t len, bool bot, int maxw, bool eva) {
+  if (landscape() && !eva) {
     pushLine(text, 0, bot, true);            // 橫式欄太窄：前綴自己一行
     wrapInto(text, len, bot, maxw, 0);
   } else {
     const int start = s_nlines;
-    wrapInto(text, len, bot, maxw, s_cv.textWidth(bot ? PFX_BOT : PFX_USER));
+    wrapInto(text, len, bot, maxw, s_cv.textWidth(convPrefix(bot, eva)));
     if (s_nlines > start) s_lines[start].pfx = true;
   }
 }
 
-void rewrap() {
+void rewrap(bool eva) {
   s_cv.setFont(&fonts::efontTW_12);
   s_cv.setTextSize(1);
-  const int maxw = (landscape() ? convHeight() : s_cv.width()) - CONV_PAD * 2;
+  const int pad = eva ? EVA_CONV_PAD : CONV_PAD;
+  const int maxw = (landscape() ? convExtent(eva) : s_cv.width()) - pad * 2;
   s_nlines = 0;
-  if (s_user_len) addSeg(s_user, s_user_len, false, maxw);
-  if (s_bot_len) addSeg(s_bot, s_bot_len, true, maxw);
+  if (s_user_len) addSeg(s_user, s_user_len, false, maxw, eva);
+  if (s_bot_len) addSeg(s_bot, s_bot_len, true, maxw, eva);
   s_cv.setFont(&fonts::Font0);
+  s_conv_wrapped_eva = eva;
   s_conv_dirty = false;
 }
 
+void drawEvaConvFrame(int x, int y, int w, int h, uint16_t amber) {
+  s_cv.drawRect(x, y, w, h, amber);
+  constexpr int stripeRows = 4, stripeWidth = 3;
+  const int right = x + w - 1;
+  for (int row = 0; row < stripeRows && row + 1 < h - 1; ++row) {
+    for (int left = x + 1 - row; left < right; left += 2 * stripeWidth) {
+      const int start = left < x + 1 ? x + 1 : left;
+      const int end = left + stripeWidth < right ? left + stripeWidth : right;
+      if (end > start) s_cv.drawFastHLine(start, y + row + 1, end - start, amber);
+    }
+  }
+}
+
 // 對話區：直式＝畫面下方橫條；橫式＝A 鍵側直欄
-void drawConv(int W, int H) {
-  const int cs = (int)(convHeight() * s_conv_k + 0.5f);
+void drawConv(int W, int H, bool eva) {
+  const int cs = (int)(convExtent(eva) * s_conv_k + 0.5f);
   if (cs <= 0) return;
   const bool land = landscape();
   int rx, ry, rw, rh;
   if (!land) { rx = 0; ry = H - cs; rw = W; rh = cs; }
   else { rw = cs; rh = H; ry = 0; rx = (s_orient == Orient::LandALeft) ? 0 : W - cs; }
   s_cv.fillRect(rx, ry, rw, rh, TFT_BLACK);
-  const uint16_t edge = s_cv.color565(40, 52, 60);
-  if (!land) s_cv.drawFastHLine(0, ry, W, edge);
-  else s_cv.drawFastVLine(s_orient == Orient::LandALeft ? rx + rw - 1 : rx, 0, H, edge);
+  const uint16_t amber = s_cv.color565(255, 155, 0);
+  const uint16_t userColor = s_cv.color565(255, 241, 222);
+  if (eva) {
+    drawEvaConvFrame(rx, ry, rw, rh, amber);
+  } else {
+    const uint16_t edge = s_cv.color565(40, 52, 60);
+    if (!land) s_cv.drawFastHLine(0, ry, W, edge);
+    else s_cv.drawFastVLine(s_orient == Orient::LandALeft ? rx + rw - 1 : rx, 0, H, edge);
+  }
   if (s_conv_k < 0.95f) return;   // 展開中不畫字
-  if (s_conv_dirty) rewrap();
-  s_cv.setFont(&fonts::efontTW_12);
+  if (s_conv_dirty || s_conv_wrapped_eva != eva) rewrap(eva);
   s_cv.setTextSize(1);
   s_cv.setTextDatum(top_left);
-  const int nl = land ? (H - CONV_PAD * 2) / 14 : CONV_LINES_PORTRAIT;
+  if (eva) {
+    s_cv.setClipRect(rx + 1, ry + 1, rw - 2, rh - 2);
+    s_cv.setFont(&fonts::efontTW_10_b);
+    s_cv.setTextColor(amber);
+    s_cv.drawString("受信 // FRIDAY", rx + EVA_CONV_PAD, ry + 6);
+  }
+  s_cv.setFont(&fonts::efontTW_12);
+  const int pad = eva ? EVA_CONV_PAD : CONV_PAD;
+  const int firstY = eva ? EVA_CONV_HEADER + 3 : CONV_PAD + 1;
+  const int nl = eva ? 1 + (rh - firstY - 13) / 14
+                     : land ? (H - CONV_PAD * 2) / 14 : CONV_LINES_PORTRAIT;
   const int keep = land ? 3 : 2;   // Friday 開口後，你的話保留幾行（橫式含前綴那行）
   int idx[MAX_LINES];
   int nshow = 0, nuser = 0;
@@ -305,11 +346,12 @@ void drawConv(int W, int H) {
   char tmp[256];
   for (int k = 0; k < nshow; ++k) {
     const ConvLine& L = s_lines[idx[k]];
-    const int y = ry + CONV_PAD + k * 14 + 1;
-    int x = rx + CONV_PAD;
+    const int y = ry + firstY + k * 14;
+    int x = rx + pad;
     if (L.pfx) {
-      s_cv.setTextColor(L.bot ? s_cv.color565(0x00, 0xF0, 0xFF) : s_cv.color565(MG_R, MG_G, MG_B));
-      const char* pf = L.bot ? PFX_BOT : PFX_USER;
+      s_cv.setTextColor(eva ? (L.bot ? amber : userColor)
+                            : L.bot ? s_cv.color565(0x00, 0xF0, 0xFF) : s_cv.color565(MG_R, MG_G, MG_B));
+      const char* pf = convPrefix(L.bot, eva);
       s_cv.drawString(pf, x, y);
       x += s_cv.textWidth(pf);
     }
@@ -327,10 +369,12 @@ void drawConv(int W, int H) {
       memcpy(tmp, L.p, n);
     }
     tmp[n] = '\0';
-    s_cv.setTextColor(L.bot ? s_cv.color565(241, 250, 238) : s_cv.color565(150, 160, 175));
+    s_cv.setTextColor(eva ? (L.bot ? amber : userColor)
+                          : L.bot ? s_cv.color565(241, 250, 238) : s_cv.color565(150, 160, 175));
     s_cv.drawString(tmp, x, y);
   }
   s_cv.setFont(&fonts::Font0);
+  if (eva) s_cv.clearClipRect();
 }
 
 // 右上角「Wi-Fi 加紅色斜線」
@@ -809,7 +853,8 @@ void render() {
   // ── 版面：臉的區域避開 A 鍵側的對話區 ──
   const int W = s_cv.width(), H = s_cv.height();
   const bool land = landscape();
-  const int cs = (int)(convHeight() * s_conv_k + 0.5f);
+  const bool eva = ui_persona::active();
+  const int cs = (int)(convExtent(eva) * s_conv_k + 0.5f);
   int fx0 = 0, fw = W, fh = H;
   if (!land) fh = H - cs;
   else { fw = W - cs; if (s_orient == Orient::LandALeft) fx0 = cs; }
@@ -820,6 +865,18 @@ void render() {
   s_face_l = (float)fx0; s_face_r = (float)(fx0 + fw);   // 符號左右不要超出臉的區域（橫式對話區打開時臉會變窄）
   auto X = [&](float d) { return fcx + d * sc; };
   auto Y = [&](float d) { return fcy + d * sc; };
+
+  // 本機角色（ui_persona，素材不在公開 repo）：臉的區域改畫像素動畫，對話區與斷線圖示照舊
+  if (eva) {
+    s_cv.fillScreen(TFT_BLACK);
+    ui_persona::draw(&s_cv, fx0, 0, fw, land ? H : fh, shown, now, s_offline);
+    s_cv.setTextSize(1);
+    s_cv.setFont(&fonts::Font0);
+    drawConv(W, H, true);
+    if (s_offline) drawWifiOff(fx0 + fw - 16, 20);
+    ui_fx::present(&s_cv);
+    return;
+  }
 
   // 看方向（睡著不動）
   {
@@ -1077,7 +1134,7 @@ void render() {
   s_cv.setTextSize(1);
   s_cv.setFont(&fonts::Font0);
 
-  drawConv(W, H);   // 最後畫，蓋住延伸到 A 鍵側的網格與聲波
+  drawConv(W, H, false);   // 最後畫，蓋住延伸到 A 鍵側的網格與聲波
 
   if (s_offline) drawWifiOff(W - 16, 20);
 

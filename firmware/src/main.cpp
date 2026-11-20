@@ -22,6 +22,7 @@
 #include "ui_expression.h"
 #include "ui_fx.h"
 #include "ui_info.h"
+#include "ui_modeswitch.h"
 #include "ui_status.h"
 #include "voice_turn.h"
 
@@ -45,6 +46,7 @@ static void updateOffline() {
 
 // Desktop 模式畫表情或資訊頁（A5-1），其餘模式（含 Safe 的 KILLED 畫面）畫狀態畫面。
 static void renderActive(bool force) {
+  if (ui_modeswitch::render()) return;   // 切模式過場中（結束那一圈會回 false，接著畫新模式）
   if (mode_manager::current() == Mode::Desktop) {
     if (ui_info::shown()) ui_info::render();
     else ui_expression::render();
@@ -81,6 +83,7 @@ void setup() {
   ui_expression::begin();    // 需在 ui_status::begin 之後
   ui_info::begin();          // A5-1：資訊頁畫布（PSRAM 約 64KB）
   ui_fx::begin();            // A5-1：換整頁時的交叉淡化（PSRAM 約 128KB）
+  ui_modeswitch::begin();    // B 切模式的 EVA 風過場（PSRAM 約 64KB）
   net_hub::begin();          // 連 Wi-Fi + 建網路 task（B2a／B3b-5）
   audio_io::begin();             // 音訊緩衝（B3b-1）
   voice_turn::begin();           // 一輪語音：錄→傳中控→收回→播（B3b-2）
@@ -97,6 +100,7 @@ void loop() {
 
   // (1) 急停第二段
   if (killswitch::isTriggered() && mode_manager::current() != Mode::Safe) {
+    ui_modeswitch::cancel();   // 急停不走過場
     mode_manager::emergencyStop();
     renderActive(true);
   }
@@ -104,8 +108,13 @@ void loop() {
   // (2) 輸入事件
   switch (input_hal::poll()) {
     case InputEvent::BtnB_Click:
-      if (mode_manager::current() == Mode::Safe) mode_manager::resumeFromSafe();
-      else mode_manager::next();
+      if (mode_manager::current() == Mode::Safe) {
+        mode_manager::resumeFromSafe();
+      } else {
+        ui_modeswitch::start(mode_manager::peekNext());   // 先把過場推上螢幕，蓋住 exit()／enter() 的時間
+        mode_manager::next();
+        ui_modeswitch::ready();
+      }
       renderActive(true);
       break;
 
@@ -115,6 +124,7 @@ void loop() {
 
     case InputEvent::BtnB_Hold3s:
       killswitch::triggerSoftware();
+      ui_modeswitch::cancel();
       mode_manager::emergencyStop();
       renderActive(true);
       break;
@@ -171,7 +181,7 @@ void loop() {
       if (mode_manager::current() == Mode::Desktop) ui_fx::start(showingCanvas());   // 畫布內容還是轉向前的
     }
   }
-  if (mode_manager::current() != Mode::Desktop) ui_fx::cancel();
+  if (mode_manager::current() != Mode::Desktop && !ui_modeswitch::active()) ui_fx::cancel();
   renderActive(false);
   ui_fx::loop();
   delay(cfg::LOOP_YIELD_MS);
