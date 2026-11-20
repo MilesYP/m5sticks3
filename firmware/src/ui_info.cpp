@@ -438,18 +438,22 @@ void drawWeather() {
   if (w.rh >= 0) snprintf(rb, sizeof rb, "%d%%", w.rh);
   if (w.pop >= 0) snprintf(pb, sizeof pb, "%d%%", w.pop);
   const int ry = 24;
-  if (7 + mixedWidth(rb) + 4 + 9 + mixedWidth(pb) > room) {   // 放不下（例 100%／100% 配上負溫度）→ 拿掉 %
+  // 11-20 Miles：濕度、降雨機率的數字改細體（Font0），跟電量、電壓一樣
+  auto thinW = [&](const char* v) { s_cv.setFont(THIN); return (int)s_cv.textWidth(v); };
+  if (7 + thinW(rb) + 4 + 9 + thinW(pb) > room) {   // 放不下（例 100%／100% 配上負溫度）→ 拿掉 %
     if (w.rh >= 0) snprintf(rb, sizeof rb, "%d", w.rh);
     if (w.pop >= 0) snprintf(pb, sizeof pb, "%d", w.pop);
   }
+  const bool tight = 7 + thinW(rb) + 4 + 9 + thinW(pb) > room;   // 還是放不下 → 間距縮小
+  const C3& pc = w.pop >= 50 ? K_CYAN : K_DIM;
   int x = rx;
   ui_wxicon::drop(s_cv, t.x + x, t.y + ry + 1, col(K_DIM));
-  x += 7;
-  txt(T_WX, x - PAD, ry, rb, K_DIM);
-  x += mixedWidth(rb) + 4;
-  ui_wxicon::umbrella(s_cv, t.x + x, t.y + ry + 1, col(w.pop >= 50 ? K_CYAN : K_DIM));
-  x += 9;
-  txt(T_WX, x - PAD, ry, pb, w.pop >= 50 ? K_CYAN : K_DIM);
+  x += tight ? 6 : 7;
+  txtF(T_WX, x - PAD, ry + THIN_DY, rb, K_DIM, THIN);
+  x += thinW(rb) + (tight ? 2 : 4);
+  ui_wxicon::umbrella(s_cv, t.x + x, t.y + ry + 1, col(pc));
+  x += tight ? 8 : 9;
+  txtF(T_WX, x - PAD, ry + THIN_DY, pb, pc, THIN);
 }
 
 void drawChip() {
