@@ -7,7 +7,8 @@
 #include "battery_ui.h"
 #include "config.h"
 #include "ui_fx.h"
-#include "ui_labels.h"   // A7：狀態大字點陣圖（不連結整套 efontTW_24，見 tools/gen_kanji.py）
+#include "ui_labels.h"
+#include <cstring>   // A7：狀態大字點陣圖（不連結整套 efontTW_24，見 tools/gen_kanji.py）
 
 // ─────────────────────────────────────────────────────────────────────────
 //  座標約定：表情用「設計單位」描述（直式 135×240 時 1 單位＝1px），相對於臉的中心點；
@@ -15,6 +16,7 @@
 //  A7（11-20，Miles 參考圖定案）：像素臉——黑底六角格、狀態列「FRIDAY・狀態」＋電量 %、取景角、左上狀態大字、
 //   掃描線眼睛與嘴巴（每 3 列空 1 列）、五官與符號一律淡琥珀（警報時框格變紅）、右側強度方格、對話框兩版都用 EVA「受信」版。
 //   原本合成波畫法保留在 PIXEL=false 的分支（對照用）。11-21 Miles：EVA 角色臉（ui_persona）刪除，只剩這一個表情頁。
+//   11-21（27-a7f）：表情符號改六角徽章（見「A7 六角符號」）：驚嚇＝水滴、生氣＝! WARNING、其他「!」單純驚嘆號；出場閃三下＋彈簧＋外框疊影；眼角汗滴拿掉。
 //  畫布用 M5Canvas::setRotation 轉向（只換畫圖座標，緩衝區仍是 135×240，推上螢幕不變）。
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -295,6 +297,7 @@ void pxWatermark(int fx0, int top, int fw, int fy1, uint16_t col) {
   if (!big) return;
   const int x = fx0 + 5, by = fy1 - big->h - 5;
   if (by - 12 < top) return;
+  s_cv.fillRect(x - 2, by - 13, fx0 + fw - x + 2, big->h + 15, TFT_BLACK);   // 浮水印那塊不畫格子（11-21 Miles：被格子蓋到）
   s_cv.setFont(&fonts::Font0);
   s_cv.setTextSize(1);
   s_cv.setTextDatum(top_left);
@@ -416,6 +419,87 @@ PxTheme pxTheme(Mood m, bool offline) {
   if (offline) return {{95, 94, 90}, {120, 118, 112}};
   if (m == Mood::Angry) return {{0xE8, 0x2A, 0x2A}, {0xFF, 0xC8, 0x70}};   // 警報：紅色系，眼睛淡琥珀
   return {{0xFF, 0x9B, 0x00}, {0xFF, 0xB0, 0x50}};
+}
+
+// ── A7 六角符號（11-21 Miles 定案）：正六角形、方向與比例同背景格、邊長＝背景格 2 倍、中心吸附在格子中心 ──
+constexpr float HEX_A = 9.0f, HEX_HH = HEX_A * 0.866f, HEX_DX = HEX_A * 1.5f;
+// 找最近的格子中心（跟 pxHexGrid 同一套座標）
+void hexSnap(float& x, float& y) {
+  const int col = (int)lroundf(x / HEX_DX);
+  float best = 1e9f, bx = x, by = y;
+  for (int c = col - 1; c <= col + 1; ++c) {
+    const float cx = c * HEX_DX, base = ((c & 1) ? HEX_HH : 0) - HEX_HH;
+    const int k = (int)lroundf((y - base) / (2 * HEX_HH));
+    for (int kk = k - 1; kk <= k + 1; ++kk) {
+      const float cy = base + kk * 2 * HEX_HH, d = (cx - x) * (cx - x) + (cy - y) * (cy - y);
+      if (d < best) { best = d; bx = cx; by = cy; }
+    }
+  }
+  x = bx; y = by;
+}
+void fillHexCell(float cx, float cy, float a, uint16_t c) {
+  const float h = a * 0.866f;
+  const int l = (int)(cx - a), ml = (int)(cx - a / 2), mr = (int)(cx + a / 2), r = (int)(cx + a);
+  const int t = (int)(cy - h), b = (int)(cy + h), m = (int)cy;
+  s_cv.fillRect(ml, t, mr - ml + 1, b - t + 1, c);
+  s_cv.fillTriangle(l, m, ml, t, ml, b, c);
+  s_cv.fillTriangle(r, m, mr, t, mr, b, c);
+}
+void drawHexCell(float cx, float cy, float a, uint16_t c) {
+  const float h = a * 0.866f;
+  const int l = (int)(cx - a), ml = (int)(cx - a / 2), mr = (int)(cx + a / 2), r = (int)(cx + a);
+  const int t = (int)(cy - h), b = (int)(cy + h), m = (int)cy;
+  s_cv.drawLine(l, m, ml, t, c); s_cv.drawFastHLine(ml, t, mr - ml + 1, c); s_cv.drawLine(mr, t, r, m, c);
+  s_cv.drawLine(r, m, mr, b, c); s_cv.drawFastHLine(ml, b, mr - ml + 1, c); s_cv.drawLine(ml, b, l, m, c);
+}
+void sprite(float cx, float cy, const char* const* rows, int n, int k, uint16_t c) {
+  const int w = (int)strlen(rows[0]);
+  const int x0 = (int)cx - w * k / 2, y0 = (int)cy - n * k / 2;
+  for (int j = 0; j < n; ++j)
+    for (int i = 0; i < w; ++i)
+      if (rows[j][i] == '#') s_cv.fillRect(x0 + i * k, y0 + j * k, k, k, c);
+}
+const char* const SP_BANG[] = {"##", "##", "##", "##", "  ", "##"};
+const char* const SP_Q[] = {" ### ", "#   #", "   # ", "  #  ", "     ", "  #  "};
+const char* const SP_NOTE[] = {"   ###", "   # #", "   #  ", "   #  ", " ###  ", "####  ", " ##   "};
+const char* const SP_HEART[] = {" ## ## ", "#######", "#######", " ##### ", "  ###  ", "   #   "};
+const char* const SP_SPARK[] = {"   #   ", "   #   ", "  ###  ", "#######", "  ###  ", "   #   ", "   #   "};
+const char* const SP_DROP[] = {"   ##   ", "   ##   ", "  ####  ", " ###### ", " ###### ", "## #####", "## #####", "########", " ###### ", "  ####  "};
+const char* const SP_Z[] = {"#####", "   # ", "  #  ", " #   ", "#####"};
+const char* const SP_DOTS[] = {"# # #"};
+enum class HB : uint8_t { Warn, Bang, Drop, Ques, Note, Heart, Spark, Dots, Zed };
+// 單顆六角徽章：正六角形、方向跟背景格一樣（左右尖），邊長＝背景格 2 倍，中心吸附在格子中心
+constexpr float BADGE_A = 2 * HEX_A, BADGE_HH = BADGE_A * 0.866f;
+void badgeFit(float& x, float& y) {
+  hexSnap(x, y);
+  for (int i = 0; i < 4 && y - BADGE_HH < s_sym_top; ++i) y += 2 * HEX_HH;
+  for (int i = 0; i < 10 && x - BADGE_A < s_face_l; ++i) x += 2 * HEX_DX;
+  for (int i = 0; i < 10 && x + BADGE_A > s_face_r - 1; ++i) x -= 2 * HEX_DX;   // 最後保證不出右邊（橫式符號區比徽章窄時寧可壓到眼睛邊）
+}
+// 事件（警告、音符、Z）＝實心底黑圖；狀態（疑問、愛心、星芒、哈欠）＝黑底外框＋亮圖
+void drawBadge(HB b, float cx, float cy, float alpha, float grow, const Rgb& acc, const Rgb& eye) {
+  const bool ev = (b == HB::Warn || b == HB::Bang || b == HB::Drop || b == HB::Note || b == HB::Zed);
+  const float a = BADGE_A * grow;
+  const uint16_t edge = fade(acc, alpha);
+  const uint16_t fg = ev ? (uint16_t)TFT_BLACK : fade(eye, alpha);
+  if (ev) fillHexCell(cx, cy, a, edge);
+  else { fillHexCell(cx, cy, a, TFT_BLACK); drawHexCell(cx, cy, a, edge); drawHexCell(cx, cy, a - 1, edge); }
+  if (grow < 0.85f) return;
+  switch (b) {
+    case HB::Warn:
+      sprite(cx, cy - 6, SP_BANG, 6, 2, fg);
+      s_cv.setFont(&fonts::TomThumb); s_cv.setTextSize(1); s_cv.setTextDatum(middle_center);
+      s_cv.setTextColor(fg); s_cv.drawString("WARNING", (int)cx + 1, (int)cy + 7);
+      break;
+    case HB::Bang: sprite(cx, cy, SP_BANG, 6, 3, fg); break;
+    case HB::Drop: sprite(cx, cy, SP_DROP, 10, 2, fg); break;
+    case HB::Ques: sprite(cx, cy, SP_Q, 6, 2, fg); break;
+    case HB::Note: sprite(cx, cy, SP_NOTE, 7, 2, fg); break;
+    case HB::Heart: sprite(cx, cy, SP_HEART, 6, 2, fg); break;
+    case HB::Spark: sprite(cx, cy, SP_SPARK, 7, 2, fg); break;
+    case HB::Dots: sprite(cx, cy, SP_DOTS, 1, 3, fg); break;
+    case HB::Zed: sprite(cx, cy, SP_Z, 5, 2, fg); break;
+  }
 }
 // 六角格（平頂，邊長 a）：每格只畫 3 條邊（相鄰格共用），省一半線
 void pxHexGrid(int W, int H, uint16_t c) {
@@ -651,7 +735,7 @@ void enterMood(Mood m, uint32_t now) {
   s_ev = Ev();
   s_quiet = 0;
   s_sp[K_HY].v -= (m == Mood::Scared) ? 240.0f : 70.0f;   // 彈進來
-  if (m == Mood::Scared) emit(PK::Text, '!', symX(), symY(), MG, 50);
+  if (m == Mood::Scared) emit(PK::Text, PIXEL ? 'd' : '!', symX(), symY(), MG, 50);
 }
 
 // 模擬音量（預覽或還沒有真實音量時）：講 talk 秒、停 (cyc−talk) 秒，每秒約 6.5 個音節
@@ -803,7 +887,7 @@ Frame behave(Mood m, float t, float dt, uint32_t now, float* tg) {
       f.mm = MouthMode::Wave; tg[K_MW] = 26;
       if (t > E.n) { E.n = t + 0.45f; E.d = rnd(-6, 6); }
       tg[K_DX] = E.d;
-      if (t > E.x2) { E.x2 = t + 2.6f; if (t > 0.5f) emit(PK::Text, '!', symX(), symY(), MG, 46); }
+      if (t > E.x2) { E.x2 = t + 2.6f; if (t > 0.5f) emit(PK::Text, PIXEL ? 'd' : '!', symX(), symY(), MG, 46); }
       break;
 
     case Mood::Sleepy: {
@@ -1117,24 +1201,9 @@ void render() {
   }
 
   // 驚嚇：冷汗（11-20 Miles：太小看不出來 → 改成漫畫式的大汗滴，壓在右眼右上角、慢慢往下滑）
-  if (shown == Mood::Scared && !s_offline) {
-    const float r = 8.0f * sc;                                   // 汗滴圓的部分的半徑（全高約 2.9r ≈ 23px）
-    const float slide = fmodf(t, 1.8f) / 1.8f;                   // 每 1.8 秒滑一次
-    const float sx = rx + rw / 2 - 1 * sc;                       // 一半壓在眼睛邊上
-    const float sy = ry - rh / 2 + 6 * sc + slide * 12 * sc;
-    const uint16_t edge = PIXEL ? c565(th.accent) : s_cv.color565(0x1B, 0x5E, 0x9E);       // 深藍外框
-    const uint16_t body = PIXEL ? TFT_BLACK : s_cv.color565(0x6F, 0xD8, 0xFF);           // 水藍（像素臉：空心）
-    const uint16_t shine = PIXEL ? c565(th.eye) : s_cv.color565(0xEA, 0xFB, 0xFF);      // 反光
-    auto dropShape = [&](float grow, uint16_t c) {
-      s_cv.fillTriangle((int32_t)sx, (int32_t)(sy - 2.3f * r - grow * 1.6f),
-                        (int32_t)(sx - 0.93f * r - grow), (int32_t)(sy - 0.35f * r),
-                        (int32_t)(sx + 0.93f * r + grow), (int32_t)(sy - 0.35f * r), c);
-      s_cv.fillCircle((int32_t)sx, (int32_t)sy, (int32_t)(r + grow), c);
-    };
-    dropShape(1.5f, edge);
-    dropShape(0, body);
-    s_cv.fillEllipse((int32_t)(sx - 0.38f * r), (int32_t)(sy - 0.15f * r), (int32_t)fmaxf(1, 0.22f * r), (int32_t)fmaxf(1, 0.38f * r), shine);
-  }
+  // A7：像素臉不再把汗滴掛在眼角（改成符號角的水滴徽章）
+
+
 
   // 嘴巴（像素臉：一樣的嘴型，畫完再挖掃描線縫）
   {
@@ -1169,8 +1238,7 @@ void render() {
         if (bc < 2.6f) {
           s_ev.popped = false;
           const float br = (1 + bc / 2.6f * 9) * sc;
-          s_cv.drawCircle((int32_t)(mx + (10 + bc * 2) * sc), (int32_t)(my - (6 + bc * 2) * sc), (int32_t)br,
-                          PIXEL ? c565(th.eye) : s_cv.color565(127, 184, 180));
+          drawHexCell(mx + (10 + bc * 2) * sc, my - (6 + bc * 2) * sc, br * 1.1f, c565(th.eye));
         } else if (!s_ev.popped && !s_offline) {
           s_ev.popped = true;
           for (int i = 0; i < 4; ++i)
@@ -1224,21 +1292,24 @@ void render() {
   }
 
   // 思考：右上思考泡泡（三點輪流亮）
-  if (shown == Mood::Thinking) {
+  if (shown == Mood::Thinking) {   // A7：三格輪流亮（MAGI），沿格子往右上排
     const int act = ((int)(t * 3)) % 3;
+    float bx = X(30), by = Y(-36 + hy);
+    hexSnap(bx, by);
     for (int i = 0; i < 3; ++i) {
-      const float r = (2 + i) * (i == act ? 1.35f : 1.0f) * sc;
-      s_cv.fillCircle((int32_t)X(41 + i * 9), (int32_t)Y(-43 - i * 10 + hy), (int32_t)r, i == act ? c565(c1) : fade(c1, 0.3f));
+      const float cx = bx + i * HEX_DX, cy = by - i * HEX_HH;
+      fillHexCell(cx, cy, HEX_A - 1.0f, i == act ? c565(th.accent) : fade(th.accent, 0.25f));
     }
   }
+
   // 生氣：# 青筋跳動
-  if (shown == Mood::Angry) {   // 生氣青筋：跟著節奏一跳一跳
-    const float ah = (44 + 7 * fmaxf(0, sinf(t * 9))) * sc;
-    const float ax = clampX(X(symX()), 0.8f * ah), ay = fmaxf(Y(symY() + 4 + hy), s_sym_top + 0.8f * ah + 2);
-    const Rgb ag = PIXEL ? th.accent : MG;
-    if (!PIXEL) glyphAnger(ax, ay, ah, 1.5f, fade(ag, 0.35f));
-    glyphAnger(ax, ay, ah, 0, c565(ag));
+  if (shown == Mood::Angry) {   // A7：紅色六角「! WARNING」，跟節奏一閃一閃
+    float ax = X(symX()), ay = Y(symY() + 4 + hy);
+    badgeFit(ax, ay);
+    const float beat = fmaxf(0, sinf(t * 9));
+    drawBadge(HB::Warn, ax, ay, 0.75f + 0.25f * beat, 1 + 0.08f * beat, th.accent, th.eye);
   }
+
 
   // 小符號（彈出放大再縮回、往上飄、淡出）
   s_cv.setFont(&fonts::efontTW_12);
@@ -1251,39 +1322,40 @@ void render() {
     if (p.age >= p.life) { p.on = false; continue; }
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    const float pop = fminf(1, p.age * 8) * (1 + 0.3f * fmaxf(0, 1 - p.age * 4));
     const Rgb pcol = PIXEL ? th.eye : p.col;   // 像素臉：符號一律淡琥珀、不加光暈
     const uint16_t pc = fade(pcol, 1 - p.age / p.life);
     const float px0 = X(p.x), py0 = Y(p.y), py = py0, px = px0;
     switch (p.kind) {
-      case PK::Text: case PK::Heart: case PK::Spark: {
-        const float h = p.size * pop * sc;
-        const float py = fmaxf(py0, s_sym_top + 0.46f * h + 2);   // 不要被螢幕上緣（像素臉：狀態列）切掉
-        const float px = clampX(px0, 0.5f * h);       // 也不要超出臉的左右邊（橫式對話區打開時）
-        const float a = 1 - p.age / p.life;
-        const uint16_t gc = fade(p.col, 0.35f * a);   // 外圈光暈
-        auto g = [&](float grow, uint16_t c) {
-          if (p.kind == PK::Heart) glyphHeart(px, py, h, grow, c);
-          else if (p.kind == PK::Spark) glyphSpark(px, py, h, grow, c);
-          else if (p.ch == '?') glyphQuestion(px, py, h, grow, c);
-          else if (p.ch == 'z') glyphZ(px, py, h, grow, c);
-          else glyphBang(px, py, h, grow, c);
-        };
-        if (!PIXEL) g(2.0f, gc);
-        g(0, pc);
+      case PK::Text: case PK::Heart: case PK::Spark: case PK::Note: case PK::Dots: {
+        if (PIXEL) {
+          HB b = p.kind == PK::Heart ? HB::Heart : p.kind == PK::Spark ? HB::Spark : p.kind == PK::Note ? HB::Note
+               : p.kind == PK::Dots ? HB::Dots : p.ch == '?' ? HB::Ques : p.ch == 'z' ? HB::Zed : p.ch == 'd' ? HB::Drop : HB::Bang;
+          const float al = 1 - p.age / p.life;
+          // 疊影：0.1／0.2 秒前的位置（吸附到格子）畫外框殘影，跟現在同一格就不畫
+          float bx = px0, by = py0;
+          badgeFit(bx, by);
+          for (int g = 2; g >= 1; --g) {
+            const float ga = p.age - g * 0.10f;
+            if (ga < 0) continue;
+            float gx = X(p.x - p.vx * g * 0.10f), gy = Y(p.y - p.vy * g * 0.10f);
+            badgeFit(gx, gy);
+            if (gx == bx && gy == by) continue;
+            drawHexCell(gx, gy, BADGE_A, fade(th.accent, al * (g == 1 ? 0.45f : 0.22f)));
+          }
+          // 疊影：出場後一圈外框往外擴散、淡掉（0.05～0.4 秒）
+          if (p.age > 0.05f && p.age < 0.4f) {
+            const float e = (p.age - 0.05f) / 0.35f;
+            drawHexCell(bx, by, BADGE_A * (1.1f + 0.5f * e), fade(th.accent, al * 0.6f * (1 - e)));
+            if (e > 0.2f) drawHexCell(bx, by, BADGE_A * (1.0f + 0.5f * (e - 0.2f)), fade(th.accent, al * 0.3f * (1 - e)));
+          }
+          // 出場：前 0.18 秒閃三下，彈簧放大（衝過頭約 20% 再回彈）
+          if (p.age < 0.18f && ((int)(p.age * 33)) % 2 == 1) break;
+          const float sp = 1 - expf(-p.age * 12) * cosf(p.age * 26);
+          drawBadge(b, bx, by, al, fmaxf(0.3f, sp), th.accent, th.eye);
+          break;
+        }
         break;
       }
-      case PK::Note: {
-        const float ns = p.size * pop * sc;
-        const float py = fmaxf(py0, s_sym_top + 7.5f * ns + 2);
-        const float px = clampX(px0, 8.0f * ns);
-        if (!PIXEL) drawNote(px, py, ns + 0.35f, fade(p.col, 0.35f * (1 - p.age / p.life)));   // 光暈
-        drawNote(px, py, ns, pc);
-        break;
-      }
-      case PK::Dots:
-        for (int k = -1; k <= 1; ++k) s_cv.fillCircle((int32_t)(clampX(px, 12 * sc) + k * 8 * sc), (int32_t)py, (int32_t)fmaxf(1, 1.8f * p.size * pop * sc), pc);
-        break;
       case PK::Dot: s_cv.fillCircle((int32_t)px, (int32_t)py, (int32_t)fmaxf(1, 1.5f * sc), pc); break;
     }
   }
