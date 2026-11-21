@@ -279,6 +279,42 @@ export class InfoHub {
     await this.storage.put("info:lastDay", taipeiDate());
   }
 
+  // ── B5（11-21）：給 Friday 的「機器與即時資訊」快照（GPT-Live session 開始時接在指示後面）──
+  // 新聞直接念這裡的標題（不用上網查、省搜尋費）；額度、電量、版本等機器本身的問題照這裡回答。
+  async briefing() {
+    const tpe = (ms) => new Date(ms + 8 * 3600e3).toISOString().slice(5, 16).replace("T", " ");
+    const ago = (ms) => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "剛剛" : m < 60 ? `${m} 分鐘前` : `${Math.round(m / 60)} 小時前`; };
+    const L = quotaLimits(this.env);
+    const [u, wx, nw, dev, q] = await Promise.all([
+      this.usdMsg(), this.storage.get("info:wx"), this.storage.get("info:news"), this.storage.get("dev:status"),
+      this.storage.get("quota:" + taipeiDate()),
+    ]);
+    const lines = [`【機器與即時資訊】（快照時間：台北 ${tpe(Date.now())}；問到這些直接照這裡回答，不用上網查）`];
+    const used = u.today || 0;
+    lines.push(`- 語音額度：今天已用 $${used.toFixed(2)}／每日上限 $${L.usd}（今天還剩 $${Math.max(0, L.usd - used).toFixed(2)}）；今天第 ${(q && q.turns) || 0} 輪對話（上限 ${L.turns} 輪）` +
+      (u.left != null ? `；OpenAI 帳上餘額約 $${u.left.toFixed(2)}` : ""));
+    if (dev) {
+      const chg = dev.chg === 2 ? "插著線、已充飽" : dev.chg === 1 ? "插著線充電中" : "沒插線";
+      const net = dev.net && dev.net !== "-" ? `Wi-Fi 連在${dev.net}、訊號 ${dev.rssi} dBm` : "Wi-Fi 狀態不明";
+      const upMin = Math.round((dev.up || 0) / 60);
+      lines.push(`- M5S3Pack 本機（${ago(dev.at)}回報）：電量 ${dev.bat != null && dev.bat >= 0 ? dev.bat + "%" : "讀不到"}${dev.mv ? `（電池 ${(dev.mv / 1000).toFixed(2)}V，${chg}）` : `（${chg}）`}；${net}；韌體版本 ${dev.ver || "?"}；開機 ${upMin >= 60 ? Math.floor(upMin / 60) + " 小時 " + (upMin % 60) + " 分" : upMin + " 分鐘"}`);
+    }
+    if (wx) lines.push(`- 天氣（${wx.loc || "本地"}，${ago(wx.fetched)}更新）：${wx.desc || ""}，${wx.temp ?? "?"}°C、濕度 ${wx.rh ?? "?"}%、降雨機率 ${wx.pop ?? "?"}%`);
+    if (nw && nw.items && nw.items.length) {
+      lines.push(`- 中央社快訊（${ago(nw.fetched)}更新，使用者說「播新聞」「有什麼新聞」就照順序簡短念這幾則，每則一句；要細節或更新的再上網查）：`);
+      nw.items.forEach((t, i) => lines.push(`  ${i + 1}. ${t}`));
+    }
+    return lines.join("\n");
+  }
+  async saveDevStatus(msg) {
+    const n = (x, lo, hi) => (Number.isFinite(+x) ? Math.min(hi, Math.max(lo, Math.round(+x))) : null);
+    const s = (x) => String(x || "").slice(0, 12);
+    await this.storage.put("dev:status", {
+      at: Date.now(), bat: n(msg.bat, -1, 100), chg: n(msg.chg, 0, 2), mv: n(msg.mv, 0, 6000),
+      ver: s(msg.ver), net: s(msg.net), rssi: n(msg.rssi, -127, 0), up: n(msg.up, 0, 1e9),
+    });
+  }
+
   // ── 快取訊息 ──
   async cachedMsgs() {
     const out = [await this.usdMsg()];

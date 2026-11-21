@@ -15,6 +15,7 @@
 
 #include "adpcm.h"
 #include "audio_io.h"
+#include "battery_ui.h"
 #include "config.h"
 #include "info_data.h"
 #include "secrets.h"
@@ -33,7 +34,7 @@ namespace {
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── (1) 指令佇列：主迴圈 → 網路 task ──
-enum class Cmd : uint8_t { UploadBegin, UploadFinish, UploadAbort, Ping, DropLink, WifiOn, WifiOff, InfoReq };
+enum class Cmd : uint8_t { UploadBegin, UploadFinish, UploadAbort, Ping, DropLink, WifiOn, WifiOff, InfoReq, DevStatus };
 struct CmdMsg {
   Cmd c;
   uint32_t id;
@@ -41,6 +42,7 @@ struct CmdMsg {
   char down[10];
   char pace[6];
   char mode[6];   // B3c："gpt"／"echo"
+  char txt[96];   // B5：DevStatus 的 JSON 欄位（主迴圈填，網路 task 補 Wi-Fi 後送出）
 };
 QueueHandle_t s_cmdq = nullptr;
 TaskHandle_t s_task = nullptr;
@@ -264,6 +266,8 @@ void onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
   }
 }
 
+const char* netTag();   // 目前連的是哪一組 Wi-Fi（「家裡」／「熱點」），定義在 Wi-Fi 清單後面
+
 void handleCmd(const CmdMsg& m) {
   switch (m.c) {
     case Cmd::UploadBegin: {
@@ -299,6 +303,15 @@ void handleCmd(const CmdMsg& m) {
       s_ws.sendTXT("{\"t\":\"info_req\"}");
       netlog("[info] 已要求中控重送資料（info_req）\n");
       break;
+    case Cmd::DevStatus: {   // B5：機器狀態給中控（Friday 回答「還剩多少額度／電量」等用；不印序列埠，避免洗版）
+      if (!s_link.load()) break;
+      char js[200];
+      const bool up = WiFi.status() == WL_CONNECTED;
+      snprintf(js, sizeof js, "{\"t\":\"dev\",%s,\"net\":\"%s\",\"rssi\":%d}", m.txt,
+               up ? netTag() : "-", up ? (int)WiFi.RSSI() : 0);
+      s_ws.sendTXT(js);
+      break;
+    }
     case Cmd::DropLink:
       if (s_ws_started) s_ws.disconnect();
       netlog("[diag] 已斷開 WebSocket（模擬連線重置），等自動重連\n");
@@ -399,6 +412,7 @@ constexpr int kNetCount = sizeof(kNets) / sizeof(kNets[0]);
 bool     s_scanning = false;
 int      s_net_idx = -1;
 uint32_t s_wifi_try_ms = 0, s_last_pref_scan = 0;
+const char* netTag() { return (s_net_idx >= 0 && s_net_idx < kNetCount) ? kNets[s_net_idx].tag : "-"; }
 
 void wifiConnect(int i) {
   s_net_idx = i;
@@ -702,8 +716,29 @@ void begin() {
                 (unsigned long)cfg::NET_TASK_PRIO, (unsigned long)cfg::NET_TASK_STACK);
 }
 
+// B5：連上中控、每 60 秒、充電狀態變了，就送一則機器狀態（電量、充電、電壓、版本、開機多久）
+void devStatusStep() {
+  static bool was_up = false;
+  static uint32_t last = 0;
+  static int last_chg = -1;
+  const bool up = s_link.load();
+  const uint32_t now = millis();
+  const int chg = battery_ui::chargeState();
+  if (up && (!was_up || now - last >= 60000 || chg != last_chg)) {
+    CmdMsg m{};
+    m.c = Cmd::DevStatus;
+    snprintf(m.txt, sizeof m.txt, "\"bat\":%d,\"chg\":%d,\"mv\":%d,\"ver\":\"%s\",\"up\":%lu",
+             battery_ui::level(), chg, battery_ui::voltageMv(), audio_io::buildTag(), (unsigned long)(now / 1000));
+    post(m);
+    last = now;
+    last_chg = chg;
+  }
+  was_up = up;
+}
+
 void loop() {
   drainLog();
+  devStatusStep();
   // 依序處理收到的訊息。音訊收不下（播放緩衝滿）就停在這則，保持順序，下一圈再試。
   const uint32_t t0 = millis();
   for (int i = 0; i < 16 && millis() - t0 < 15; ++i) {

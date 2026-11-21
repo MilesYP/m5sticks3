@@ -156,6 +156,10 @@ export class VoiceSession {
         this.info.forceRefresh().catch((e) => console.log("[info] " + e.message));
         break;
 
+      case "dev":   // B5：裝置每 60 秒／連上／充電狀態變了送一次機器狀態（Friday 回答「還剩多少電／額度」用）
+        await this.info.saveDevStatus(msg);
+        break;
+
       case "history": {
         // B3c：GPT 模式的上下文（最近 50 輪逐字稿）
         const ctx = await this.gpt.history();

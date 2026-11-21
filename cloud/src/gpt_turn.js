@@ -191,7 +191,9 @@ export class GptLink {
       // Friday 的角色說明與使用者記憶（/persona 上傳）接在人設後面；instructions 上限 16,384 token，這兩份控制在幾千字內
       const pf = (await this.storage.get("persona:friday")) || "";
       const pm = (await this.storage.get("persona:miles")) || "";
-      const instructions = [XS_INSTRUCTIONS, pf, pm].filter(Boolean).join("\n\n");
+      // B5（11-21）：機器與即時資訊快照（額度、電量、天氣、中央社快訊）。session 閒置 30 秒就關，下一輪重開會拿到新的
+      const brief = this.info ? await this.info.briefing().catch((e) => { this.log("快照失敗：" + e.message); return ""; }) : "";
+      const instructions = [XS_INSTRUCTIONS, pf, pm, brief].filter(Boolean).join("\n\n");
       // 聲音（11-20 Miles：男性、美國口音；ChatGPT App 的 Ember 不在 API 清單 → 預設 meridian＝北美口音男聲）
       // wrangler 變數 GPT_VOICE 可換（不能叫 VOICE：那是 Durable Object 綁定的名字）（session 開始時固定，換了要等下一個 session）
       const voice = (this.env.GPT_VOICE || "meridian").trim();
