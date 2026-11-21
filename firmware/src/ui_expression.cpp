@@ -1490,8 +1490,9 @@ void render() {
     if (chgLq) {
       if (!s_lq_on) { lqClear(); s_lq_on = true; s_lq_next = now; }
       s_lq_off_t = 0;
-    } else if (s_lq_on && !s_lq_off_t) s_lq_off_t = now ? now : 1;
-    const float alpha = s_lq_off_t ? 1.0f - (float)(now - s_lq_off_t) / cfg::LQ_FADE_MS : 1.0f;
+    } else if (s_lq_on && !s_lq_off_t) { const uint32_t m = millis(); s_lq_off_t = m ? m : 1; }
+    // 淡出用真實時間（29-a4g：斷線時 now 停在定格那一刻 → 淡出永遠走不完、液體卡在畫面上）
+    const float alpha = s_lq_off_t ? 1.0f - (float)(millis() - s_lq_off_t) / cfg::LQ_FADE_MS : 1.0f;
     if (s_lq_on && alpha <= 0) { s_lq_on = false; lqClear(); }
     if (s_lq_on) {
       if ((int32_t)(now - s_lq_next) > 200) s_lq_next = now;   // 斷了很久（換頁回來）：不要一次補走很多步

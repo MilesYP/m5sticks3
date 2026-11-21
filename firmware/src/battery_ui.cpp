@@ -132,7 +132,8 @@ void setCstate(int st, const char* why) {
 void updateCstate() {
   if (s_cstate_ovr >= 0) { setCstate(s_cstate_ovr, "序列埠 d 假裝"); return; }
   if (!s_plug) { setCstate(0, "拔線"); return; }
-  if (s_vh_n < cfg::BAT_FULL_WIN) { if (s_cstate == 0) setCstate(1, "插線"); return; }
+  // 電壓還沒收滿 5 分鐘＝一律充電中（29-a4g：原本只從 0 換，序列埠 d2 後打 d 會卡在充飽）
+  if (s_vh_n < cfg::BAT_FULL_WIN) { setCstate(1, "插線"); return; }
   const int avg = vhAvg(0, s_vh_n);
   const int rise = vhAvg(s_vh_n - 6, 6) - vhAvg(0, 6);   // 最後 1 分鐘 − 最早 1 分鐘
   if (s_cstate == 2) { if (avg < cfg::BAT_FULL_EXIT_MV) setCstate(1, "電壓掉回"); }
@@ -154,6 +155,11 @@ void pollCharge() {
     if (++s_plug_cnt >= cfg::BAT_PLUG_DEBOUNCE) {
       s_plug = plug; s_plug_cnt = 0;
       s_vh_n = 0;                    // 插拔都重新累積 5 分鐘電壓
+      if (s_cstate_ovr >= 0) {       // 29-a4g：真的插拔就結束 d 假裝（原本 d2 後拔線液體一直在）
+        s_cstate_ovr = -1;
+        Serial.println("[bat] 偵測到插拔，結束序列埠 d 假裝、恢復自動判斷");
+      }
+      Serial.printf("[bat] USB %s\n", plug ? "插上" : "拔掉");
       updateCstate();
     }
   } else s_plug_cnt = 0;
@@ -291,6 +297,10 @@ void setChargeOverride(int st) {
   s_cstate_ovr = (st < 0 || st > 2) ? -1 : st;
   if (s_cstate_ovr < 0) Serial.println("[bat] 充電狀態恢復自動判斷");
   updateCstate();
+  // 29-a4g：每次 d 都印目前狀態，方便對照畫面
+  Serial.printf("[bat] 充電狀態＝%s｜USB %s｜電壓紀錄 %d/%d 筆｜%s\n",
+                s_cstate == 2 ? "充飽" : s_cstate == 1 ? "充電中" : "沒充電", s_plug ? "有" : "無",
+                s_vh_n, cfg::BAT_FULL_WIN, s_cstate_ovr >= 0 ? "假裝中" : "自動");
 }
 
 bool externalPower() {

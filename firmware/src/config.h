@@ -130,7 +130,7 @@ constexpr float    FR_DRAG       = 0.6f;    // 空氣阻力（每秒速度衰減
 constexpr float    FR_RETURN_K   = 220.0f;  // 拼回彈簧（阻尼不足 → 衝過頭一點點）
 constexpr float    FR_RETURN_C   = 16.0f;
 constexpr uint32_t FR_RETURN_MAX_MS = 900;  // 拼回最多多久（到了直接換回正常五官）
-constexpr uint32_t FR_HOLD_MS    = 2500;    // 停手（彈珠台結束）後碎片先散在畫面上多久才拼回（11-21 Miles：0.4 秒太快）
+constexpr uint32_t FR_HOLD_MS    = 4000;    // 停手（彈珠台結束）後碎片先散在畫面上多久才拼回（11-21 Miles：0.4 秒太快→2.5 秒→4 秒）
 // 視重力左右方向：推導值（靜置時加速度計讀到「往上」1g；右邊低 → 讀數右分量為負 → 碎片往右）。
 // 實機往右傾若碎片往左跑，改 −1。
 constexpr float    FR_GRAV_SIGN_X = 1.0f;
