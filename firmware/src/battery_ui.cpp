@@ -23,6 +23,7 @@ constexpr int TIER_WARN  = kTierCount - 2;      // 原色紅閃
 float    s_level = -1.0f;      // 平滑後的電量
 int      s_vbat_mv = 0;        // A5-1：上次讀到的電池電壓
 bool     s_charging = false;   // A5-1：上次判斷的充電中
+int      s_cstate = 0;         // A4b：0 沒充電、1 充電中、2 充飽（readAndApply 也要用，宣告在前面）
 int      s_tier = -1;
 int      s_override = -1;
 uint32_t s_last_read = 0;
@@ -113,7 +114,6 @@ uint8_t readSource() {
 //    充飽＝插著線、5 分鐘電池平均 ≥4.10V 且 5 分鐘上升 <15mV；平均 <4.05V 或拔線就離開 ──
 bool     s_plug = false;          // 去抖後的「有 USB」
 uint8_t  s_plug_cnt = 0;
-int      s_cstate = 0;            // 0 沒充電、1 充電中、2 充飽
 int      s_cstate_ovr = -1;       // 序列埠 d 假裝（−1＝自動）
 uint16_t s_vh[cfg::BAT_FULL_WIN]; // 電池電壓歷史（10 秒一筆）
 int      s_vh_n = 0, s_vh_head = 0;
