@@ -128,11 +128,11 @@ void printWindow(uint32_t now, float snd_lo, float snd_hi, uint32_t snd_n) {
       if (s_cand_n > 0 && s_orient_override < 0)
         snprintf(cand, sizeof(cand), "（候選 %s %d/%d）", ui_expression::orientName(s_cand), s_cand_n,
                  (int)cfg::ORIENT_DWELL_WINDOWS);
-      Serial.printf("[imu] n=%u 間隔≤%.1fms 迴圈≤%ums｜偏離1g≤%.3fg 衝擊≤%.3fg 轉速≤%.1f°/s｜平均(%+.2f,%+.2f,%+.2f)g｜平面 %.2fg 角 %+4.0f°｜甩 右%+.1f 下%+.1f｜%s%s%s｜%s\n",
+      Serial.printf("[imu] n=%u 間隔≤%.1fms 迴圈≤%ums｜偏離1g≤%.3fg 衝擊≤%.3fg 轉速≤%.1f°/s｜平均(%+.2f,%+.2f,%+.2f)g｜平面 %.2fg 角 %+4.0f°｜甩 右%+.1f 下%+.1f｜%s%s%s｜%s｜液體≤%.1fms\n",
                     (unsigned)s_w.n, s_w.max_gap_us / 1000.0f, (unsigned)s_w.max_loop_ms,
                     s_w.max_da, s_w.max_jerk, s_w.max_gyro, ax, ay, s_w.sz * k, plane, ang, s_w.mot_r, s_w.mot_d,
                     ui_expression::orientName(s_orient), s_orient_override >= 0 ? "（手動）" : "", cand,
-                    ui_expression::moodName());
+                    ui_expression::moodName(), ui_expression::takeLiquidMaxUs() / 1000.0f);
     }
   }
   if (s_m_snd) {

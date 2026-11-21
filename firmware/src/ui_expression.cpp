@@ -588,7 +588,40 @@ bool lqValid(int c, int k) {
   const float x = lqX(c), y = lqY(c, k);
   return x - HEX_A >= s_lq_x0 && x + HEX_A <= s_lq_x1 && y - HEX_HH >= s_lq_y0 && y + HEX_HH <= s_lq_y1;
 }
-bool lqFree(int c, int k) { return lqValid(c, k) && !s_lq_occ[c][k]; }
+// 11-21 實機（29-a4d）：插線時 j 迴圈仍 35～65ms → 流動計算改查表：
+//  有效格（容器內）存成表、容器變了才重算；鄰格的列偏移只跟欄的奇偶有關，開機算一次；
+//  12 個方向的分數每步算一次（不是每格每方向算一次開根號／除法）；亂數用 LCG（不呼叫 esp_random）
+uint8_t  s_lq_ok[LQ_COLS][LQ_ROWS];
+int      s_lq_cap = 0, s_lq_key = -1;
+int8_t   s_lq_dk[2][12];                        // [欄奇偶][方向] → 列偏移
+float    s_lq_ux[12], s_lq_uy[12];              // 方向單位向量
+bool     s_lq_tab = false;
+uint32_t s_lq_rng = 12345;
+uint32_t s_lq_us_max = 0;                     // 這一窗液體（流動＋畫）最久花幾 µs
+inline uint32_t lqRand() { s_lq_rng = s_lq_rng * 1664525u + 1013904223u; return s_lq_rng >> 8; }
+static const int8_t LQ_CX[12] = {0, 0, 1, 1, -1, -1, 2, -2, 1, 1, -1, -1};   // 6 鄰格＋6 隔一格（側滑用）
+static const int8_t LQ_CY[12] = {-2, 2, -1, 1, -1, 1, 0, 0, -3, 3, -3, 3};   // 單位：x＝DX、y＝HH
+void lqTables() {
+  if (s_lq_tab) return;
+  for (int p = 0; p < 2; ++p)
+    for (int i = 0; i < 12; ++i) {
+      const int c = 4 + p, k = 6, c2 = c + LQ_CX[i];
+      s_lq_dk[p][i] = (int8_t)(lqRowOf(c2, lqY(c, k) + LQ_CY[i] * HEX_HH) - k);
+    }
+  for (int i = 0; i < 12; ++i) {
+    const float vx = LQ_CX[i] * HEX_DX, vy = LQ_CY[i] * HEX_HH, len = sqrtf(vx * vx + vy * vy);
+    s_lq_ux[i] = vx / len; s_lq_uy[i] = vy / len;
+  }
+  s_lq_tab = true;
+}
+void lqRebuild() {   // 容器變了：重算有效格與容量
+  s_lq_cap = 0;
+  for (int c = 0; c < LQ_COLS; ++c)
+    for (int k = 0; k < LQ_ROWS; ++k) { s_lq_ok[c][k] = lqValid(c, k); s_lq_cap += s_lq_ok[c][k]; }
+}
+inline bool lqFree(int c, int k) {
+  return (unsigned)c < (unsigned)LQ_COLS && (unsigned)k < (unsigned)LQ_ROWS && s_lq_ok[c][k] && !s_lq_occ[c][k];
+}
 void lqClear() { s_lq_n = 0; memset(s_lq_occ, 0, sizeof s_lq_occ); }
 // 11-21 實機（29-a4c）：液體每幀用 fillHexCell（1 矩形＋2 三角形，每列一次繪圖呼叫）畫 70～110 格，
 // 插線時 j 迴圈 30～57ms → 改成直接寫畫布緩衝（每列一段像素），繪圖呼叫的固定成本全省掉。
@@ -630,7 +663,7 @@ void fillHexFast(float cx, float cy, float a, uint16_t col) {
 void lqPrune() {
   int w = 0;
   for (int i = 0; i < s_lq_n; ++i) {
-    if (lqValid(s_lq[i].c, s_lq[i].k)) s_lq[w++] = s_lq[i];
+    if (s_lq_ok[s_lq[i].c][s_lq[i].k]) s_lq[w++] = s_lq[i];
     else s_lq_occ[s_lq[i].c][s_lq[i].k] = 0;
   }
   s_lq_n = w;
@@ -640,42 +673,38 @@ void lqStep() {
   const float gm = sqrtf(s_gr_x * s_gr_x + s_gr_y * s_gr_y);
   if (gm < 0.15f) return;   // 平放：重力在螢幕平面上幾乎沒有分量 → 不流
   const float gx = s_gr_x / gm, gy = s_gr_y / gm, px = -gy, py = gx;   // p＝垂直重力（側邊）
-  int ord[cfg::LQ_MAX];
-  float key[cfg::LQ_MAX];
-  for (int i = 0; i < s_lq_n; ++i) { ord[i] = i; key[i] = lqX(s_lq[i].c) * gx + lqY(s_lq[i].c, s_lq[i].k) * gy; }
-  for (int i = 1; i < s_lq_n; ++i) {   // 插入排序（≤96 格）
-    const int v = ord[i];
+  float sc[12], sd[12];     // 每個方向：沿重力的分數、往側邊的分數（每步算一次）
+  for (int i = 0; i < 12; ++i) { sc[i] = s_lq_ux[i] * gx + s_lq_uy[i] * gy; sd[i] = s_lq_ux[i] * px + s_lq_uy[i] * py; }
+  static int16_t ord[cfg::LQ_MAX];
+  static float key[cfg::LQ_MAX];
+  for (int i = 0; i < s_lq_n; ++i) { ord[i] = (int16_t)i; key[i] = lqX(s_lq[i].c) * gx + lqY(s_lq[i].c, s_lq[i].k) * gy; }
+  for (int i = 1; i < s_lq_n; ++i) {   // 插入排序（上一步的順序大多沒變，接近線性）
+    const int16_t v = ord[i];
     int j = i - 1;
     while (j >= 0 && key[ord[j]] < key[v]) { ord[j + 1] = ord[j]; --j; }
     ord[j + 1] = v;
   }
-  // 12 個候選：6 個鄰格＋6 個隔一格的（用來側滑）。單位：x＝DX、y＝HH
-  static const int8_t CX[12] = {0, 0, 1, 1, -1, -1, 2, -2, 1, 1, -1, -1};
-  static const int8_t CY[12] = {-2, 2, -1, 1, -1, 1, 0, 0, -3, 3, -3, 3};
   for (int oi = 0; oi < s_lq_n; ++oi) {
     LqCell& q = s_lq[ord[oi]];
-    const float y = lqY(q.c, q.k);
+    const int p = q.c & 1;
     int bc = -1, bk = -1;
     float best = 0.45f;
-    for (int i = 0; i < 6; ++i) {
-      const float vx = CX[i] * HEX_DX, vy = CY[i] * HEX_HH, len = sqrtf(vx * vx + vy * vy);
-      const float sc = (vx * gx + vy * gy) / len + rnd(0, 0.04f);
-      if (sc < best) continue;
-      const int c = q.c + CX[i], k = lqRowOf(c, y + vy);
+    for (int i = 0; i < 6; ++i) {   // 往下：分數 ≥0.45 的空鄰格挑最高（加一點亂數打破平手）
+      const float v = sc[i] + (lqRand() & 63) * (0.04f / 64);
+      if (v < best) continue;
+      const int c = q.c + LQ_CX[i], k = q.k + s_lq_dk[p][i];
       if (!lqFree(c, k)) continue;
-      best = sc; bc = c; bk = k;
+      best = v; bc = c; bk = k;
     }
-    if (bc < 0) {
+    if (bc < 0) {                   // 被擋住 → 照自己的流向側滑
       float bs = -1;
       for (int i = 0; i < 12; ++i) {
-        const float vx = CX[i] * HEX_DX, vy = CY[i] * HEX_HH, len = sqrtf(vx * vx + vy * vy);
-        const float sc = (vx * gx + vy * gy) / len, side = (vx * px + vy * py) / len * q.dir;
-        if (sc < -0.12f || sc > 0.45f || side < 0.3f || sc <= bs) continue;
-        const int c = q.c + CX[i], k = lqRowOf(c, y + vy);
+        if (sc[i] < -0.12f || sc[i] > 0.45f || sd[i] * q.dir < 0.3f || sc[i] <= bs) continue;
+        const int c = q.c + LQ_CX[i], k = q.k + s_lq_dk[p][i];
         if (!lqFree(c, k)) continue;
-        bs = sc; bc = c; bk = k;
+        bs = sc[i]; bc = c; bk = k;
       }
-      if (bc < 0) { if (rnd(0, 1) < 0.3f) q.dir = -q.dir; continue; }
+      if (bc < 0) { if ((lqRand() & 1023) < 307) q.dir = -q.dir; continue; }
     }
     s_lq_occ[q.c][q.k] = 0;
     q.c = (int8_t)bc; q.k = (int8_t)bk;
@@ -686,10 +715,10 @@ void lqStep() {
 void lqFill(int target) {
   const float mx = (s_lq_x0 + s_lq_x1) * 0.5f, my = (s_lq_y0 + s_lq_y1) * 0.5f;
   for (int tries = 0; s_lq_n < target && s_lq_n < cfg::LQ_MAX && tries < 40; ++tries) {
-    const int c = (int)rnd(0, LQ_COLS), k = (int)rnd(0, LQ_ROWS);
-    if (c >= LQ_COLS || k >= LQ_ROWS || !lqFree(c, k)) continue;
+    const int c = (int)(lqRand() % LQ_COLS), k = (int)(lqRand() % LQ_ROWS);
+    if (!lqFree(c, k)) continue;
     if ((lqX(c) - mx) * s_gr_x + (lqY(c, k) - my) * s_gr_y > 0) continue;
-    s_lq[s_lq_n++] = {(int8_t)c, (int8_t)k, (int8_t)((esp_random() & 1) ? 1 : -1)};
+    s_lq[s_lq_n++] = {(int8_t)c, (int8_t)k, (int8_t)((lqRand() & 1) ? 1 : -1)};
     s_lq_occ[c][k] = 1;
   }
   while (s_lq_n > target) { --s_lq_n; s_lq_occ[s_lq[s_lq_n].c][s_lq[s_lq_n].k] = 0; }
@@ -1256,6 +1285,7 @@ void setGaze(float x, float y) {
 void setMotion(float right_g, float down_g) { s_mot_x = right_g; s_mot_y = down_g; }
 void setGravity(float right_g, float down_g) { s_gr_x = right_g; s_gr_y = down_g; }
 bool shattered() { return s_fr_on; }
+uint32_t takeLiquidMaxUs() { const uint32_t v = s_lq_us_max; s_lq_us_max = 0; return v; }
 void setCharge(int state) { s_chg = state < 0 ? 0 : state > 2 ? 2 : state; }
 
 void setOrientation(Orient o) {
@@ -1449,31 +1479,28 @@ void render() {
   const bool chg = chgLq && (shown == Mood::Idle || shown == Mood::Sleepy || shown == Mood::Asleep);
   s_status_ovr = chg ? (s_chg == 2 ? "充飽" : "充電中") : nullptr;
   {
-    const int ox0 = s_lq_x0, ox1 = s_lq_x1, oy0 = s_lq_y0, oy1 = s_lq_y1;
+    const uint32_t lq_t0 = micros();
+    lqTables();
     s_lq_x0 = fx0 + 2; s_lq_x1 = fx0 + fw - 2; s_lq_y0 = top + 1; s_lq_y1 = fy1 - 1;
+    const int ckey = ((s_lq_x0 * 251 + s_lq_x1) * 251 + s_lq_y0) * 251 + s_lq_y1;
+    if (ckey != s_lq_key) { s_lq_key = ckey; lqRebuild(); if (s_lq_on) lqPrune(); }   // 轉向、對話框開合
     if (chgLq) {
       if (!s_lq_on) { lqClear(); s_lq_on = true; s_lq_next = now; }
       s_lq_off_t = 0;
-      if (ox0 != s_lq_x0 || ox1 != s_lq_x1 || oy0 != s_lq_y0 || oy1 != s_lq_y1) lqPrune();
     } else if (s_lq_on && !s_lq_off_t) s_lq_off_t = now ? now : 1;
     const float alpha = s_lq_off_t ? 1.0f - (float)(now - s_lq_off_t) / cfg::LQ_FADE_MS : 1.0f;
     if (s_lq_on && alpha <= 0) { s_lq_on = false; lqClear(); }
     if (s_lq_on) {
       if ((int32_t)(now - s_lq_next) > 200) s_lq_next = now;   // 斷了很久（換頁回來）：不要一次補走很多步
-      for (int n = 0; (int32_t)(now - s_lq_next) >= 0 && n < 3; ++n) {
+      if ((int32_t)(now - s_lq_next) >= 0) {   // 每幀最多走一步（慢的幀不補走，免得一幀卡更久）
         if (chgLq) {
-          static int cap = 0, capKey = -1;   // 容器格數：容器變了才重算（400 次判斷）
-          const int key = s_lq_x0 * 7919 + s_lq_x1 * 104729 + s_lq_y0 * 31 + s_lq_y1;
-          if (key != capKey) {
-            capKey = key; cap = 0;
-            for (int c = 0; c < LQ_COLS; ++c) for (int k = 0; k < LQ_ROWS; ++k) cap += lqValid(c, k);
-          }
+          const int cap = s_lq_cap;
           const float lv = s_chg == 2 ? 1.0f : (s_px_battery < 0 ? 0.5f : s_px_battery / 100.0f);
           // 電量 0～100% → 容器 8%～92%（充飽滿到只剩一點空間；充電中跟著電量越來越滿）
           lqFill((int)lroundf(cap * (cfg::LQ_FILL_MIN + (cfg::LQ_FILL_FULL - cfg::LQ_FILL_MIN) * fminf(1.0f, fmaxf(0.0f, lv)))));
         }
         lqStep();
-        s_lq_next += cfg::LQ_STEP_MS;
+        s_lq_next = now + cfg::LQ_STEP_MS;
       }
       // 亮度：充電中一道亮波從底部往液面爬（每 LQ_WAVE_MS 才變一次）；充飽整片較亮、零星閃
       const float gm = fmaxf(0.15f, sqrtf(s_gr_x * s_gr_x + s_gr_y * s_gr_y));
@@ -1490,6 +1517,8 @@ void render() {
         fillHexFast(lqX(q.c), lqY(q.c, q.k), HEX_A - 1.5f, fade(th.accent, b * fmaxf(0, alpha)));
       }
     }
+    const uint32_t lq_us = micros() - lq_t0;   // j 量測行的「液體≤」
+    if (lq_us > s_lq_us_max) s_lq_us_max = lq_us;
   }
 
   // 眼睛
