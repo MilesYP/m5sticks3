@@ -306,8 +306,11 @@ export class InfoHub {
     ]);
     const lines = [`【機器與即時資訊】（快照時間：台北 ${tpe(Date.now())}；問到這些直接照這裡回答，不用上網查）`];
     const used = u.today || 0;
-    lines.push(`- 語音額度：今天已用 $${used.toFixed(2)}／每日上限 $${L.usd}（今天還剩 $${Math.max(0, L.usd - used).toFixed(2)}）；今天第 ${(q && q.turns) || 0} 輪對話（上限 ${L.turns} 輪）` +
-      (u.left != null ? `；OpenAI 帳上餘額約 $${u.left.toFixed(2)}` : ""));
+    // 11-21：餘額單獨一行排最前面（原本跟「今天還剩」寫在同一行，Friday 問餘額時答成今日剩餘）
+    if (u.left != null)
+      lines.push(`- 帳上餘額：$${u.left.toFixed(2)}（OpenAI 帳戶還剩的錢，跟 M5S3Pack 資訊頁顯示的是同一個數字）。` +
+        `使用者問「還剩多少」「餘額」「額度剩多少」「還有多少錢」一律答這個數字；只有明確問「今天還能用多少」才答下一行的每日剩餘`);
+    lines.push(`- 每日上限：今天已用 $${used.toFixed(2)}／每日上限 $${L.usd}（今天還能再用 $${Math.max(0, L.usd - used).toFixed(2)}）；今天第 ${(q && q.turns) || 0} 輪對話（上限 ${L.turns} 輪）`);
     if (dev) {
       const chg = dev.chg === 2 ? "插著線、已充飽" : dev.chg === 1 ? "插著線充電中" : "沒插線";
       const net = dev.net && dev.net !== "-" ? `Wi-Fi 連在${dev.net}、訊號 ${dev.rssi} dBm` : "Wi-Fi 狀態不明";

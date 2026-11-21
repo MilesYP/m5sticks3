@@ -36,8 +36,8 @@ CREDIT_SINCE = "2026-11-16"
 # Costs API 只到昨天、而且只算得到這台中控記的帳，跟 platform 會有落差）。
 # 要重新校正：去 platform.openai.com 看餘額，改 BALANCE_USD，並把 BALANCE_SET 改成新的時間（換了才會從 0 重新累計）再 deploy。
 # 兩個都留空＝回到原本 CREDIT_USD 算法。
-BALANCE_USD = "4.14"
-BALANCE_SET = "2026-11-21T16:14+08:00"
+BALANCE_USD = "4.01"
+BALANCE_SET = "2026-11-21T16:44+08:00"
 # 快訊來源（逗號分隔的 RSS 網址；中央社）
 NEWS_FEEDS = "https://feeds.feedburner.com/rsscna/politics,https://feeds.feedburner.com/rsscna/intworld,https://feeds.feedburner.com/rsscna/finance,https://feeds.feedburner.com/rsscna/technology,https://feeds.feedburner.com/rsscna/lifehealth,https://feeds.feedburner.com/rsscna/social"
 # 回覆音量：GPT 聲音固定放大倍數（11-20 實聽：2.5 較大聲但更爆，1 比較清楚）。暫調：npx wrangler deploy --var OUT_GAIN:3
