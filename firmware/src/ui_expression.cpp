@@ -590,6 +590,42 @@ bool lqValid(int c, int k) {
 }
 bool lqFree(int c, int k) { return lqValid(c, k) && !s_lq_occ[c][k]; }
 void lqClear() { s_lq_n = 0; memset(s_lq_occ, 0, sizeof s_lq_occ); }
+// 11-21 實機（29-a4c）：液體每幀用 fillHexCell（1 矩形＋2 三角形，每列一次繪圖呼叫）畫 70～110 格，
+// 插線時 j 迴圈 30～57ms → 改成直接寫畫布緩衝（每列一段像素），繪圖呼叫的固定成本全省掉。
+// 畫布會轉向（setRotation），所以先探出「畫面座標 → 緩衝索引」：index＝o＋x·sx＋y·sy（轉向變了才重探）
+struct BufMap { int rot = -1, w = 0, h = 0; int32_t o = 0, sx = 0, sy = 0; bool ok = false; } s_bm;
+void bufMapProbe() {   // 會清掉畫布 → 只能在背景 memcpy 之前呼叫
+  const int rot = s_cv.getRotation();
+  if (rot == s_bm.rot && s_bm.w == s_cv.width()) return;
+  s_bm.rot = rot; s_bm.w = s_cv.width(); s_bm.h = s_cv.height(); s_bm.ok = false;
+  uint16_t* buf = (uint16_t*)s_cv.getBuffer();
+  if (!buf) return;
+  const int32_t n = (int32_t)s_bm.w * s_bm.h;
+  auto find = [&](int x, int y) -> int32_t {
+    s_cv.fillScreen(TFT_BLACK);
+    s_cv.drawPixel(x, y, TFT_WHITE);
+    for (int32_t i = 0; i < n; ++i) if (buf[i]) return i;
+    return -1;
+  };
+  const int32_t a = find(0, 0), b = find(1, 0), c = find(0, 1);
+  if (a < 0 || b < 0 || c < 0) return;
+  s_bm.o = a; s_bm.sx = b - a; s_bm.sy = c - a; s_bm.ok = true;
+}
+void fillHexFast(float cx, float cy, float a, uint16_t col) {
+  if (!s_bm.ok) { fillHexCell(cx, cy, a, col); return; }
+  uint16_t* buf = (uint16_t*)s_cv.getBuffer();
+  const uint16_t sc = (uint16_t)((col >> 8) | (col << 8));   // 緩衝是位元組對調的 RGB565
+  const float h = a * 0.866f;
+  const int y0 = (int)ceilf(cy - h), y1 = (int)floorf(cy + h);
+  for (int y = y0 < 0 ? 0 : y0; y <= y1 && y < s_bm.h; ++y) {
+    const float half = a - 0.5f * a * fabsf(y + 0.5f - cy) / h;   // 左右尖的六角：離中線越遠越窄
+    int xl = (int)ceilf(cx - half), xr = (int)floorf(cx + half);
+    if (xl < 0) xl = 0;
+    if (xr >= s_bm.w) xr = s_bm.w - 1;
+    int32_t idx = s_bm.o + xl * s_bm.sx + y * s_bm.sy;
+    for (int x = xl; x <= xr; ++x, idx += s_bm.sx) buf[idx] = sc;
+  }
+}
 // 容器變了（轉向、對話框開合）：超出容器的格子丟掉，之後會再從上方補進來
 void lqPrune() {
   int w = 0;
@@ -667,6 +703,7 @@ Frag     s_fr[cfg::FR_MAX];
 int      s_fr_n = 0;
 bool     s_fr_on = false, s_fr_back = false;
 uint32_t s_fr_back_t = 0;
+uint32_t s_fr_calm_t = 0;                 // 停手的時刻（開始等 FR_HOLD_MS）
 float    s_fr_home[3][2];                 // 三個有家的部位目前的中心（每幀更新，跟著表情與看方向）
 float    s_fr_wl = 0, s_fr_wr = 135, s_fr_wt = 0, s_fr_wb = 240;   // 牆＝臉的區域
 // 把一塊矩形切成小六角格，每格一顆碎片（記住相對位置，拼回時用）
@@ -1337,6 +1374,7 @@ void render() {
   const PxTheme th = pxTheme(shown, s_offline);
   const int top = 13;                                         // 狀態列下面
   const int fy1 = land ? H : fh;                              // 臉的區域下緣
+  if (PIXEL) bufMapProbe();   // A4b：液體快速填色要的座標對應（轉向時才重探；之後背景會整張蓋回）
   if (!PIXEL || !pxBackground(W, H, fx0, top, fw, fy1, fade(th.accent, 0.22f), fade(th.accent, 0.16f))) {
     s_cv.fillScreen(c565(BG));
     if (PIXEL) {   // 背景快取開不出來（PSRAM 不夠）時照舊每幀畫
@@ -1424,10 +1462,15 @@ void render() {
       if ((int32_t)(now - s_lq_next) > 200) s_lq_next = now;   // 斷了很久（換頁回來）：不要一次補走很多步
       for (int n = 0; (int32_t)(now - s_lq_next) >= 0 && n < 3; ++n) {
         if (chgLq) {
-          int cap = 0;
-          for (int c = 0; c < LQ_COLS; ++c) for (int k = 0; k < LQ_ROWS; ++k) cap += lqValid(c, k);
+          static int cap = 0, capKey = -1;   // 容器格數：容器變了才重算（400 次判斷）
+          const int key = s_lq_x0 * 7919 + s_lq_x1 * 104729 + s_lq_y0 * 31 + s_lq_y1;
+          if (key != capKey) {
+            capKey = key; cap = 0;
+            for (int c = 0; c < LQ_COLS; ++c) for (int k = 0; k < LQ_ROWS; ++k) cap += lqValid(c, k);
+          }
           const float lv = s_chg == 2 ? 1.0f : (s_px_battery < 0 ? 0.5f : s_px_battery / 100.0f);
-          lqFill((int)lroundf(cap * cfg::LQ_FILL_MAX * fmaxf(0.08f, lv)));
+          // 電量 0～100% → 容器 8%～92%（充飽滿到只剩一點空間；充電中跟著電量越來越滿）
+          lqFill((int)lroundf(cap * (cfg::LQ_FILL_MIN + (cfg::LQ_FILL_FULL - cfg::LQ_FILL_MIN) * fminf(1.0f, fmaxf(0.0f, lv)))));
         }
         lqStep();
         s_lq_next += cfg::LQ_STEP_MS;
@@ -1444,7 +1487,7 @@ void render() {
           const float depth = (lqX(q.c) * s_gr_x + lqY(q.c, q.k) * s_gr_y) / gm;   // 越大越「下面」
           b = 0.34f + 0.45f * fmaxf(0, 1 - fabsf(depth - wave) / 14);
         }
-        fillHexCell(lqX(q.c), lqY(q.c, q.k), HEX_A - 1.5f, fade(th.accent, b * fmaxf(0, alpha)));
+        fillHexFast(lqX(q.c), lqY(q.c, q.k), HEX_A - 1.5f, fade(th.accent, b * fmaxf(0, alpha)));
       }
     }
   }
@@ -1463,7 +1506,7 @@ void render() {
     s_fr_home[2][0] = fmx; s_fr_home[2][1] = fmy;
     s_fr_wl = fx0 + 3; s_fr_wr = fx0 + fw - 3; s_fr_wt = top + 2; s_fr_wb = fy1 - 2;
     if (PIXEL && s_pin && !s_fr_on && !s_offline) {
-      s_fr_n = 0; s_fr_on = true; s_fr_back = false;
+      s_fr_n = 0; s_fr_on = true; s_fr_back = false; s_fr_calm_t = 0;
       frSpawn(0, lx, ly, lw, lh, false);
       frSpawn(1, rx, ry, rw, rh, false);
       frSpawn(2, fmx, fmy, P(K_MW) * sc, fmaxf(4, P(K_MH)) * sc + 4, false);
@@ -1476,8 +1519,13 @@ void render() {
       if (shown == Mood::Angry) frBadge(X(symX()), Y(symY() + 4 + hy));
     }
     if (s_fr_on) {
-      if (s_pin) s_fr_back = false;                                   // 又開始甩
-      else if (!s_fr_back) { s_fr_back = true; s_fr_back_t = now; }
+      // 停手（彈珠台結束）後碎片照重力散著 FR_HOLD_MS 才拼回；語音一開始就立刻拼回
+      const bool voice = shown == Mood::Listening || shown == Mood::Thinking || shown == Mood::Speaking;
+      if (s_pin) { s_fr_back = false; s_fr_calm_t = 0; }                // 又開始甩
+      else if (!s_fr_back) {
+        if (!s_fr_calm_t) s_fr_calm_t = now ? now : 1;
+        if (voice || now - s_fr_calm_t >= cfg::FR_HOLD_MS) { s_fr_back = true; s_fr_back_t = now; }
+      }
       frPhysics(dt);
       if (s_fr_back) {
         float worst = 0;

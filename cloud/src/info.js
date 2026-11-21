@@ -237,11 +237,25 @@ export class InfoHub {
     // 今日花費放獨立的 usd:<台北日期>（不和 GptLink 的 quota:<日期> 共用物件，避免兩邊讀改寫互蓋）
     const qk = "usd:" + taipeiDate();
     const uk = "spendutc:" + utcDate();
-    const [q, u, tot] = await Promise.all([this.storage.get(qk), this.storage.get(uk), this.storage.get("spend:total")]);
+    const [q, u, tot, anc] = await Promise.all([this.storage.get(qk), this.storage.get(uk), this.storage.get("spend:total"), this.anchor()]);
     const day = (q || 0) + usd;
-    await this.storage.put({ [qk]: day, [uk]: (u || 0) + usd, "spend:total": (tot || 0) + usd });
+    const put = { [qk]: day, [uk]: (u || 0) + usd, "spend:total": (tot || 0) + usd };
+    if (anc) put["bal:anchor"] = { id: anc.id, spent: anc.spent + usd };   // 校正後的累計花費
+    await this.storage.put(put);
     this.log(`記帳 +$${usd.toFixed(4)}（${why}）→ 今日 $${day.toFixed(3)}`);
     await this.pushUsd();
+  }
+  // 11-21 餘額校正（wrangler [vars] BALANCE_USD＋BALANCE_SET）：回傳 {id, usd, spent}；沒設＝null。
+  // BALANCE_SET 換了（重新校正）就把累計花費歸零
+  async anchor() {
+    const usd = parseFloat(this.env.BALANCE_USD);
+    const id = String(this.env.BALANCE_SET || "").trim();
+    if (!Number.isFinite(usd) || !id) return null;
+    const a = await this.storage.get("bal:anchor");
+    if (a && a.id === id) return { id, usd, spent: a.spent || 0 };
+    await this.storage.put("bal:anchor", { id, spent: 0 });
+    this.log(`餘額校正：$${usd}（${id}），累計花費歸零`);
+    return { id, usd, spent: 0 };
   }
   async todayUsd() {
     const d = (await this.storage.get("usd:" + taipeiDate())) || 0;
@@ -265,10 +279,11 @@ export class InfoHub {
   }
   async usdMsg() {
     const L = quotaLimits(this.env);
-    const [today, costs, byUtc, tot] = await Promise.all([
-      this.todayUsd(), this.storage.get("info:costs"), this.spendByUtc(), this.storage.get("spend:total"),
+    const [today, costs, byUtc, tot, anc] = await Promise.all([
+      this.todayUsd(), this.storage.get("info:costs"), this.spendByUtc(), this.storage.get("spend:total"), this.anchor(),
     ]);
-    const left = balance(this.env, costs, byUtc, tot);
+    // 有校正就用校正值－之後的花費（還開著的 session 估計花費也扣）；沒有才用 Costs API 推算
+    const left = anc ? anc.usd - anc.spent - (this.pendingFn() || 0) : balance(this.env, costs, byUtc, tot);
     const m = { t: "info", k: "usd", today: round3(today), cap: round2(L.usd), at: sec(Date.now()) };
     if (left != null) m.left = round2(left);
     return m;
