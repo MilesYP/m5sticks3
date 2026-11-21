@@ -597,6 +597,8 @@ int8_t   s_lq_dk[2][12];                        // [欄奇偶][方向] → 列�
 float    s_lq_ux[12], s_lq_uy[12];              // 方向單位向量
 bool     s_lq_tab = false;
 uint32_t s_lq_rng = 12345;
+float    s_lq_grx = 0, s_lq_gry = 1;              // 參考重力方向（變化超過約 8° 才更新）
+uint32_t s_lq_gstable_t = 0;                      // 參考重力最後一次更新的時刻
 uint32_t s_lq_us_max = 0;                     // 這一窗液體（流動＋畫）最久花幾 µs
 inline uint32_t lqRand() { s_lq_rng = s_lq_rng * 1664525u + 1013904223u; return s_lq_rng >> 8; }
 static const int8_t LQ_CX[12] = {0, 0, 1, 1, -1, -1, 2, -2, 1, 1, -1, -1};   // 6 鄰格＋6 隔一格（側滑用）
@@ -669,7 +671,7 @@ void lqPrune() {
   s_lq_n = w;
 }
 // 走一步：沿重力最遠（最「下面」）的先動；優先往下方三個鄰格，全被擋住就照自己的流向側滑；撞牆有機會換方向
-void lqStep() {
+void lqStep(bool side) {   // side＝允許側滑（重力穩定一陣子後關掉，液面才會靜止、不用一直重送畫面）
   const float gm = sqrtf(s_gr_x * s_gr_x + s_gr_y * s_gr_y);
   if (gm < 0.15f) return;   // 平放：重力在螢幕平面上幾乎沒有分量 → 不流
   const float gx = s_gr_x / gm, gy = s_gr_y / gm, px = -gy, py = gx;   // p＝垂直重力（側邊）
@@ -696,6 +698,7 @@ void lqStep() {
       if (!lqFree(c, k)) continue;
       best = v; bc = c; bk = k;
     }
+    if (bc < 0 && !side) continue;
     if (bc < 0) {                   // 被擋住 → 照自己的流向側滑
       float bs = -1;
       for (int i = 0; i < 12; ++i) {
@@ -1492,6 +1495,13 @@ void render() {
     if (s_lq_on && alpha <= 0) { s_lq_on = false; lqClear(); }
     if (s_lq_on) {
       if ((int32_t)(now - s_lq_next) > 200) s_lq_next = now;   // 斷了很久（換頁回來）：不要一次補走很多步
+      {   // 參考重力：方向變超過約 8°（或從平放立起來）才更新 → 亮波位置、側滑開關不受讀數雜訊影響
+        const float gm0 = sqrtf(s_gr_x * s_gr_x + s_gr_y * s_gr_y);
+        if (gm0 > 0.15f) {
+          const float nx = s_gr_x / gm0, ny = s_gr_y / gm0;
+          if (nx * s_lq_grx + ny * s_lq_gry < 0.99f) { s_lq_grx = nx; s_lq_gry = ny; s_lq_gstable_t = now; }
+        }
+      }
       if ((int32_t)(now - s_lq_next) >= 0) {   // 每幀最多走一步（慢的幀不補走，免得一幀卡更久）
         if (chgLq) {
           const int cap = s_lq_cap;
@@ -1499,19 +1509,20 @@ void render() {
           // 電量 0～100% → 容器 8%～92%（充飽滿到只剩一點空間；充電中跟著電量越來越滿）
           lqFill((int)lroundf(cap * (cfg::LQ_FILL_MIN + (cfg::LQ_FILL_FULL - cfg::LQ_FILL_MIN) * fminf(1.0f, fmaxf(0.0f, lv)))));
         }
-        lqStep();
+        lqStep(s_pin || now - s_lq_gstable_t < cfg::LQ_SETTLE_MS);
         s_lq_next = now + cfg::LQ_STEP_MS;
       }
-      // 亮度：充電中一道亮波從底部往液面爬（每 LQ_WAVE_MS 才變一次）；充飽整片較亮、零星閃
-      const float gm = fmaxf(0.15f, sqrtf(s_gr_x * s_gr_x + s_gr_y * s_gr_y));
+      // 亮度：充電中一道亮波從底部往液面爬（每 LQ_WAVE_MS 才變一次、用參考重力算位置）；
+      // 充飽整片較亮，每 400ms 只換一顆亮格（11-21 實機：原本每 0.5 秒換一批 → 整片重送、每秒一次 37ms）
       const float tq = (float)(now / cfg::LQ_WAVE_MS * cfg::LQ_WAVE_MS) / 1000.0f;
       const float wave = 260 - fmodf(tq * 160, 300);
+      const int spark = s_lq_n ? (int)((now / 400) * 2654435761u % (uint32_t)s_lq_n) : -1;
       for (int i = 0; i < s_lq_n; ++i) {
         const LqCell& q = s_lq[i];
         float b;
-        if (s_chg == 2) b = 0.5f + ((((q.c * 7 + q.k * 3 + (int)(tq * 2)) % 5) == 0) ? 0.08f : 0);
+        if (s_chg == 2) b = i == spark ? 0.75f : 0.55f;
         else {
-          const float depth = (lqX(q.c) * s_gr_x + lqY(q.c, q.k) * s_gr_y) / gm;   // 越大越「下面」
+          const float depth = lqX(q.c) * s_lq_grx + lqY(q.c, q.k) * s_lq_gry;   // 越大越「下面」
           b = 0.34f + 0.45f * fmaxf(0, 1 - fabsf(depth - wave) / 14);
         }
         fillHexFast(lqX(q.c), lqY(q.c, q.k), HEX_A - 1.5f, fade(th.accent, b * fmaxf(0, alpha)));

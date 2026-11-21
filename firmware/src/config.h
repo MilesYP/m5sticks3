@@ -142,6 +142,7 @@ constexpr float    LQ_FILL_FULL  = 0.92f;   // 100%（充飽）裝到容器的�
 constexpr uint32_t LQ_STEP_MS    = 60;      // 每 60ms 走一步（只有走步那幀改畫面，部分更新才省）
 constexpr uint32_t LQ_WAVE_MS    = 120;     // 充電亮波每 120ms 更新一次
 constexpr uint32_t LQ_FADE_MS    = 600;     // 拔線後淡出
+constexpr uint32_t LQ_SETTLE_MS  = 1500;    // 重力方向穩定這麼久就不再側滑（液面靜止、部分更新不用一直重送；11-21 29-a4e 實機）
 
 // ── A3 休息臉顏色跟電量（Miles 11-20 選方案一）──
 // 待機／想睡／睡著的眼睛顏色：≥60% 螢光綠（11-20 改，原藍）、40–59 薄荷綠、20–39 黃、10–19 紅、<10 紅灰閃爍（語音中不閃、充電中不閃）
