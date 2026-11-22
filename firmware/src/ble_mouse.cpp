@@ -47,6 +47,7 @@ const uint8_t kReportMap[] = {
   0xC0,              // End Collection
 };
 constexpr uint8_t kReportId = 1;
+constexpr size_t  kReportIdPos = 6;   // kReportMap 裡「Report ID (1)」那 2 bytes 的位置（不用 Report ID 時拿掉）
 
 NimBLEServer*         s_server = nullptr;
 NimBLEHIDDevice*      s_hid    = nullptr;
@@ -74,7 +75,12 @@ uint8_t               s_itvl_preset = cfg::BLE_ITVL_PRESET < 3 ? cfg::BLE_ITVL_P
 bool                  s_opt_upd = true;                      // @u：配對完成後主動要求連線參數
 std::atomic<uint32_t> s_auth_t{0};                           // 配對完成時間（|1，0＝沒有待送的參數要求）
 // 31-m4h：配對選項可用序列埠即時切（Mac 連上秒斷的對照測試，不用重燒）
-bool                  s_opt_reqsec = true;                   // @s：連上後由裝置主動要求加密
+// 31-m4l：預設改成對照 HijelHID_BLEMouse（Apache-2.0，README 標 macOS Ventura 實測可用）的 HID 設定，
+// 每一項都可用序列埠切回舊設定，逐項找出 Mac 不接手的原因。改了會自動重建藍牙（要重新配對）。
+bool                  s_opt_rid    = false;                  // @r：報告帶 Report ID 1（舊）；關＝不帶 Report ID（對照組）
+bool                  s_opt_vid    = true;                   // @v：PnP 用 Apple VID 0x05AC／PID 0（對照組）；關＝Espressif 0x303A（舊）
+bool                  s_opt_wake   = true;                   // @h：HID Information flags 0x01 遠端喚醒（對照組）；關＝0x02 一般可連線（舊）
+bool                  s_opt_reqsec = false;                  // @s：連上後由裝置主動要求加密（舊＝開；對照組不主動要求）
 bool                  s_opt_sc     = cfg::BLE_SECURE_CONN;   // @c：LE Secure Connections（關＝舊式配對）
 bool                  s_opt_irk    = true;                   // @k：配對交換身分金鑰（IRK）
 std::atomic<uint8_t>  s_auth_flags{0};                       // bit0 加密 bit1 綁定 bit2 驗證
@@ -211,6 +217,21 @@ void setOption(char opt, bool on) {
   else if (opt == 'c') s_opt_sc = on;
   else if (opt == 'k') s_opt_irk = on;
   else if (opt == 'u') { s_opt_upd = on; Serial.printf("[ble] 配對後主動要求連線參數 %s\n", on ? "開" : "關"); return; }
+  else if (opt == 'r' || opt == 'v' || opt == 'h' || opt == 'p') {   // 31-m4l：GATT 內容變了 → 重建藍牙
+    if (opt == 'r') s_opt_rid = on;
+    else if (opt == 'v') s_opt_vid = on;
+    else if (opt == 'h') s_opt_wake = on;
+    else { s_opt_rid = !on; s_opt_vid = on; s_opt_wake = on; s_opt_reqsec = !on; }   // @p1 對照組全套、@p0 舊設定全套
+    Serial.printf("[ble] HID 設定：Report ID %s｜VID %s｜HID 旗標 %s｜主動要求加密 %s（電腦端先「忘記此裝置」，這邊會清配對並重建藍牙）\n",
+                  s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple 0x05AC" : "Espressif 0x303A",
+                  s_opt_wake ? "0x01" : "0x02", s_opt_reqsec ? "開" : "關");
+    if (s_on.load() || s_pending) {
+      if (NimBLEDevice::isInitialized()) ble_store_clear();   // 報告格式變了，舊配對的 GATT 快取不能用
+      end();
+      begin();
+    }
+    return;
+  }
   else return;
   if (NimBLEDevice::isInitialized()) applySecurity();
   Serial.printf("[ble] 選項：主動要求加密 %s｜Secure Connections %s｜交換身分金鑰 %s（下一次配對生效；先在電腦「忘記此裝置」＋ @f）\n",
@@ -240,12 +261,19 @@ bool startNow() {
     s_server = NimBLEDevice::createServer();
     s_server->setCallbacks(&s_cb, false);
     s_hid = new NimBLEHIDDevice(s_server);
-    s_input = s_hid->getInputReport(kReportId);
+    s_input = s_hid->getInputReport(s_opt_rid ? kReportId : 0);
     s_input->setCallbacks(&s_input_cb);
     s_hid->setManufacturer("M5S3Pack");
-    s_hid->setPnp(0x02, 0x303A, 0x4D41, 0x0100);   // 0x02＝USB VID 來源；0x303A＝Espressif
-    s_hid->setHidInfo(0x00, 0x02);                 // 國碼 0、可被喚醒
-    s_hid->setReportMap((uint8_t*)kReportMap, sizeof(kReportMap));
+    if (s_opt_vid) s_hid->setPnp(0x02, 0x05AC, 0x0000, 0x0001);   // 31-m4l 對照組：Apple VID（HijelHID 用法）
+    else s_hid->setPnp(0x02, 0x303A, 0x4D41, 0x0100);              // 0x02＝USB VID 來源；0x303A＝Espressif
+    s_hid->setHidInfo(0x00, s_opt_wake ? 0x01 : 0x02);             // 旗標 bit0 遠端喚醒、bit1 一般可連線
+    static uint8_t rmap[sizeof(kReportMap)];
+    size_t n = 0;
+    for (size_t i = 0; i < sizeof(kReportMap); ++i) {
+      if (!s_opt_rid && (i == kReportIdPos || i == kReportIdPos + 1)) continue;   // 不帶 Report ID
+      rmap[n++] = kReportMap[i];
+    }
+    s_hid->setReportMap(rmap, (uint16_t)n);
     s_hid->setBatteryLevel(100);
     s_server->start();
 
@@ -414,6 +442,8 @@ void forgetBonds() {
 }
 
 void printStatus() {
+  Serial.printf("[ble] HID 設定 @r Report ID %s｜@v VID %s｜@h HID 旗標 %s（@p1 對照組全套／@p0 舊設定全套）\n",
+                s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple" : "Espressif", s_opt_wake ? "0x01" : "0x02");
   Serial.printf("[ble] 選項 @s 主動要求加密 %s｜@c SC %s｜@k 身分金鑰 %s｜@i%u 偏好間隔 %.2f～%.2f ms｜@u 配對後要求參數 %s\n",
                 s_opt_reqsec ? "開" : "關", s_opt_sc ? "開" : "關", s_opt_irk ? "開" : "關", (unsigned)s_itvl_preset,
                 kItvl[s_itvl_preset][0] * 1.25f, kItvl[s_itvl_preset][1] * 1.25f, s_opt_upd ? "開" : "關");

@@ -227,6 +227,7 @@
 13. **`@f` 用 `ble_store_clear()`**：`NimBLEDevice::deleteAllBonds()` 實機回失敗（逐筆刪除失敗就中止）。
 14. **資訊頁不讀晶片溫度（31-m4i，`cfg::INFO_CHIP_TEMP`＝false）**：`temperatureRead()` 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）互卡，11-22 資訊頁放約 30 分鐘後兩核卡死 → 中斷看門狗重開（core1 卡在 `temperature_sensor_get_raw_value`、core0 卡在 `temperature_sensor_power_release`）。顯示「--C」。
 15. **連線間隔照 Apple 規範（31-m4k）**：Apple 配件設計指南——最短間隔 ≥15ms 且最長 ≥ 最短＋15ms（HID 例外可 11.25～15ms）、監督逾時 2～6 秒。31-m4j 前廣播偏好 7.5～15ms，Mac 選 7.5ms、配對完主動斷（0x213，待證實是否為此原因）。預設改 15～30ms（`BLE_ITVL_PRESET`＝2），配對完成 1.5 秒後若主機選的間隔不在範圍內就 `updateConnParams` 要求一次（逾時 4 秒）。序列埠 `@i0/@i1/@i2` 切預設組、`@u0/@u1` 開關主動要求；連上時印主機選的間隔／延遲／逾時。
+16. **Mac 斷線不是連線間隔（31-m4k 實機＋Mac bluetoothd log 定案）**：Mac 對第三方 LE 滑鼠會自己強制 7.5ms（系統設定「LE Mouse at 7.5ms」），跟我們偏好的間隔無關。真正的現象：配對兩邊都成功，但 Mac 的滑鼠驅動始終沒接手（沒訂閱報告），系統設定頁放手後 bluetoothd 以 `ledisconnectionreason: Unused` 斷線；之後 Mac 看得到廣播（Matched UUID 0x1812）也不會自動重連。31-m4l 改成對照 HijelHID_BLEMouse（Apache-2.0，NimBLE 2.x，README 標 macOS Ventura 實測可用）的 HID 設定：不帶 Report ID、PnP 用 Apple VID 0x05AC／PID 0、HID Information 旗標 0x01、不主動要求加密；每項可用 `@r/@v/@h/@s` 切回舊值，`@p1`／`@p0` 一次切全套（改了自動清配對並重建藍牙）。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
