@@ -10,6 +10,13 @@
 - **Codex**：**M3 無線電工具箱（RF 軌）**，在獨立子專案 `rf-lab/` 開發與實機驗證；完成的模組照第 5 節介面交件，由 Claude Code 併進 `firmware/`。
 - **Miles**：PM，不親手寫 code；判斷「為什麼這樣設計」、實機操作、燒錄、貼序列埠 log、決定取捨。
 
+## 0.1 暫時共同維護正式韌體（2026-11-23 Miles 決定，到 Claude 的 token 恢復為止）
+
+- 這段期間 **Codex 也可以改 `firmware/`、`docs/PROGRESS.md`、`docs/StickS3 執行計劃.*`、`docs/KICKOFF_*.md`**，接手正式韌體的進行中工作（目前是 M4-1 手感收尾 → M4-3，交接見 `docs/KICKOFF_M4-1.md`）。`CLAUDE.md` 仍以 Claude 維護為主；Codex 得出的新工程規則先寫在 PROGRESS 該筆紀錄的「新規則」，Claude 回來後搬進 `CLAUDE.md`（Miles 明確要求時 Codex 也可直接改）。
+- 改正式韌體在主資料夾 `~/Developer/m5sticks3`（`main`）；**開工前 `git pull`、收工前 commit＋請 Miles `git push`**，一次只做一件事、commit 小一點，避免和 Claude 同時改同一檔。RF 軌照舊在 `codex/rf-lab` worktree。
+- 正式韌體一律遵守 `CLAUDE.md` 全部鐵則（急停最高優先、主迴圈不阻塞、網路只在網路 task、藍牙開著不可設 Wi-Fi `PS_NONE`、不碰語音流程與 P2 電源鍵規則除非 Miles 要求）；版本號改 `firmware/src/audio_io.cpp` 的 `AUDIO_BUILD_TAG`；每片結束在 `docs/PROGRESS.md` 最上方新增一筆（Session 類型寫「Codex」）。
+- 原本第 2 節「不可以改」對上述檔案暫停適用；`cloud/`、`selftest/`、`acceptance-test/`、`rssi-test/`、`tools/`、`LICENSE` 仍不改（Miles 要求除外）。
+
 ## 1. 和 Miles 協作
 
 - 回覆用**繁體中文**；技術名詞第一次出現時用一句白話解釋。

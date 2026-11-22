@@ -71,7 +71,7 @@ flowchart TD
 | M1.5 | 紅外線萬能遙控器 | ⏳ M4 之後 | S3 本體內建紅外線，腳位待實機驗證 |
 | M2 | 跨裝置 HID 外掛 | ⏳ 4 片・最後 | 先做 PC／macOS 版；急停為安全關鍵 |
 | M3（RF 軌） | 無線電工具箱 | 🟣 Codex 平行開發（11-22） | `rf-lab/`＋分支 `codex/rf-lab`，規則與交件介面見 `AGENTS.md`；repo 改 AGPL-3.0-or-later，可複製 Bruce 協定層。詳細計畫與實測進度見下方「M3 無線電工具箱」的 RF 軌協作 |
-| R0 | Bruce issue 草稿 | 🟡 草稿完成，待 Miles 貼文 | Codex 整理的英文 issue 草稿（PINGEQUA 回覆、重現步驟、SPI 錯誤率） |
+| R0 | Bruce issue 草稿 | 🟡 草稿完成，待 Miles 貼文（`codex/rf-lab` 最新 `e5bb573`，11-22） | Codex 整理的英文 issue 草稿（PINGEQUA 回覆、重現步驟、SPI 錯誤率） |
 | R1 | RF 骨架與 CC1101 安全存取層 | ⏸ 待 Miles 說「開始實作」 | `rf-lab/` 獨立測試韌體：CC1101 多數決讀取／寫入驗證、逾時處理、nRF24 自檢與省電；驗收全程不發射。和「RF-1｜RSSI 掃描」是不同項目 |
 | M3 | 無線電工具箱 | ⏳ S3 軌 3 片／RF 軌 5 片 | S3 軌（Wi-Fi／BLE 掃描）可並行；RF 軌接收已驗證，讀寫層依鐵則五第 7 點防錯 |
 
