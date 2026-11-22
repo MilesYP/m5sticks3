@@ -22,6 +22,7 @@
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
+  - **設定後台＋LINE 入口（11-23 Miles 提出，未排期）**：中控 Worker 網域下架網頁後台調裝置參數（先做 M4 的 `@g/@n/@d/@x/@y`），LINE 官方機器人當入口（參考「Netflix 驗證碼」專案，位置待指定）。細節與待釐清事項見執行計劃「設定後台與 LINE 入口待辦」
   - **寄信前先 commit＋push `rssi-test/` 與 `docs/`**，信中要附 GitHub 連結（`https://github.com/MilesYP/m5sticks3/tree/main/rssi-test`）給 PINGEQUA 自行復現；`rssi-test/README.md` 已有英文復現步驟
   - 選做：SCAN 模式下用 315 MHz 遙控器在 1 公尺做「有天線／拔天線」對照，確認 SMA 與天線路徑
   - （已完成第 2 步即重現）分離測試（完整斷電後：MONITOR 靜置 3 分鐘 → SCAN 300-348 靜置 2 分鐘 → 遙控器 1 公尺 → 貼近 → 不按遙控器輕壓 RF Pack），記錄 drop／bad 與 checkMISO 錯誤何時出現

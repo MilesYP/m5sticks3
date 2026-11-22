@@ -453,6 +453,11 @@ kbd{font-family:var(--f-mono);font-size:11.5px;border:1px solid var(--line);bord
     </tbody>
   </table></div>
 
+  <div class="notice" style="margin:10px 0 14px"><b>待辦（11-23 Miles 提出，未排期、未定案）：設定後台＋LINE 入口</b><br>
+  ① <b>網頁設定後台</b>：中控 Cloudflare Worker 網域下加後台頁面，用網頁調裝置參數取代序列埠指令。第一批是 M4 空中滑鼠的靈敏度 <code>@g</code>、曲線指數 <code>@n</code>、死區 <code>@d</code>、方向 <code>@x／@y</code>；之後可延伸到背光、省電秒數、Friday 額度。構想：網頁改值 → 中控存 → WebSocket 下發 → 裝置寫 NVS；裝置連上時回報目前值。<br>
+  ② <b>LINE 官方機器人當入口</b>：用 LINE 官方帳號（Messaging API）記錄並提供後台網址，在 LINE 裡點選單就能進後台；參考「Netflix 驗證碼」專案的做法（資料夾位置待指定）。<br>
+  動工前要釐清：後台登入（不能只靠網址，密碼／token 放 <code>wrangler secret</code>）、LINE 只允許 Miles 的使用者 ID、<b>AirMouse 模式 Wi-Fi 是關的</b>（設定要回 Desktop 才同步，或進 AirMouse 前先拉一次）、LINE Messaging API 額度與限制先查官方最新資料。</div>
+
   <div class="grp">M2 跨裝置 HID 外掛<span>4 片・最後做</span></div>
   <div class="tblwrap"><table class="sltbl">
     <thead><tr><th>片</th><th>內容</th><th>驗收方式</th><th>狀態</th></tr></thead>
