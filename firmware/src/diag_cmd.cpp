@@ -30,7 +30,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜q 電源鍵狀態(q0 進root q1 回新機制 q9 主迴圈卡死測看門狗)｜@ 藍牙滑鼠狀態(@1 畫圓測試 @0 停 @f 清除配對 @s0/1 主動要求加密 @c0/1 SC @k0/1 身分金鑰 @i0/1/2 連線間隔7.5～15/11.25～15/15～30ms @u0/1 配對後主動要求連線參數 @r0/1 Report ID @v0/1 Apple VID @h0/1 HID旗標 @p1/0 對照組/舊設定全套 @e0/1 HID特徵值加密 @a1 換藍牙位址 @a0 回原廠位址 @m 游標量測 @g4 靈敏度 @d3 死區 @x/@y 翻轉方向)｜#文字 在 log 做記號｜? 目前設定");
+  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜q 電源鍵狀態(q0 進root q1 回新機制 q9 主迴圈卡死測看門狗)｜@ 藍牙滑鼠狀態(@1 畫圓測試 @0 停 @f 清除配對 @s0/1 主動要求加密 @c0/1 SC @k0/1 身分金鑰 @i0/1/2 連線間隔7.5～15/11.25～15/15～30ms @u0/1 配對後主動要求連線參數 @r0/1 Report ID @v0/1 Apple VID @h0/1 HID旗標 @p1/0 對照組/舊設定全套 @e0/1 HID特徵值加密 @a1 換藍牙位址 @a0 回原廠位址 @m 游標量測 @g25 靈敏度 @d1 死區 @n1 曲線指數 @x/@y 翻轉方向)｜#文字 在 log 做記號｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -45,6 +45,7 @@ void run(char* cmd) {
     else if (cmd[1] == 'm') air_mouse::setMeasure(!air_mouse::measure());   // M4-1：游標量測
     else if (cmd[1] == 'g' && cmd[2]) air_mouse::setGain(atof(cmd + 2));
     else if (cmd[1] == 'd' && cmd[2]) air_mouse::setDeadzone(atof(cmd + 2));
+    else if (cmd[1] == 'n' && cmd[2]) air_mouse::setExponent(atof(cmd + 2));
     else if (cmd[1] == 'x') air_mouse::flipX();
     else if (cmd[1] == 'y') air_mouse::flipY();
     else if (cmd[1] == 'g' || cmd[1] == 'd') air_mouse::printStatus();

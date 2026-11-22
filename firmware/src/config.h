@@ -266,9 +266,9 @@ constexpr int      AIR_AXIS_X          = 2;      // 左右轉手腕＝繞 z 軸 
 constexpr int      AIR_SIGN_X          = -1;     // 往右轉 gz 為負（右手定則）→ 乘 −1 才往右（@x 可翻）
 constexpr int      AIR_AXIS_Y          = 0;      // 上下點＝繞 x 軸 → 游標 Y
 constexpr int      AIR_SIGN_Y          = -1;     // 頂端抬起 gx 為正 → 游標往上（HID 的 y 往下為正）（@y 可翻）
-constexpr float    AIR_GAIN            = 4.0f;   // 每秒點數＝增益 ×（轉速−死區）^指數（@g 調）
-constexpr float    AIR_ACCEL_EXP       = 1.2f;   // 加速曲線指數：>1 慢轉精細、快轉跑得遠（Mac 自己還會再加速）
-constexpr float    AIR_DEADZONE_DPS    = 3.0f;   // 死區（度/秒）：手抖不動游標（@d 調；鐵則八：手持不動轉速常 2～24 為窗內峰值）
+constexpr float    AIR_GAIN            = 25.0f;  // 每秒點數＝增益 ×（轉速−死區）^指數（@g 調）。31-m4r：改線性後約等於「每轉 1 度移 25 點」（11-23 Miles 實測 4 太鈍，指數 1.2 時選 12）
+constexpr float    AIR_ACCEL_EXP       = 1.0f;   // 加速曲線指數（@n 調）。31-m4r：1.0＝線性＝轉幾度就移多遠（指哪跑哪）；>1 會讓同一個角度快慢轉移動量不同。Mac 自己還會再加速
+constexpr float    AIR_DEADZONE_DPS    = 1.0f;   // 死區（度/秒）：手抖不動游標（@d 調）。31-m4r：11-23 Miles 實測選 1.0；桌上靜置每 0.1 秒峰值 ≤1.5
 constexpr float    AIR_STILL_DPS       = 3.0f;   // 靜止判定：扣偏差後轉速 < 這個（桌上靜置 ≤1.1，鐵則八）
 constexpr float    AIR_STILL_G         = 0.05f;  // 靜止判定：加速度偏離 1g < 這個
 constexpr uint32_t AIR_STILL_MS        = 300;    // 靜止滿這麼久 → 放下了，不送移動；並開始跟零點
@@ -276,5 +276,6 @@ constexpr uint32_t AIR_BIAS_FIRST_MS   = 500;    // 開機後第一次零點：�
 constexpr float    AIR_BIAS_LPF        = 0.01f;  // 之後靜止時每筆零點更新權重（100Hz 約 1 秒）
 constexpr uint32_t AIR_CLICK_FREEZE_MS = 80;     // A 按下／放開後凍結游標（按鍵震動不讓游標跳）
 constexpr uint32_t AIR_SEND_MS         = 10;     // 最快每 10ms 送一筆（Mac 連線間隔 7.5ms）
+constexpr float    AIR_ACC_CAP_REPORTS = 2.0f;   // 31-m4r：累積量最多留 2 筆報告（±254 點），快甩超過的丟掉，手停游標就停（11-23 實測快甩每 0.1 秒卡在 ±1270＝每筆都滿 127）
 
 }  // namespace cfg

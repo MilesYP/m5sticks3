@@ -23,6 +23,7 @@ void airMouseEnter() {
   net_hub::setRadioOff(true, "AirMouse");   // 網路 task 斷 Wi-Fi（非阻塞）；power_save 在 AirMouse 不會自動重連
   audio_io::suspend();                       // 關麥克風／喇叭
   air_mouse::reset();
+  air_mouse::printStatus();                  // 零點校正多半在 Desktop 就做完了，進來時印一次讓人知道
   ble_mouse::begin();
 }
 void airMouseExit() {
