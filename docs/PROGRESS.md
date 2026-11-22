@@ -18,7 +18,7 @@
 
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**P2 ✅ 驗收通過（11-22，30-p2k；P2-6 續航對照待測）**。下一個：**M4 空中滑鼠**（11-22 Miles 調整順序：M4 → M1.5 紅外線 → M2 HID）；**M3 RF 軌由 Codex 平行開發**（`rf-lab/`、分支 `codex/rf-lab`，規則見根目錄 `AGENTS.md`）。repo 改 AGPL-3.0-or-later（`LICENSE`、`THIRD_PARTY.md`）。M1-A 11／11 完成；B5 簡化版待實機驗收。畫面模擬器 `tools/sim/`。
-- **進行中**：**M4-0 收尾（31-m4o；Mac 連上秒斷，接手見 `docs/KICKOFF_M4-mac.md`）**→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
+- **進行中**：**M4-0 收尾（31-m4o；Mac 連上秒斷＝HID 驅動沒接手，`ble-mouse-ref/` Bluedroid 對照待測）**→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -430,6 +430,13 @@
 - 待辦／未決：CC1101 接收是否正常仍無自有數據；退換期可能 11/20 截止。
 
 ## 紀錄
+
+### 2026-11-23｜M4-0 Mac 斷線查證＋Bluedroid 對照韌體｜Claude（Cowork）
+- 做了什麼：Mac 端 `log show` 三輪全程比對（bluetoothd＋其他程式）。新增 `ble-mouse-ref/`（Arduino 內建 Bluedroid＋BLEHIDDevice 最小滑鼠，名稱 M5Ref，PID 0x4D42，A 短按畫圈），用來判斷問題在 NimBLE 實作還是 macOS。
+- 查證結果（macOS 26.6.2）：Mac 有找到 HID 服務（「The device supports HID」、讀到 DIS／PnP）、配對加密成功，但 HID 驅動始終沒接手（「Number of LE HIDs connected: 0」、沒讀 Report Map、沒訂閱），系統設定一退出就以 Unused 斷線（配對後 0.07～2 秒）。「Incompatible LE HID／HIDBadBehavior」是 macOS 把第三方 LE 滑鼠切 7.5ms 時一起標的，斷線後回 Compatible，判斷為結果非原因。大量「does not have _HID_SERVICE_」是周圍其他 7 台裝置，不是我們。Brave：只被動收事件，沒有去連我們；但它註冊的配對代理會攔截配對確認（第二輪配對提示由 Brave 跳出，等了 8 秒），測試時在 `brave://settings/content/bluetoothDevices` 設不允許。
+- 驗收結果：待燒 `ble-mouse-ref/` 在同一台 Mac 對照。
+- 下一步：參考版能用 → 逐項對照兩邊 GATT／配對流程改 firmware；參考版也被斷 → 判定 macOS 側問題，改走其他路線。燒參考版前主韌體先 `q0`（PM1 看門狗）。
+
 
 ### 2026-11-16｜M1-B 進度：中控上線、B3a 真語音文字通、B3b-1 回放出聲｜Cowork
 - **B1 中控骨架**：`cloud/` Cloudflare Worker + Durable Object，已部署：**https://sticks3-hub.yenpang.workers.dev**（`/ws` WebSocket、`/test` 測試頁）。WebSocket 協定、存對話、ping/pong 全通。
