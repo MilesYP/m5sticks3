@@ -249,5 +249,7 @@ constexpr int8_t   BLE_TX_DBM          = 3;      // 藍牙發射功率（dBm）�
 constexpr bool     BLE_DEINIT_ON_EXIT  = true;   // 離開 AirMouse 關藍牙並釋放記憶體（鐵則二）；來回切模式出問題時改 false 對照
 constexpr uint32_t BLE_REPORT_MS       = 15;     // 滑鼠報告間隔（≈ 連線間隔上限 15ms；送太快只會塞隊列）
 constexpr float    BLE_CIRCLE_R        = 120.0f; // @1 畫圓測試的半徑（滑鼠單位，約等於像素）
+constexpr bool     BLE_SECURE_CONN     = true;   // 配對用 LE Secure Connections；配對時當機或一直卡加密 → 改 false（舊式配對）對照
+constexpr uint32_t BLE_START_WAIT_MS   = 2000;   // 31-m4b：進 AirMouse 先等 Wi-Fi 真的關掉（最多這麼久）再開藍牙，避免兩邊同時初始化射頻
 
 }  // namespace cfg

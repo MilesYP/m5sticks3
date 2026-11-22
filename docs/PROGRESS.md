@@ -33,6 +33,11 @@
 
 ---
 
+### 2026-11-22｜M4-0 實機第一輪 → 31-m4b 診斷版｜Claude Code（Cowork 橋接）
+- Miles 實機（31-m4a）：NimBLE 2.5.0 在 Arduino 2.0.17 **編譯通過**（firmware.bin 約 2.45MB）；但連線到一半裝置自己重開，或停在 CONN.. 不動。沒有 log。
+- 31-m4b 改：(1) 開機印「上次重開原因」（PANIC／WDT／BROWNOUT…）；(2) `monitor_filters` 加 `esp32_exception_decoder`，當機時直接印函式名稱；(3) NimBLE host task 堆疊 4096→8192（Secure Connections 配對的橢圓曲線運算可能撐爆）；(4) 進 AirMouse 先等 Wi-Fi 真的關掉（最多 2 秒）再開藍牙；(5) 連上後由裝置主動要求加密，連上 3 秒還沒加密每 3 秒印提醒；(6) 修 onConnect 位址字串（原本在 NimBLE task 配 std::string）；`cfg::BLE_SECURE_CONN` 可切舊式配對對照。
+- 待實機：重配前 Mac 先「忘記此裝置」＋ `@f`；貼切到 AirMouse 到出事為止的完整 log。
+
 ### 2026-11-22｜M4-0 BLE 滑鼠最小版（31-m4a）｜Claude Code（Cowork 橋接）
 - Miles 定案：連線優先 Mac → iPad → iPhone；沒插 Scroll 時 A 短按左鍵、按住拖曳；拿起來游標就動（規則見 CLAUDE.md 鐵則十二）。
 - 做了什麼：新增 `ble_mouse.*`（NimBLE-Arduino 2.5.0、自寫 HID 描述、bonding＋Secure Connections、廣播「M5S3Pack」、外觀＝滑鼠、急停閘門）；AirMouse enter／exit 關開 Wi-Fi 與 ES8311（`audio_io::suspend／resume`）；`power_save` 不在 AirMouse 重連 Wi-Fi；狀態畫面加 BLE 狀態；序列埠 `@`／`@1`／`@0`／`@f`；版本標記 31-m4a；`THIRD_PARTY.md` 登記 NimBLE。

@@ -83,6 +83,12 @@ void setup() {
   M5.begin(m5cfg);
   Serial.begin(115200);
   Serial.println("\n===== M5S3Pack firmware M1-A / A5-1 =====");
+  {   // 31-m4b：上次為什麼重開（當機 PANIC、看門狗 WDT、電壓不足 BROWNOUT…）——查「自己重開」用
+    static const char* kRst[] = {"UNKNOWN", "POWERON", "EXT", "SW", "PANIC(當機)", "INT_WDT(中斷看門狗)",
+                                 "TASK_WDT(任務看門狗)", "WDT", "DEEPSLEEP", "BROWNOUT(電壓不足)", "SDIO"};
+    const int r = (int)esp_reset_reason();
+    Serial.printf("[boot] 上次重開原因：%s（%d）\n", r >= 0 && r <= 10 ? kRst[r] : "?", r);
+  }
 
   input_hal::begin();
   killswitch::begin();

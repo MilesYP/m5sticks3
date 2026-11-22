@@ -5,6 +5,7 @@
 #include <NimBLEHIDDevice.h>
 #include <atomic>
 #include <math.h>
+#include <WiFi.h>
 
 #include "config.h"
 #include "killswitch.h"
@@ -57,6 +58,15 @@ std::atomic<uint16_t> s_conn{0xFFFF};
 std::atomic<uint8_t>  s_ev_conn{0}, s_ev_disc{0}, s_ev_auth{0}, s_ev_auth_fail{0};
 std::atomic<int>      s_disc_reason{0};
 char                  s_peer[20] = "";
+std::atomic<bool>     s_peer_ready{false};
+std::atomic<bool>     s_conn_bonded{false};
+std::atomic<bool>     s_need_sec{false};
+std::atomic<uint32_t> s_conn_t{0};
+std::atomic<uint16_t> s_itvl{0};
+std::atomic<uint8_t>  s_ev_param{0};
+bool                  s_pending = false;   // 進 AirMouse 了、等 Wi-Fi 關掉才真的開藍牙
+uint32_t              s_pending_t = 0;
+uint32_t              s_unsec_log_t = 0;
 
 bool     s_circle = false;
 uint32_t s_circle_t0 = 0, s_last_tx = 0;
@@ -69,8 +79,20 @@ class ServerCb : public NimBLEServerCallbacks {
     s_conn.store(ci.getConnHandle());
     s_connected.store(true);
     s_secured.store(ci.isEncrypted());
-    snprintf(s_peer, sizeof(s_peer), "%s", ci.getAddress().toString().c_str());
+    s_conn_bonded.store(ci.isBonded());
+    s_peer_ready.store(false);
+    const NimBLEAddress addr = ci.getAddress();
+    const uint8_t* a = addr.getVal();   // 不用 std::string（回呼在 NimBLE task，少配記憶體）
+    snprintf(s_peer, sizeof(s_peer), "%02X:%02X:%02X:%02X:%02X:%02X", a[5], a[4], a[3], a[2], a[1], a[0]);
+    s_peer_ready.store(true);
+    s_conn_t.store(millis() | 1);
     s_ev_conn.fetch_add(1);
+    // 31-m4b：由我們主動要求加密（有些主機要等對方先開口）；已加密（重連）就不用
+    if (!ci.isEncrypted()) s_need_sec.store(true);
+  }
+  void onConnParamsUpdate(NimBLEConnInfo& ci) override {
+    s_itvl.store(ci.getConnInterval());
+    s_ev_param.fetch_add(1);
   }
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
     s_connected.store(false);
@@ -81,6 +103,7 @@ class ServerCb : public NimBLEServerCallbacks {
     // advertiseOnDisconnect(true) 讓函式庫自己重新廣播
   }
   void onAuthenticationComplete(NimBLEConnInfo& ci) override {
+    s_conn_bonded.store(ci.isBonded());
     if (ci.isEncrypted()) { s_secured.store(true); s_ev_auth.fetch_add(1); }
     else s_ev_auth_fail.fetch_add(1);
   }
@@ -102,7 +125,17 @@ bool sendRaw(int dx, int dy, int wheel, uint8_t buttons) {
 
 namespace ble_mouse {
 
+bool startNow();
+
 bool begin() {
+  if (s_on.load() || s_pending) return true;
+  s_pending = true;                      // 31-m4b：先等 Wi-Fi 關掉（網路 task 非同步在關），loop() 再開藍牙
+  s_pending_t = millis();
+  Serial.println("[ble] 等 Wi-Fi 關閉後開藍牙…");
+  return true;
+}
+
+bool startNow() {
   if (s_on.load()) return true;
   const uint32_t t0 = millis();
   if (!s_built) {   // 第一次（或上次 exit 有 deinit）：初始化藍牙堆疊並建 HID 服務
@@ -111,7 +144,7 @@ bool begin() {
       return false;
     }
     // 配對：要綁定（bonding，下次自動重連）、不需輸入密碼（裝置沒有螢幕鍵盤可比對）、用 LE Secure Connections
-    NimBLEDevice::setSecurityAuth(true, false, true);
+    NimBLEDevice::setSecurityAuth(true, false, cfg::BLE_SECURE_CONN);
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
     NimBLEDevice::setPower(cfg::BLE_TX_DBM);
 
@@ -145,6 +178,7 @@ bool begin() {
 }
 
 void end() {
+  s_pending = false;
   if (!s_on.load()) return;
   const uint32_t t0 = millis();
   s_circle = false;
@@ -165,8 +199,32 @@ void end() {
 }
 
 void loop() {
+  if (s_pending) {
+    const bool wifi_off = WiFi.getMode() == WIFI_OFF;
+    if (wifi_off || millis() - s_pending_t >= cfg::BLE_START_WAIT_MS) {
+      s_pending = false;
+      Serial.printf("[ble] Wi-Fi %s（等了 %lu ms）→ 開藍牙\n", wifi_off ? "已關" : "還沒關（逾時，照開）",
+                    (unsigned long)(millis() - s_pending_t));
+      if (!startNow()) Serial.println("[ble] 開藍牙失敗");
+    }
+    return;
+  }
   if (s_ev_conn.exchange(0))
-    Serial.printf("[ble] 已連線：%s%s\n", s_peer, s_secured.load() ? "（已加密）" : "（等配對加密…）");
+    Serial.printf("[ble] 已連線：%s%s%s\n", s_peer_ready.load() ? s_peer : "?",
+                  s_secured.load() ? "（已加密）" : "（等配對加密…）", s_conn_bonded.load() ? "（有配對紀錄）" : "");
+  if (s_need_sec.exchange(false) && s_connected.load()) {
+    int rc = 0;
+    const bool ok = NimBLEDevice::startSecurity(s_conn.load(), &rc);
+    Serial.printf("[ble] 要求加密 %s（rc=%d）\n", ok ? "已送出" : "失敗", rc);
+  }
+  if (s_ev_param.exchange(0)) Serial.printf("[ble] 連線間隔 %.2f ms\n", s_itvl.load() * 1.25f);
+  // 連上但一直沒加密：每 3 秒提醒一次（卡在 CONN.. 時看這行）
+  if (s_connected.load() && !s_secured.load() && millis() - s_unsec_log_t >= 3000 && s_conn_t.load() &&
+      millis() - s_conn_t.load() >= 3000) {
+    s_unsec_log_t = millis();
+    Serial.printf("[ble] 連上 %lu 秒仍未加密（電腦端可能要先「忘記此裝置」，這邊打 @f 清配對再重配）\n",
+                  (unsigned long)((millis() - s_conn_t.load()) / 1000));
+  }
   if (s_ev_auth.exchange(0)) Serial.println("[ble] 配對完成（已加密），可以送滑鼠資料");
   if (s_ev_auth_fail.exchange(0)) Serial.println("[ble] 配對失敗（沒加密）— 對方可能要先「忘記此裝置」再重配");
   if (s_ev_disc.exchange(0))
@@ -196,6 +254,7 @@ void loop() {
 }
 
 State state() {
+  if (s_pending) return State::Advertising;
   if (!s_on.load()) return State::Off;
   return s_connected.load() ? State::Connected : State::Advertising;
 }
