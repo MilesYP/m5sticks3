@@ -18,7 +18,7 @@
 
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**P2 ✅ 驗收通過（11-22，30-p2k；P2-6 續航對照待測）**。下一個：**M4 空中滑鼠**（11-22 Miles 調整順序：M4 → M1.5 紅外線 → M2 HID）；**M3 RF 軌由 Codex 平行開發**（`rf-lab/`、分支 `codex/rf-lab`，規則見根目錄 `AGENTS.md`）。repo 改 AGPL-3.0-or-later（`LICENSE`、`THIRD_PARTY.md`）。M1-A 11／11 完成；B5 簡化版待實機驗收。畫面模擬器 `tools/sim/`。
-- **進行中**：**M4-0（31-m4a）寫完待 Mac 編譯＋實機**（BLE 滑鼠最小版）→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
+- **進行中**：**M4-0 收尾（31-m4j；Mac 連上秒斷，接手見 `docs/KICKOFF_M4-mac.md`）**→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -32,6 +32,10 @@
   - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
+
+### 2026-11-23｜M4-0 31-m4j 實機＋交接｜Claude Code（Cowork 橋接）
+- Miles 實機（31-m4j）：**快速來回切 AirMouse／Desktop 正常了**。Mac 仍「配對完成 → Mac 主動斷（0x213）」：預設、`@c0`、`@c0 @k0` 都一樣（但都沒 `@f`，裝置端一直留著 2 台配對，不算乾淨測試）；Mac 選了 7.5ms 連線間隔（Apple HID 指南最短 11.25ms，下一個要試）。
+- 交接：`docs/KICKOFF_M4-mac.md`（Mac 收尾 → M4-1）。
 
 ### 2026-11-22｜M4-0 31-m4h 實機 → 31-m4i｜Claude Code（Cowork 橋接）
 - Miles 實機（31-m4h）：`@s0`（不主動要求加密）→ Mac 連上後 24 秒都沒開始配對 → 不行；`@c0`／`@k0` 還沒測。`@f` 回「失敗」（deleteAllBonds）。**資訊頁放約 30 分鐘後當機**：中斷看門狗，兩核卡在溫度感測器（`temperatureRead()` 與 Wi-Fi 省電互卡）。另：充電判斷「充飽」實機觸發 ✅（A4b 待辦完成）。
