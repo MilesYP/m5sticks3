@@ -6,7 +6,7 @@
 // 不沿用 firmware/ 的任何設定（不加密 Report Map、不送 security request、
 // 不要求改連線參數、位址用晶片預設），變因越少越好。
 //
-// 操作：A 短按＝開始／停止畫圈。序列埠 115200 印連線、加密、訂閱狀態。
+// 操作：A 短按＝開始／停止畫圈；B 短按或序列埠 s＝主動要求加密。序列埠 115200 印連線、加密、訂閱狀態。
 // 藍牙回呼在 BT task 裡只改旗標，log 一律由 loop() 印（不在回呼裡碰 Serial）。
 
 #include <Arduino.h>
@@ -16,6 +16,7 @@
 #include <BLEHIDDevice.h>
 #include <BLE2902.h>
 #include <BLESecurity.h>
+#include <esp_gap_ble_api.h>
 
 static const char*    kName       = "M5Ref";
 static const uint16_t kAppearance = 0x03C2;   // GAP 外觀：滑鼠
@@ -206,6 +207,13 @@ void loop() {
   if (s_connected && !s_aliveLogged && now - s_connectAt > 10000) {
     s_aliveLogged = true;
     Serial.printf("[ref] 已連線超過 10 秒（訂閱：%s）\n", s_subscribed ? "是" : "否");
+  }
+
+  // B 短按（或序列埠打 s）＝裝置主動要求加密（SMP Security Request）
+  int ch = Serial.available() ? Serial.read() : -1;
+  if ((M5.BtnB.wasClicked() || ch == 's') && s_connected) {
+    esp_err_t rc = esp_ble_set_encryption(s_peer, ESP_BLE_SEC_ENCRYPT_NO_MITM);
+    Serial.printf("[ref] 要求加密 已送出（rc=%d）\n", (int)rc);
   }
 
   if (M5.BtnA.wasClicked()) {
