@@ -17,8 +17,8 @@
 > ```
 
 ## 目前狀態（每次更新時順手改這一段）
-- **階段**：**P2 電源鍵新機制＋省電：實作完成、Miles 邊用邊調中（11-22，30-p2k）**，規格 `docs/KICKOFF_P2.md`，剩正式驗收清單與 P2-6 續航對照。M1-A 11／11 完成；B5 簡化版待實機驗收。下一個 session：`docs/KICKOFF_P2-close_M15.md`（收尾 P2 → M1.5 紅外線 IR1）。畫面模擬器 `tools/sim/`（`motion` 目標看甩碎與充電液體）。
-- **進行中**：P2 驗收（KICKOFF_P2 第 6 節；電源鍵讀取、燒錄、看門狗、長按畫面、關螢幕喚醒規則已實機走過）→ `cloud/persona.sh` → P2-6 續航對照（基準：放桌上約 0.58%／分）→ M1.5 IR1。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
+- **階段**：**P2 ✅ 驗收通過（11-22，30-p2k；P2-6 續航對照待測）**。下一個：**M4 空中滑鼠**（11-22 Miles 調整順序：M4 → M1.5 紅外線 → M2 HID）；**M3 RF 軌由 Codex 平行開發**（`rf-lab/`、分支 `codex/rf-lab`，規則見根目錄 `AGENTS.md`）。repo 改 AGPL-3.0-or-later（`LICENSE`、`THIRD_PARTY.md`）。M1-A 11／11 完成；B5 簡化版待實機驗收。畫面模擬器 `tools/sim/`。
+- **進行中**：M4 需求釐清與可行性查證 → P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -32,6 +32,15 @@
   - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
+
+### 2026-11-22｜P2 ✅＋順序調整＋RF 交給 Codex＋改 AGPL｜Claude Code（Cowork 橋接）
+- 驗收結果：Miles 實機走完 KICKOFF_P2 第 6 節 14 項、`persona.sh` 已上傳 → **P2 通過**（30-p2k）。P2-6 續航對照留待之後量（步驟見 `docs/KICKOFF_P2-close_M15.md`）。
+- PINGEQUA 11-22 回信：承認 Bruce 軟體端還有不少 bug，建議到 Bruce GitHub 開 issue，他們也會轉給作者；**案件保持開啟、換貨權益保留**。我們的 0.5% SPI 錯誤是用自有 `rssi-test` ＋同一份 SmartRC 驅動量到的，issue 要寫清楚這點（Codex R0 起草）。
+- 決議（Miles）：(1) 開發順序改 **M4 → M1.5 → M2**；(2) **M3 RF 軌交給 Codex** 在 `rf-lab/` 平行開發，照根目錄 `AGENTS.md` 的規則與 `rf_tool` 介面交件，Claude Code 併回；(3) repo 改 **AGPL-3.0-or-later**，第一版完全開源、之後版本可只自用（交給別人的版本若含 AGPL 程式碼須附原始碼），允許從 Bruce 複製協定解碼／編碼、`.sub`、頻譜資料處理（SPI 層照鐵則五重寫）。
+- 做了什麼：新增 `LICENSE`、`THIRD_PARTY.md`（現有函式庫授權盤點）、`AGENTS.md`（Codex 範圍、硬性規則、Bruce 複製規則、`rf_tool` 介面、R0～R6）；README 加授權段；CLAUDE.md 鐵則十一標 ✅、第 6 節順序、第 8 節授權；執行計劃 md／html、KICKOFF_P2 狀態。
+- 注意：只有一台機器，燒 `rf-lab` 前要先 `q0` 進 root（看門狗）；已寫進 AGENTS.md。
+- 下一步：M4 空中滑鼠查證與計畫。
+- 待辦：收費課程上架前檢查 EVA 致敬元素（「初號機」浮水印、NERV 配色、「受信」）是否要換成自有風格；課程中提醒 NCC 低功率電波規定。
 
 ### 2026-11-22｜資訊頁 MEM 調整（30-p2i～k）＋交接｜Claude Code（Cowork 橋接）
 - Miles：MEM 長條改紫色；那條紅色「開機以來 heap 最低線」改綠色 1px（我第一版誤改成 CHIP 波形綠色加粗，已還原）；長條不再從 0 畫起、只放大最低值附近（最低線約 56% 高），原本柱子頂天、最低線貼柱頂看不出變化。
