@@ -211,7 +211,7 @@
 9. **ROOT、斷線標示**（11-22 Miles）：表情頁狀態列電量左邊的實心小標籤（ROOT 紅底 Font0、斷線灰底 efontTW_10），放不下時省略「待機中」等狀態字；原本右上角的 Wi-Fi 斜線圖示拿掉、表情頁不再蓋 ROOT 角標（資訊頁與其他模式畫面仍蓋右上角 ROOT 小標）。斷線時表情定格變灰維持不變。
 10. 序列埠 `q`：PM1 設定與按鍵狀態；`q0` 進 root、`q1` 回新機制、`q9` 主迴圈卡死（測看門狗）。（`p` 已被發射功率用掉。）
 
-### 鐵則十二：空中滑鼠（M4，2026-11-22 起，31-m4a 待實機驗收）
+### 鐵則十二：空中滑鼠（M4，2026-11-22 起；M4-0 BLE 滑鼠 11-23 Mac／iPhone 實機通過，iPad 待測）
 1. **Miles 定案（11-22）**：連線對象優先順序 Mac → iPad → iPhone（iOS／iPadOS 要開 AssistiveTouch 才有游標）；沒插 Scroll Unit 時 A 短按＝左鍵、按住＝拖曳（右鍵、捲動只在有 Scroll 時）；游標拿起來就動、放下靜止就停（不用按住才動）。
 2. **游標跟陀螺儀「轉速」走，不跟角度走**（技術決定）：轉速 → 位移＋靜止自動校正零點＋死區＋加速曲線；不會因偏航角積分越來越歪。PRD 原寫 Pitch／Yaw 角度映射，已改。
 3. **函式庫**：NimBLE-Arduino 2.5.0（Apache-2.0；原始碼對 IDF < 5 有專門的 deinit 路徑，預期 Arduino 2.0.17 可用，以 Mac 編譯為準；不行改 1.4.3）。HID 描述自己寫（`ble_mouse.cpp`，3 鍵＋X／Y／滾輪，Report ID 1）；HijelHID 等包裝函式庫要 Arduino 3.x，不用。
@@ -228,6 +228,7 @@
 14. **資訊頁不讀晶片溫度（31-m4i，`cfg::INFO_CHIP_TEMP`＝false）**：`temperatureRead()` 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）互卡，11-22 資訊頁放約 30 分鐘後兩核卡死 → 中斷看門狗重開（core1 卡在 `temperature_sensor_get_raw_value`、core0 卡在 `temperature_sensor_power_release`）。顯示「--C」。
 15. **連線間隔照 Apple 規範（31-m4k）**：Apple 配件設計指南——最短間隔 ≥15ms 且最長 ≥ 最短＋15ms（HID 例外可 11.25～15ms）、監督逾時 2～6 秒。31-m4j 前廣播偏好 7.5～15ms，Mac 選 7.5ms、配對完主動斷（0x213，待證實是否為此原因）。預設改 15～30ms（`BLE_ITVL_PRESET`＝2），配對完成 1.5 秒後若主機選的間隔不在範圍內就 `updateConnParams` 要求一次（逾時 4 秒）。序列埠 `@i0/@i1/@i2` 切預設組、`@u0/@u1` 開關主動要求；連上時印主機選的間隔／延遲／逾時。
 16. **Mac 斷線不是連線間隔（31-m4k 實機＋Mac bluetoothd log 定案）**：Mac 對第三方 LE 滑鼠會自己強制 7.5ms（系統設定「LE Mouse at 7.5ms」），跟我們偏好的間隔無關。真正的現象：配對兩邊都成功，但 Mac 的滑鼠驅動始終沒接手（沒訂閱報告），系統設定頁放手後 bluetoothd 以 `ledisconnectionreason: Unused` 斷線；之後 Mac 看得到廣播（Matched UUID 0x1812）也不會自動重連。31-m4l 改成對照 HijelHID_BLEMouse（Apache-2.0，NimBLE 2.x，README 標 macOS Ventura 實測可用）的 HID 設定：不帶 Report ID、PnP 用 Apple VID 0x05AC／PID 0、HID Information 旗標 0x01、不主動要求加密；每項可用 `@r/@v/@h/@s` 切回舊值，`@p1`／`@p0` 一次切全套（改了自動清配對並重建藍牙）。**31-m4n：不要用 Apple VID**——Mac 快取到 0x05AC 後把它當 Apple 配件，「附近裝置」不給連線按鈕、也不嘗試連（要 `sudo pkill bluetoothd` 清快取）；預設回 Espressif。31-m4m 起 HID 服務特徵值一律要加密（`@e`，HID over GATT 規範），並記錄主機讀寫了哪些特徵值。**31-m4o：Mac 對同一個藍牙位址的快取清不掉時（裝置端改什麼都沒按鈕、沒連線），換位址**：`@a1` 換成另一個由晶片 MAC 衍生的隨機靜態位址（存 NVS），Mac 會當新裝置；`@a0` 回原廠位址。
+17. **Mac「配對完就 Unused 斷線」的真正原因：Mac 上其他 app 的藍牙權限（2026-11-23 定案）**：Mac 的 HID 驅動不接手、系統設定一放手 bluetoothd 就以 Unused 斷線，跟韌體無關——Bluedroid 最小對照韌體（`ble-mouse-ref/`，不同堆疊、位址、VID）在同一台 Mac 也一模一樣；把「隱私權與安全性 → 藍牙」裡的 app（Brave、ChatGPT、Chrome、Teams）全部移除並重開機後，對照版與主韌體（31-m4o 設定）都立刻正常（訂閱報告、`@1` 畫圈、B 3 秒急停、解除後自動重連）。Brave 的連線階段還會攔截配對確認視窗。同款案例：OpenSnek #147（另一個 app 用 CoreBluetooth 連著，刪掉＋重開機才好）。**Mac 上測藍牙滑鼠前：確認沒有其他 app 有藍牙權限（或至少重開機後不允許），Teams 開機會要求藍牙，按不允許。** 查問題時用 `log show --predicate`（含 `process == "Bluetooth"` 與裝置 UUID）看 bluetoothd 時間線，不要盲改韌體；大量「does not have _HID_SERVICE_」是周圍其他裝置，「Incompatible LE HID／HIDBadBehavior」是 Mac 對第三方滑鼠切 7.5ms 時一起標的，不是原因。**31-m4p：`@u` 預設改關**——Mac 一律把第三方滑鼠拉回 7.5ms，我們要求 15～30ms 只會來回切一次；iPhone 本來就選 15ms。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。

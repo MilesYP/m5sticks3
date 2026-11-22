@@ -18,7 +18,7 @@
 
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**P2 ✅ 驗收通過（11-22，30-p2k；P2-6 續航對照待測）**。下一個：**M4 空中滑鼠**（11-22 Miles 調整順序：M4 → M1.5 紅外線 → M2 HID）；**M3 RF 軌由 Codex 平行開發**（`rf-lab/`、分支 `codex/rf-lab`，規則見根目錄 `AGENTS.md`）。repo 改 AGPL-3.0-or-later（`LICENSE`、`THIRD_PARTY.md`）。M1-A 11／11 完成；B5 簡化版待實機驗收。畫面模擬器 `tools/sim/`。
-- **進行中**：**M4-0 收尾（31-m4o；Mac 連上秒斷＝HID 驅動沒接手，`ble-mouse-ref/` Bluedroid 對照待測）**→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
+- **進行中**：**M4-0 BLE 滑鼠：Mac／iPhone ✅（31-m4p，11-23；原因是 Mac 其他 app 的藍牙權限），iPad 待測**→ M4-1 規劃→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -430,6 +430,13 @@
 - 待辦／未決：CC1101 接收是否正常仍無自有數據；退換期可能 11/20 截止。
 
 ## 紀錄
+
+### 2026-11-23｜M4-0 Mac 通過（31-m4p）｜Claude（Cowork）
+- 做了什麼：`ble-mouse-ref/`（Bluedroid）在同一台 Mac 也是「配對完 70ms Unused 斷線」→ 判定 Mac 側。Miles 把隱私權裡所有 app 的藍牙權限移除＋重開機（Teams 開機要求藍牙，按不允許）→ 對照版成功；燒回主韌體也成功。31-m4p：`@u`（配對後要求連線參數）預設改關。
+- 驗收結果：Mac ✅（主機訂閱報告、`@1` 畫圈、畫圈中 B 按住 3 秒急停→Safe、B 短按回 AirMouse 後 Mac 自動重連並訂閱）；iPhone ✅（11-23 稍早）；iPad 待測。
+- 遇到的坑／新規則：CLAUDE.md 鐵則十二第 17 點（Mac 測藍牙前先關其他 app 藍牙權限；查問題看 bluetoothd log）。序列埠 `!@0`＝監看視窗多送了 `!`，不是韌體問題。
+- 下一步：iPad 配對（AssistiveTouch）→ M4-1 規劃（陀螺儀轉速→游標，先給計畫與檔案清單）。
+
 
 ### 2026-11-23｜M4-0 Mac 斷線查證＋Bluedroid 對照韌體｜Claude（Cowork）
 - 做了什麼：Mac 端 `log show` 三輪全程比對（bluetoothd＋其他程式）。新增 `ble-mouse-ref/`（Arduino 內建 Bluedroid＋BLEHIDDevice 最小滑鼠，名稱 M5Ref，PID 0x4D42，A 短按畫圈），用來判斷問題在 NimBLE 實作還是 macOS。

@@ -73,7 +73,7 @@ std::atomic<uint8_t>  s_ev_param{0};
 // 31-m4k：連線間隔預設組（單位 1.25ms）；Apple 規範見 config.h BLE_ITVL_PRESET
 const uint16_t        kItvl[3][2] = {{6, 12}, {9, 12}, {12, 24}};
 uint8_t               s_itvl_preset = cfg::BLE_ITVL_PRESET < 3 ? cfg::BLE_ITVL_PRESET : 2;
-bool                  s_opt_upd = true;                      // @u：配對完成後主動要求連線參數
+bool                  s_opt_upd = false;                     // @u：配對完成後主動要求連線參數
 std::atomic<uint32_t> s_auth_t{0};                           // 配對完成時間（|1，0＝沒有待送的參數要求）
 // 31-m4h：配對選項可用序列埠即時切（Mac 連上秒斷的對照測試，不用重燒）
 // 31-m4l：預設改成對照 HijelHID_BLEMouse（Apache-2.0，README 標 macOS Ventura 實測可用）的 HID 設定，
