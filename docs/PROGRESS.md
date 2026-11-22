@@ -33,6 +33,11 @@
 
 ---
 
+### 2026-11-22｜M4-0 離開 AirMouse 當機 → 31-m4c｜Claude Code（Cowork 橋接）
+- Miles 實機（31-m4b，log 有當機解碼）：進 AirMouse 正常（Wi-Fi 20ms 關好、藍牙 12ms 開始廣播、heap 107KB），**按 B 離開時必當機重開**：`InstrFetchProhibited, PC=0`，在 `NimBLEDevice::host_task`（`NimBLEDevice.cpp:882`）。原因：`deinit()` 停掉 NimBLE 後，host task 返回去呼叫 `nimble_port_freertos_deinit()`，跟主迴圈的 `nimble_port_deinit()` 同時收尾。「連到一半重開」應該也是這個（還沒實際配對）。
+- 31-m4c：`BLE_DEINIT_ON_EXIT`＝false，離開只斷線＋停廣播，藍牙堆疊保留（CLAUDE.md 鐵則十二第 7 點，鐵則二的例外）。
+- 待實機：來回切模式不當機；回 Desktop 後 Friday 對話與上傳正常；Mac 配對、`@1` 畫圓。
+
 ### 2026-11-22｜M4-0 實機第一輪 → 31-m4b 診斷版｜Claude Code（Cowork 橋接）
 - Miles 實機（31-m4a）：NimBLE 2.5.0 在 Arduino 2.0.17 **編譯通過**（firmware.bin 約 2.45MB）；但連線到一半裝置自己重開，或停在 CONN.. 不動。沒有 log。
 - 31-m4b 改：(1) 開機印「上次重開原因」（PANIC／WDT／BROWNOUT…）；(2) `monitor_filters` 加 `esp32_exception_decoder`，當機時直接印函式名稱；(3) NimBLE host task 堆疊 4096→8192（Secure Connections 配對的橢圓曲線運算可能撐爆）；(4) 進 AirMouse 先等 Wi-Fi 真的關掉（最多 2 秒）再開藍牙；(5) 連上後由裝置主動要求加密，連上 3 秒還沒加密每 3 秒印提醒；(6) 修 onConnect 位址字串（原本在 NimBLE task 配 std::string）；`cfg::BLE_SECURE_CONN` 可切舊式配對對照。

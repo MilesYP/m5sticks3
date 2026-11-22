@@ -218,7 +218,7 @@
 4. **鐵則二落實**：`airMouseEnter` → `net_hub::setRadioOff(true)`（斷 Wi-Fi）＋`audio_io::suspend()`（關麥克風／喇叭，期間 `micOn()` 不動作）＋`ble_mouse::begin()`；`airMouseExit` 反過來。`power_save` 只在非 AirMouse 才會把 Wi-Fi 連回來（原本「沒睡著就重連」會跟 AirMouse 打架）。其他模式（HidAgent／RfTool）目前仍連著 Wi-Fi，各自里程碑再處理。
 5. **藍牙回呼在 NimBLE task**：只改原子旗標，log 由 `ble_mouse::loop()` 在主迴圈代印。每筆報告前查 `killswitch::outputAllowed()`；閘門關了停送並斷線。
 6. **配對**：bonding＋LE Secure Connections、不需密碼（IO 能力＝無）；只有加密完成後才送報告（HID 特徵值要加密才能讀）。藍牙同一時間只連一台；換主機要在原主機按「中斷連線」或 `@f` 清配對（一鍵切主機留到 M4-2）。
-7. `cfg::BLE_DEINIT_ON_EXIT`＝true（離開模式釋放藍牙記憶體）；來回切模式若當機或重開藍牙失敗，改 false 對照（只停廣播、保留堆疊）。序列埠 `@` 狀態、`@1`／`@0` 畫圓測試、`@f` 清配對（26 個字母都已被占用）。
+7. **離開 AirMouse 不關藍牙堆疊**（`cfg::BLE_DEINIT_ON_EXIT`＝false，31-m4c 實測定案）：`NimBLEDevice::deinit()` 在 NimBLE 2.5.0＋Arduino 2.0.17 必當機——`nimble_port_stop()` 後 host task 從 `nimble_port_run()` 返回、呼叫 `nimble_port_freertos_deinit()`，同時主迴圈在跑 `nimble_port_deinit()`，結果 `Guru Meditation InstrFetchProhibited, PC=0`（`NimBLEDevice.cpp:882 host_task`）。改成離開時只斷線＋停廣播，藍牙堆疊第一次進 AirMouse 後就一直留著（heap 約 157KB → 107KB）。這是鐵則二的例外：回 Desktop 時 Wi-Fi 與閒置的藍牙並存，要確認 Friday 語音與上傳不受影響。序列埠 `@` 狀態、`@1`／`@0` 畫圓測試、`@f` 清配對（26 個字母都已被占用）。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
