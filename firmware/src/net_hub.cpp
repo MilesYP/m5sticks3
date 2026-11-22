@@ -51,6 +51,10 @@ TaskHandle_t s_task = nullptr;
 void post(const CmdMsg& m) {
   if (s_cmdq) xQueueSend(s_cmdq, &m, pdMS_TO_TICKS(50));
 }
+// 31-m4j：Wi-Fi 開／關指令的序號——快速來回切模式時，藍牙要等「最後一個」關 Wi-Fi 指令真的做完才開
+std::atomic<uint32_t> s_wifi_cmd_seq{0};    // 主迴圈送出的最後一個序號
+std::atomic<uint32_t> s_wifi_done_seq{0};   // 網路 task 做完的最後一個序號
+
 void postSimple(Cmd c) {
   CmdMsg m{};
   m.c = c;
@@ -326,6 +330,7 @@ void handleCmd(const CmdMsg& m) {
       s_net_idx = s_net_idx < 0 ? -1 : s_net_idx - 1;
       net_hub::applyIdlePs();   // P2：重開 Wi-Fi 後重套省電深度（錄放音中由 voiceActive 管）
       netlog("[wifi] Wi-Fi → 開（等 [hub] WS connected）\n");
+      if (m.id) s_wifi_done_seq.store(m.id);
       break;
     case Cmd::WifiOff:
       s_wifi_on = false;
@@ -333,6 +338,7 @@ void handleCmd(const CmdMsg& m) {
       WiFi.disconnect(true);
       WiFi.mode(WIFI_OFF);
       netlog("[wifi] Wi-Fi → 關\n");
+      if (m.id) s_wifi_done_seq.store(m.id);
       break;
   }
 }
@@ -842,10 +848,14 @@ void setRadioOff(bool off, const char* why) {
     s_radio_on_t.store(now | 1);
     if (!s_link.load()) s_down_since.store(now | 1);   // 斷線提示從叫醒那一刻起算（見 OFFLINE_WAKE_GRACE_MS）
   }
-  postSimple(off ? Cmd::WifiOff : Cmd::WifiOn);
+  CmdMsg m{};
+  m.c = off ? Cmd::WifiOff : Cmd::WifiOn;
+  m.id = s_wifi_cmd_seq.fetch_add(1) + 1;   // 31-m4j：帶序號，radioSettled() 用
+  post(m);
   Serial.printf("[pwr] Wi-Fi %s（%s）\n", off ? "斷開省電" : "重連", why);
 }
 bool radioOff() { return s_radio_off.load(); }
+bool radioSettled() { return s_wifi_done_seq.load() == s_wifi_cmd_seq.load(); }
 uint32_t radioOnForMs() {
   const uint32_t t = s_radio_on_t.load();
   return t ? millis() - t : UINT32_MAX;

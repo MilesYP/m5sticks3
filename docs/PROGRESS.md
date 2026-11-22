@@ -36,6 +36,7 @@
 ### 2026-11-22｜M4-0 31-m4h 實機 → 31-m4i｜Claude Code（Cowork 橋接）
 - Miles 實機（31-m4h）：`@s0`（不主動要求加密）→ Mac 連上後 24 秒都沒開始配對 → 不行；`@c0`／`@k0` 還沒測。`@f` 回「失敗」（deleteAllBonds）。**資訊頁放約 30 分鐘後當機**：中斷看門狗，兩核卡在溫度感測器（`temperatureRead()` 與 Wi-Fi 省電互卡）。另：充電判斷「充飽」實機觸發 ✅（A4b 待辦完成）。
 - 31-m4i：資訊頁不讀溫度（`INFO_CHIP_TEMP`）；`@f` 改 `ble_store_clear()`。
+- Miles：快速來回切 AirMouse／Desktop 會當機重開（還沒 log）。31-m4j 推測修法：Wi-Fi 開關指令帶序號（`net_hub::radioSettled()`），藍牙要等最後一個關 Wi-Fi 指令真的做完才開（原本只看 `WiFi.getMode()`，舊的「開」指令還排在後面時會誤判）。
 - 待實機：Mac `@s1`＋`@c0`、再加 `@k0`；Mac 端 `log stream` 抓 bluetoothd 斷線原因。
 
 ### 2026-11-22｜M4-0 31-m4g 實機 → 31-m4h（Mac 對照測試版）｜Claude Code（Cowork 橋接）

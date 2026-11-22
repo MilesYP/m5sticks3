@@ -66,6 +66,7 @@ void setWifiEnabled(bool on);        // 整個 Wi-Fi 關／開
 // P2：省電斷 Wi-Fi（power_save 呼叫）。radioOff()＝目前是主動斷開（不顯示斷線提示）；radioOnForMs()＝距離上次叫醒重連多久
 void setRadioOff(bool off, const char* why);
 bool radioOff();
+bool radioSettled();                 // 31-m4j：最後一個 setRadioOff 指令網路 task 已經做完
 uint32_t radioOnForMs();
 void setPowerSave(bool on);          // 手動：Wi-Fi 省電開／關；之後自動切換暫停，直到 setPowerSaveAuto()
 void setPowerSaveAuto();

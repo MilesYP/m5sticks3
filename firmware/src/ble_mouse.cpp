@@ -11,6 +11,7 @@
 
 extern "C" int ble_store_clear(void);   // NimBLE host：清空配對資料庫（NimBLEDevice::deleteAllBonds 逐筆刪會失敗）
 #include "killswitch.h"
+#include "net_hub.h"
 
 namespace {
 
@@ -263,7 +264,8 @@ void end() {
 
 void loop() {
   if (s_pending) {
-    const bool wifi_off = WiFi.getMode() == WIFI_OFF;
+    // 31-m4j：要等「最後一個」關 Wi-Fi 指令做完（快速來回切模式時，舊的開 Wi-Fi 指令可能還排在後面）
+    const bool wifi_off = net_hub::radioSettled() && WiFi.getMode() == WIFI_OFF;
     if (wifi_off || millis() - s_pending_t >= cfg::BLE_START_WAIT_MS) {
       s_pending = false;
       Serial.printf("[ble] Wi-Fi %s（等了 %lu ms）→ 開藍牙\n", wifi_off ? "已關" : "還沒關（逾時，照開）",
