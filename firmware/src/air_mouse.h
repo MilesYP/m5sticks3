@@ -26,6 +26,7 @@ void setMeasure(bool on);                      // @m
 bool measure();
 void setGain(float g);                         // @g<數字>
 void setDeadzone(float d);                     // @d<數字>（度/秒）
+void setExponent(float e);                     // @n<數字>：加速曲線指數（1＝線性）
 void flipX();                                  // @x
 void flipY();                                  // @y
 void printStatus();
