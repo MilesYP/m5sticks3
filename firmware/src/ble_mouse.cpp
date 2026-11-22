@@ -80,6 +80,7 @@ std::atomic<uint32_t> s_auth_t{0};                           // 配對完成時�
 bool                  s_opt_rid    = false;                  // @r：報告帶 Report ID 1（舊）；關＝不帶 Report ID（對照組）
 bool                  s_opt_vid    = true;                   // @v：PnP 用 Apple VID 0x05AC／PID 0（對照組）；關＝Espressif 0x303A（舊）
 bool                  s_opt_wake   = true;                   // @h：HID Information flags 0x01 遠端喚醒（對照組）；關＝0x02 一般可連線（舊）
+bool                  s_opt_enc    = true;                   // @e：HID 服務特徵值全部要加密（31-m4m，規範要求）；關＝NimBLE 預設（Report Map 等不加密）
 bool                  s_opt_reqsec = false;                  // @s：連上後由裝置主動要求加密（舊＝開；對照組不主動要求）
 bool                  s_opt_sc     = cfg::BLE_SECURE_CONN;   // @c：LE Secure Connections（關＝舊式配對）
 bool                  s_opt_irk    = true;                   // @k：配對交換身分金鑰（IRK）
@@ -140,13 +141,37 @@ ServerCb s_cb;
 // 31-m4g：主機有沒有訂閱滑鼠報告（訂閱了＝HID 真的接上，Mac 連上秒斷時看有沒有走到這步）
 std::atomic<uint8_t>  s_ev_sub{0};
 std::atomic<uint16_t> s_sub_val{0};
-class InputCb : public NimBLECharacteristicCallbacks {
+// 31-m4m：記錄主機讀／寫了哪個 HID 相關特徵值（Mac 的滑鼠驅動有沒有開始讀 Report Map，看這裡）
+enum ChrTag : uint8_t { T_MAP, T_INFO, T_PROTO, T_CTRL, T_INPUT, T_PNP, T_MANU, T_BATT, T_COUNT };
+const char* const kTagName[T_COUNT] = {"Report Map（滑鼠格式）", "HID Information", "Protocol Mode",
+                                       "HID Control Point", "Input Report（滑鼠資料）", "PnP ID", "製造商名稱", "電池電量"};
+std::atomic<uint8_t> s_ev_rd[T_COUNT], s_ev_wr[T_COUNT];
+class LogCb : public NimBLECharacteristicCallbacks {
+ public:
+  explicit LogCb(uint8_t t) : tag(t) {}
+  uint8_t tag;
+  void onRead(NimBLECharacteristic*, NimBLEConnInfo&) override { s_ev_rd[tag].fetch_add(1); }
+  void onWrite(NimBLECharacteristic*, NimBLEConnInfo&) override { s_ev_wr[tag].fetch_add(1); }
   void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo&, uint16_t subValue) override {
+    if (tag != T_INPUT) return;
     s_sub_val.store(subValue);
     s_ev_sub.fetch_add(1);
   }
 };
-InputCb s_input_cb;
+LogCb s_cb_tag[T_COUNT] = {LogCb(T_MAP), LogCb(T_INFO), LogCb(T_PROTO), LogCb(T_CTRL),
+                           LogCb(T_INPUT), LogCb(T_PNP), LogCb(T_MANU), LogCb(T_BATT)};
+// NimBLE 2.x 的 NimBLEHIDDevice 把 Report Map／HID Information／Protocol Mode 建成「不加密也能讀」；
+// HID over GATT 規範要求 HID 服務要加密才能存取（主機讀到「需要驗證」才會自己發起配對）。
+// setProperties 是 protected → 用同結構的子類別取用（沒有新增成員，只是開放這個函式）。
+struct PropAccess : public NimBLECharacteristic {
+  static void addEnc(NimBLECharacteristic* c) {
+    if (!c) return;
+    uint16_t p = c->getProperties();
+    if (p & NIMBLE_PROPERTY::READ) p |= NIMBLE_PROPERTY::READ_ENC;
+    if (p & (NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR)) p |= NIMBLE_PROPERTY::WRITE_ENC;
+    static_cast<PropAccess*>(c)->setProperties(p);
+  }
+};
 
 const char* discReason(int r) {
   switch (r) {
@@ -217,13 +242,14 @@ void setOption(char opt, bool on) {
   else if (opt == 'c') s_opt_sc = on;
   else if (opt == 'k') s_opt_irk = on;
   else if (opt == 'u') { s_opt_upd = on; Serial.printf("[ble] 配對後主動要求連線參數 %s\n", on ? "開" : "關"); return; }
-  else if (opt == 'r' || opt == 'v' || opt == 'h' || opt == 'p') {   // 31-m4l：GATT 內容變了 → 重建藍牙
-    if (opt == 'r') s_opt_rid = on;
+  else if (opt == 'r' || opt == 'v' || opt == 'h' || opt == 'p' || opt == 'e') {   // 31-m4l：GATT 內容變了 → 重建藍牙
+    if (opt == 'e') s_opt_enc = on;
+    else if (opt == 'r') s_opt_rid = on;
     else if (opt == 'v') s_opt_vid = on;
     else if (opt == 'h') s_opt_wake = on;
-    else { s_opt_rid = !on; s_opt_vid = on; s_opt_wake = on; s_opt_reqsec = !on; }   // @p1 對照組全套、@p0 舊設定全套
-    Serial.printf("[ble] HID 設定：Report ID %s｜VID %s｜HID 旗標 %s｜主動要求加密 %s（電腦端先「忘記此裝置」，這邊會清配對並重建藍牙）\n",
-                  s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple 0x05AC" : "Espressif 0x303A",
+    else { s_opt_rid = !on; s_opt_vid = on; s_opt_wake = on; s_opt_reqsec = !on; s_opt_enc = on; }   // @p1 對照組全套、@p0 舊設定全套
+    Serial.printf("[ble] HID 設定：HID 特徵值加密 %s｜Report ID %s｜VID %s｜HID 旗標 %s｜主動要求加密 %s（電腦端先「忘記此裝置」，這邊會清配對並重建藍牙）\n",
+                  s_opt_enc ? "要" : "不要", s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple 0x05AC" : "Espressif 0x303A",
                   s_opt_wake ? "0x01" : "0x02", s_opt_reqsec ? "開" : "關");
     if (s_on.load() || s_pending) {
       if (NimBLEDevice::isInitialized()) ble_store_clear();   // 報告格式變了，舊配對的 GATT 快取不能用
@@ -262,7 +288,19 @@ bool startNow() {
     s_server->setCallbacks(&s_cb, false);
     s_hid = new NimBLEHIDDevice(s_server);
     s_input = s_hid->getInputReport(s_opt_rid ? kReportId : 0);
-    s_input->setCallbacks(&s_input_cb);
+    s_input->setCallbacks(&s_cb_tag[T_INPUT]);
+    s_hid->getReportMap()->setCallbacks(&s_cb_tag[T_MAP]);
+    s_hid->getHidInfo()->setCallbacks(&s_cb_tag[T_INFO]);
+    s_hid->getProtocolMode()->setCallbacks(&s_cb_tag[T_PROTO]);
+    s_hid->getHidControl()->setCallbacks(&s_cb_tag[T_CTRL]);
+    s_hid->getPnp()->setCallbacks(&s_cb_tag[T_PNP]);
+    s_hid->getBatteryLevel()->setCallbacks(&s_cb_tag[T_BATT]);
+    if (s_opt_enc) {   // 31-m4m：HID 服務的特徵值都要加密（要在 server->start() 前改）
+      PropAccess::addEnc(s_hid->getReportMap());
+      PropAccess::addEnc(s_hid->getHidInfo());
+      PropAccess::addEnc(s_hid->getProtocolMode());
+      PropAccess::addEnc(s_hid->getHidControl());
+    }
     s_hid->setManufacturer("M5S3Pack");
     if (s_opt_vid) s_hid->setPnp(0x02, 0x05AC, 0x0000, 0x0001);   // 31-m4l 對照組：Apple VID（HijelHID 用法）
     else s_hid->setPnp(0x02, 0x303A, 0x4D41, 0x0100);              // 0x02＝USB VID 來源；0x303A＝Espressif
@@ -371,6 +409,11 @@ void loop() {
   if (s_ev_auth_fail.exchange(0)) Serial.println("[ble] 配對失敗（沒加密）— 對方可能要先「忘記此裝置」再重配");
   if (s_ev_disc.exchange(0))
     Serial.printf("[ble] 斷線（原因 0x%X %s）→ 重新廣播\n", s_disc_reason.load(), discReason(s_disc_reason.load()));
+  for (uint8_t t = 0; t < T_COUNT; ++t) {   // 31-m4m：主機讀寫了哪些特徵值
+    const uint8_t r = s_ev_rd[t].exchange(0), w = s_ev_wr[t].exchange(0);
+    if (r) Serial.printf("[ble] 主機讀 %s（%u 次）%s\n", kTagName[t], (unsigned)r, t == T_MAP ? "＝滑鼠驅動開始接手" : "");
+    if (w) Serial.printf("[ble] 主機寫 %s（%u 次）\n", kTagName[t], (unsigned)w);
+  }
   if (s_ev_sub.exchange(0))
     Serial.printf("[ble] 主機%s訂閱滑鼠報告（0x%X）%s\n", s_sub_val.load() ? "" : "取消", s_sub_val.load(),
                   s_sub_val.load() ? "＝HID 接上了" : "");
@@ -442,8 +485,8 @@ void forgetBonds() {
 }
 
 void printStatus() {
-  Serial.printf("[ble] HID 設定 @r Report ID %s｜@v VID %s｜@h HID 旗標 %s（@p1 對照組全套／@p0 舊設定全套）\n",
-                s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple" : "Espressif", s_opt_wake ? "0x01" : "0x02");
+  Serial.printf("[ble] HID 設定 @e 特徵值加密 %s｜@r Report ID %s｜@v VID %s｜@h HID 旗標 %s（@p1 對照組全套／@p0 舊設定全套）\n",
+                s_opt_enc ? "要" : "不要", s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple" : "Espressif", s_opt_wake ? "0x01" : "0x02");
   Serial.printf("[ble] 選項 @s 主動要求加密 %s｜@c SC %s｜@k 身分金鑰 %s｜@i%u 偏好間隔 %.2f～%.2f ms｜@u 配對後要求參數 %s\n",
                 s_opt_reqsec ? "開" : "關", s_opt_sc ? "開" : "關", s_opt_irk ? "開" : "關", (unsigned)s_itvl_preset,
                 kItvl[s_itvl_preset][0] * 1.25f, kItvl[s_itvl_preset][1] * 1.25f, s_opt_upd ? "開" : "關");
