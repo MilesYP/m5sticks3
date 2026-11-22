@@ -64,6 +64,12 @@ std::atomic<bool>     s_need_sec{false};
 std::atomic<uint32_t> s_conn_t{0};
 std::atomic<uint16_t> s_itvl{0};
 std::atomic<uint8_t>  s_ev_param{0};
+// 31-m4h：配對選項可用序列埠即時切（Mac 連上秒斷的對照測試，不用重燒）
+bool                  s_opt_reqsec = true;                   // @s：連上後由裝置主動要求加密
+bool                  s_opt_sc     = cfg::BLE_SECURE_CONN;   // @c：LE Secure Connections（關＝舊式配對）
+bool                  s_opt_irk    = true;                   // @k：配對交換身分金鑰（IRK）
+std::atomic<uint8_t>  s_auth_flags{0};                       // bit0 加密 bit1 綁定 bit2 驗證
+std::atomic<uint8_t>  s_auth_key{0};
 bool                  s_pending = false;   // 進 AirMouse 了、等 Wi-Fi 關掉才真的開藍牙
 uint32_t              s_pending_t = 0;
 uint32_t              s_unsec_log_t = 0;
@@ -88,7 +94,7 @@ class ServerCb : public NimBLEServerCallbacks {
     s_conn_t.store(millis() | 1);
     s_ev_conn.fetch_add(1);
     // 31-m4b：由我們主動要求加密（有些主機要等對方先開口）；已加密（重連）就不用
-    if (!ci.isEncrypted()) s_need_sec.store(true);
+    if (!ci.isEncrypted() && s_opt_reqsec) s_need_sec.store(true);
   }
   void onConnParamsUpdate(NimBLEConnInfo& ci) override {
     s_itvl.store(ci.getConnInterval());
@@ -104,6 +110,8 @@ class ServerCb : public NimBLEServerCallbacks {
   }
   void onAuthenticationComplete(NimBLEConnInfo& ci) override {
     s_conn_bonded.store(ci.isBonded());
+    s_auth_flags.store((ci.isEncrypted() ? 1 : 0) | (ci.isBonded() ? 2 : 0) | (ci.isAuthenticated() ? 4 : 0));
+    s_auth_key.store(ci.getSecKeySize());
     if (ci.isEncrypted()) { s_secured.store(true); s_ev_auth.fetch_add(1); }
     else s_ev_auth_fail.fetch_add(1);
   }
@@ -151,6 +159,25 @@ namespace ble_mouse {
 
 bool startNow();
 
+// 31-m4g：配對時交換「加密金鑰＋身分金鑰（IRK）」（Mac 用身分金鑰認出重連的裝置）；31-m4h 可用 @k 關掉對照
+void applySecurity() {
+  NimBLEDevice::setSecurityAuth(true, false, s_opt_sc);   // 綁定、不需密碼比對、SC 依選項
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+  const uint8_t keys = BLE_SM_PAIR_KEY_DIST_ENC | (s_opt_irk ? BLE_SM_PAIR_KEY_DIST_ID : 0);
+  NimBLEDevice::setSecurityInitKey(keys);
+  NimBLEDevice::setSecurityRespKey(keys);
+}
+
+void setOption(char opt, bool on) {
+  if (opt == 's') s_opt_reqsec = on;
+  else if (opt == 'c') s_opt_sc = on;
+  else if (opt == 'k') s_opt_irk = on;
+  else return;
+  if (NimBLEDevice::isInitialized()) applySecurity();
+  Serial.printf("[ble] 選項：主動要求加密 %s｜Secure Connections %s｜交換身分金鑰 %s（下一次配對生效；先在電腦「忘記此裝置」＋ @f）\n",
+                s_opt_reqsec ? "開" : "關", s_opt_sc ? "開" : "關", s_opt_irk ? "開" : "關");
+}
+
 bool begin() {
   if (s_on.load() || s_pending) return true;
   s_pending = true;                      // 31-m4b：先等 Wi-Fi 關掉（網路 task 非同步在關），loop() 再開藍牙
@@ -168,12 +195,7 @@ bool startNow() {
       return false;
     }
     // 配對：要綁定（bonding，下次自動重連）、不需輸入密碼（裝置沒有螢幕鍵盤可比對）、用 LE Secure Connections
-    NimBLEDevice::setSecurityAuth(true, false, cfg::BLE_SECURE_CONN);
-    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
-    // 31-m4g：配對時雙方都交換「加密金鑰＋身分金鑰（IRK）」。預設只交換加密金鑰；
-    // Mac 會用身分金鑰認出重連的裝置，少了它常見「連上又馬上斷」。
-    NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-    NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+    applySecurity();
     NimBLEDevice::setPower(cfg::BLE_TX_DBM);
 
     s_server = NimBLEDevice::createServer();
@@ -264,7 +286,11 @@ void loop() {
     Serial.printf("[ble] 連上 %lu 秒仍未加密（電腦端可能要先「忘記此裝置」，這邊打 @f 清配對再重配）\n",
                   (unsigned long)((millis() - s_conn_t.load()) / 1000));
   }
-  if (s_ev_auth.exchange(0)) Serial.println("[ble] 配對完成（已加密），可以送滑鼠資料");
+  if (s_ev_auth.exchange(0)) {
+    const uint8_t f = s_auth_flags.load();
+    Serial.printf("[ble] 配對完成（已加密），可以送滑鼠資料｜綁定 %s｜驗證 %s｜金鑰 %u bytes\n",
+                  (f & 2) ? "是" : "否", (f & 4) ? "是" : "否", (unsigned)s_auth_key.load());
+  }
   if (s_ev_auth_fail.exchange(0)) Serial.println("[ble] 配對失敗（沒加密）— 對方可能要先「忘記此裝置」再重配");
   if (s_ev_disc.exchange(0))
     Serial.printf("[ble] 斷線（原因 0x%X %s）→ 重新廣播\n", s_disc_reason.load(), discReason(s_disc_reason.load()));
@@ -337,6 +363,8 @@ void forgetBonds() {
 }
 
 void printStatus() {
+  Serial.printf("[ble] 選項 @s 主動要求加密 %s｜@c SC %s｜@k 身分金鑰 %s\n", s_opt_reqsec ? "開" : "關",
+                s_opt_sc ? "開" : "關", s_opt_irk ? "開" : "關");
   Serial.printf("[ble] 狀態 %s%s｜對方 %s｜已配對 %d 台｜送出 %lu 筆、失敗 %lu｜畫圓 %s｜閘門 %s｜heap %u\n",
                 stateName(), s_secured.load() ? "（已加密）" : "", s_connected.load() ? s_peer : "-", bondCount(),
                 (unsigned long)s_tx_ok, (unsigned long)s_tx_fail, s_circle ? "開" : "關",
