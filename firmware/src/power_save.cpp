@@ -115,7 +115,7 @@ void loop() {
   }
   if (s_screen_on) applyBacklight(now);
 
-  // P2（11-22 Miles）：沒插線時進入睡眠滿 30 秒 → 自動關螢幕（之後只有長按 A、單按電源鍵會亮）。
+  // P2（11-22 Miles）：沒插線時進入睡眠滿 10 秒 → 自動關螢幕（之後只有長按 A、單按電源鍵會亮）。
   // 「睡眠」＝省電等級 Asleep：表情頁是睡著臉、資訊頁是靜置 30 秒（微光）——兩頁一樣適用
   const bool asleep_face = mode_manager::current() == Mode::Desktop && s_screen_on && !voice_turn::busy() &&
                            s_level == Level::Asleep && battery_ui::chargeState() == 0;
@@ -123,7 +123,7 @@ void loop() {
   else if (!s_asleep_t) s_asleep_t = now | 1;
   else if (s_enabled && now - s_asleep_t >= cfg::PWR_AUTO_SCREEN_OFF_MS) {
     s_asleep_t = 0;
-    setScreenOn(false, "睡著滿 30 秒");
+    setScreenOn(false, "睡著滿 10 秒");
   }
 
   // P2：Desktop 睡著或關螢幕滿 3 分鐘 → 斷 Wi-Fi；醒來就重連（語音中、上傳沒送完一律算醒著）
