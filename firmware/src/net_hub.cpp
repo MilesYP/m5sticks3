@@ -170,6 +170,7 @@ net_hub::BinGate    s_gate = nullptr;
 WebSocketsClient s_ws;
 bool     s_ws_started = false;
 bool     s_wifi_on = true;
+int      s_net_idx = -1;
 bool     s_need_pick = true;   // 11-21：網路 task 要重新掃描挑 Wi-Fi（家裡優先，見 wifiPickStep）
 bool     s_wifi_logged = false;
 uint32_t s_last_ping = 0, s_ping_sent = 0;
@@ -414,7 +415,7 @@ const WifiNet kNets[] = {
 };
 constexpr int kNetCount = sizeof(kNets) / sizeof(kNets[0]);
 bool     s_scanning = false;
-int      s_net_idx = -1;
+// s_net_idx 宣告移到前面（31-m4f：WifiOn 指令也要用）
 uint32_t s_wifi_try_ms = 0, s_last_pref_scan = 0;
 const char* netTag() { return (s_net_idx >= 0 && s_net_idx < kNetCount) ? kNets[s_net_idx].tag : "-"; }
 
