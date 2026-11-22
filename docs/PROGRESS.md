@@ -33,6 +33,11 @@
 
 ---
 
+### 2026-11-22｜M4-0 31-m4c 失敗 → 31-m4d 修補 NimBLE deinit｜Claude Code（Cowork 橋接）
+- Miles 實機（31-m4c，保留藍牙）：離開 AirMouse 不當機了，但回 Desktop 後 Wi-Fi 重連或按 A 錄音就 abort：`Should enable WiFi modem sleep when both WiFi and Bluetooth are enabled`（`pm_set_sleep_type` ← `wifi_set_ps_process`）。另：Mac 藍牙「附近裝置」看得到 M5S3Pack 但點不了連線（log 沒有 `[ble] 已連線`）。
+- 31-m4d：改回離開就 deinit，用建置前腳本 `scripts/patch_nimble.py` 修 NimBLE deinit 競態（stop 後等 100ms）；`net_hub::setPsNone()` 藍牙開著時不設 PS_NONE（保險）。
+- 待實機：建置 log 要看到 `[patch_nimble] 已修補`；來回切 5 次、回 Desktop 按 A 對話；Mac 連線時的 log。
+
 ### 2026-11-22｜M4-0 離開 AirMouse 當機 → 31-m4c｜Claude Code（Cowork 橋接）
 - Miles 實機（31-m4b，log 有當機解碼）：進 AirMouse 正常（Wi-Fi 20ms 關好、藍牙 12ms 開始廣播、heap 107KB），**按 B 離開時必當機重開**：`InstrFetchProhibited, PC=0`，在 `NimBLEDevice::host_task`（`NimBLEDevice.cpp:882`）。原因：`deinit()` 停掉 NimBLE 後，host task 返回去呼叫 `nimble_port_freertos_deinit()`，跟主迴圈的 `nimble_port_deinit()` 同時收尾。「連到一半重開」應該也是這個（還沒實際配對）。
 - 31-m4c：`BLE_DEINIT_ON_EXIT`＝false，離開只斷線＋停廣播，藍牙堆疊保留（CLAUDE.md 鐵則十二第 7 點，鐵則二的例外）。

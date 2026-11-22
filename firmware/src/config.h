@@ -246,10 +246,9 @@ constexpr uint32_t BAT_CUTOFF_HOLD_MS  = 30000; // 連續這麼久才關（說�
 // ── M4 空中滑鼠：BLE HID（ble_mouse，2026-11-22 M4-0）──
 constexpr const char* BLE_DEVICE_NAME  = "M5S3Pack";   // 電腦／平板藍牙清單上顯示的名稱
 constexpr int8_t   BLE_TX_DBM          = 3;      // 藍牙發射功率（dBm）：桌面距離夠用、省電
-constexpr bool     BLE_DEINIT_ON_EXIT  = false;  // 31-m4c：true 會在離開 AirMouse 時當機（NimBLE 2.5.0＋Arduino 2.0.17 的 deinit 跟 host task 搶著收尾，PC=0），改成保留藍牙堆疊、只斷線＋停廣播
+constexpr bool     BLE_DEINIT_ON_EXIT  = true;   // 離開 AirMouse 關藍牙並釋放記憶體（鐵則二）。31-m4c 曾改 false：保留藍牙會讓 Wi-Fi 不能關省電（按 A 錄音時當機）；31-m4d 修補 NimBLE deinit 競態後改回 true
 constexpr uint32_t BLE_REPORT_MS       = 15;     // 滑鼠報告間隔（≈ 連線間隔上限 15ms；送太快只會塞隊列）
 constexpr float    BLE_CIRCLE_R        = 120.0f; // @1 畫圓測試的半徑（滑鼠單位，約等於像素）
-// 註：進過一次 AirMouse 後藍牙堆疊會一直在（見上），heap 少約 50KB
 constexpr bool     BLE_SECURE_CONN     = true;   // 配對用 LE Secure Connections；配對時當機或一直卡加密 → 改 false（舊式配對）對照
 constexpr uint32_t BLE_START_WAIT_MS   = 2000;   // 31-m4b：進 AirMouse 先等 Wi-Fi 真的關掉（最多這麼久）再開藍牙，避免兩邊同時初始化射頻
 

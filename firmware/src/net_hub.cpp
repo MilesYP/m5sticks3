@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <esp_bt.h>
 #include <WebSocketsClient.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -854,19 +855,30 @@ void dropLink() { postSimple(Cmd::DropLink); }
 std::atomic<bool> s_voice_on{false};
 std::atomic<bool> s_idle_deep{false};
 
+// M4（31-m4d）：藍牙控制器開著時 Wi-Fi 不能關省電（WIFI_PS_NONE），否則 ESP-IDF 直接 abort 重開
+// （"Should enable WiFi modem sleep when both WiFi and Bluetooth are enabled"）。保險：藍牙還開著就退回 MIN_MODEM。
+void setPsNone() {
+  if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED) {
+    WiFi.setSleep(WIFI_PS_MIN_MODEM);
+    Serial.println("[wifi] 藍牙還開著 → 不能關省電，維持 MIN_MODEM（錄音可能有滋滋聲）");
+    return;
+  }
+  WiFi.setSleep(WIFI_PS_NONE);
+}
+
 void applyIdlePs() {
   WiFi.setSleep(s_idle_deep.load() ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
 }
 
 void setPowerSave(bool on) {
   s_ps_manual.store(true);
-  WiFi.setSleep(on);   // on → WIFI_PS_MIN_MODEM（預設）；off → WIFI_PS_NONE
+  if (on) WiFi.setSleep(true); else setPsNone();   // on → WIFI_PS_MIN_MODEM（預設）；off → WIFI_PS_NONE
   Serial.printf("[diag] Wi-Fi 省電 → %s（手動，自動切換暫停；輸入 sa 恢復）\n", on ? "開" : "關");
 }
 
 void setPowerSaveAuto() {
   s_ps_manual.store(false);
-  if (s_voice_on.load()) WiFi.setSleep(WIFI_PS_NONE); else applyIdlePs();
+  if (s_voice_on.load()) setPsNone(); else applyIdlePs();
   Serial.println("[diag] Wi-Fi 省電 → 自動（錄放音期間關、平常開）");
 }
 
@@ -874,7 +886,7 @@ void voiceActive(bool active) {
   if (s_ps_manual.load()) return;
   if (s_voice_on.load() == active) return;   // 已經是要的狀態，不重複設定
   s_voice_on.store(active);
-  if (active) WiFi.setSleep(WIFI_PS_NONE);
+  if (active) setPsNone();
   else applyIdlePs();
   Serial.printf("[wifi] 省電 → %s（%s）\n", active ? "關" : s_idle_deep.load() ? "深度" : "開",
                 active ? "錄放音中，避免滋滋聲" : "錄放音結束");
