@@ -758,8 +758,12 @@ void frPhysics(float dt) {
   for (int i = 0; i < s_fr_n; ++i) {
     Frag& f = s_fr[i];
     if (!s_fr_back) {
-      f.vx += (cfg::FR_GRAVITY * s_gr_x + cfg::FR_PUSH * s_mot_x) * dt;
-      f.vy += (cfg::FR_GRAVITY * s_gr_y + cfg::FR_PUSH * s_mot_y) * dt;
+      // 11-22：甩著的時候重力打折＋依甩的力道亂數踢 → 一直甩就一直在盒子裡跳，不會全沉在底部不動
+      const float gk = s_pin ? cfg::FR_SHAKE_GRAV : 1.0f;
+      const float kick = s_pin ? cfg::FR_RATTLE * sqrtf(s_mot_x * s_mot_x + s_mot_y * s_mot_y) : 0.0f;
+      f.vx += (cfg::FR_GRAVITY * gk * s_gr_x + cfg::FR_PUSH * s_mot_x + kick * rnd(-1, 1)) * dt;
+      f.vy += (cfg::FR_GRAVITY * gk * s_gr_y + cfg::FR_PUSH * s_mot_y + kick * rnd(-1, 1)) * dt;
+      if (kick > 0) f.va += kick * rnd(-0.02f, 0.02f) * dt;
       const float d = fmaxf(0, 1 - cfg::FR_DRAG * dt);
       f.vx *= d; f.vy *= d;
     } else if (f.feat < 3) {
@@ -1519,7 +1523,7 @@ void render() {
           lqFill((int)lroundf(cap * (cfg::LQ_FILL_MIN + (cfg::LQ_FILL_FULL - cfg::LQ_FILL_MIN) * fminf(1.0f, fmaxf(0.0f, lv)))));
         }
         lqStep(s_pin || now - s_lq_gstable_t < cfg::LQ_SETTLE_MS);
-        s_lq_next = now + cfg::LQ_STEP_MS;
+        s_lq_next = now + (s_pin ? cfg::LQ_STEP_SHAKE_MS : cfg::LQ_STEP_MS);
       }
       // 亮度：充電中一道亮波從底部往液面爬（每 LQ_WAVE_MS 才變一次、用參考重力算位置）；
       // 充飽整片較亮，每 400ms 只換一顆亮格（11-21 實機：原本每 0.5 秒換一批 → 整片重送、每秒一次 37ms）

@@ -130,7 +130,10 @@ constexpr float    FR_DRAG       = 0.6f;    // 空氣阻力（每秒速度衰減
 constexpr float    FR_RETURN_K   = 220.0f;  // 拼回彈簧（阻尼不足 → 衝過頭一點點）
 constexpr float    FR_RETURN_C   = 16.0f;
 constexpr uint32_t FR_RETURN_MAX_MS = 900;  // 拼回最多多久（到了直接換回正常五官）
-constexpr uint32_t FR_HOLD_MS    = 4000;    // 停手（彈珠台結束）後碎片先散在畫面上多久才拼回（11-21 Miles：0.4 秒太快→2.5 秒→4 秒）
+constexpr uint32_t FR_HOLD_MS    = 2600;    // 停手（彈珠台結束）後碎片先散在畫面上多久才拼回（11-21 Miles：0.4 秒太快→2.5 秒→4 秒；
+                                            // 11-22 Miles：「3 秒沒晃才變回表情」→ 停手判定 PIN_QUIET_MS 0.4 秒＋2.6 秒＝3 秒）
+constexpr float    FR_SHAKE_GRAV = 0.5f;    // 甩著的時候重力打幾折（11-22 Miles：一直甩要一直有反應——碎片別都沉在底部）
+constexpr float    FR_RATTLE     = 1800.0f; // 甩著的時候每 1g 給碎片的亂數踢力（px/s²），像骰子在盒子裡被搖得一直跳
 // 視重力左右方向：推導值（靜置時加速度計讀到「往上」1g；右邊低 → 讀數右分量為負 → 碎片往右）。
 // 實機往右傾若碎片往左跑，改 −1。
 constexpr float    FR_GRAV_SIGN_X = 1.0f;
@@ -140,6 +143,7 @@ constexpr int      LQ_MAX        = 192;     // 亮格上限（直式容器約 12
 constexpr float    LQ_FILL_MIN   = 0.08f;   // 0% 時至少裝幾成（看得出有液體）
 constexpr float    LQ_FILL_FULL  = 0.92f;   // 100%（充飽）裝到容器的幾成（11-21 Miles：滿到只剩一點空間才有充滿的感覺；原 0.6）
 constexpr uint32_t LQ_STEP_MS    = 60;      // 每 60ms 走一步（只有走步那幀改畫面，部分更新才省）
+constexpr uint32_t LQ_STEP_SHAKE_MS = 30;   // 甩著的時候 30ms 一步（11-22 Miles：一直甩液體要一直晃）
 constexpr uint32_t LQ_WAVE_MS    = 120;     // 充電亮波每 120ms 更新一次
 constexpr uint32_t LQ_FADE_MS    = 600;     // 拔線後淡出
 constexpr uint32_t LQ_SETTLE_MS  = 1500;    // 重力方向穩定這麼久就不再側滑（液面靜止、部分更新不用一直重送；11-21 29-a4e 實機）
