@@ -46,7 +46,8 @@ constexpr C3 K_TXT   = {0xFF, 0x9B, 0x00};   // 主文字（琥珀橘）
 constexpr C3 K_HI    = {0xFF, 0xD0, 0x80};   // 強調（亮橘白）
 constexpr C3 K_RED   = {0xFF, 0x29, 0x23};   // 錯誤／警示線／啟用中的 icon
 constexpr C3 K_YEL   = {0xFF, 0xD0, 0x00};   // 注意
-constexpr C3 K_GRN   = {0x39, 0xFF, 0x14};   // 正常（電量 ≥60%、額度 <70%）
+constexpr C3 K_GRN   = {0x39, 0xFF, 0x14};   // 正常（電量 ≥60%、額度 <70%）；CHIP 負載波形（11-22 Miles）
+constexpr C3 K_PUR   = {0xB0, 0x4D, 0xFF};   // MEM 記憶體長條（11-22 Miles：改紫色）
 inline uint16_t col(const C3& c) { return s_cv.color565(c.r, c.g, c.b); }
 
 // ── 版面（實際像素；直式 135×240，橫式 240×135、A 鍵在右；A 鍵在左＝左右鏡像）──
@@ -592,7 +593,8 @@ void chipPart(int x, int y, int w, int h) {
     const int idx = (s_loop_pos - n + k + cfg::INFO_HIST_SEC * 2) % cfg::INFO_HIST_SEC;
     const float v = s_loop_hist[idx] > full ? full : s_loop_hist[idx];
     const int xx = x + w - 1 - n + k, yy = gy + gh - 2 - (int)((gh - 3) * v / full);
-    if (px >= 0) s_cv.drawLine(px, py, xx, yy, col(s_loop_hist[idx] > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_TXT));
+    // 11-22 Miles：波形改綠色、加粗（約 2px）；超過 25ms 的段仍紅色
+    if (px >= 0) s_cv.drawWideLine(px, py, xx, yy, 0.9f, col(s_loop_hist[idx] > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_GRN));
     px = xx; py = yy;
   }
   snprintf(fb, sizeof fb, "%luM", (unsigned long)getCpuFrequencyMhz());
@@ -617,7 +619,7 @@ void memPart(int x, int y, int w, int h) {
   for (int k = 0; k < nb; ++k) {
     const int idx = (s_heap_pos - nb + k + cfg::INFO_HEAP_BARS * 2) % cfg::INFO_HEAP_BARS;
     const int hh = (int)((uint64_t)(gh - 2) * s_heap_hist[idx] / top);
-    s_cv.fillRect(x + w - 1 - (nb - k) * 3, gy + gh - 1 - hh, 2, hh, col(K_TXT));
+    s_cv.fillRect(x + w - 1 - (nb - k) * 3, gy + gh - 1 - hh, 2, hh, col(K_PUR));
   }
   s_cv.drawFastHLine(x + 1, gy + gh - 1 - (int)((uint64_t)(gh - 2) * lo / top), w - 2, col(K_RED));
   kb(hb, sizeof hb, ESP.getFreeHeap());
