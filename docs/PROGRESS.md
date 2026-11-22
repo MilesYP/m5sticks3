@@ -18,7 +18,7 @@
 
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**P2 ✅ 驗收通過（11-22，30-p2k；P2-6 續航對照待測）**。下一個：**M4 空中滑鼠**（11-22 Miles 調整順序：M4 → M1.5 紅外線 → M2 HID）；**M3 RF 軌由 Codex 平行開發**（`rf-lab/`、分支 `codex/rf-lab`，規則見根目錄 `AGENTS.md`）。repo 改 AGPL-3.0-or-later（`LICENSE`、`THIRD_PARTY.md`）。M1-A 11／11 完成；B5 簡化版待實機驗收。畫面模擬器 `tools/sim/`。
-- **進行中**：**M4-0 收尾（31-m4m；Mac 連上秒斷，接手見 `docs/KICKOFF_M4-mac.md`）**→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
+- **進行中**：**M4-0 收尾（31-m4n；Mac 連上秒斷，接手見 `docs/KICKOFF_M4-mac.md`）**→ P2-6 續航對照（Miles 有空時量，基準約 0.58%／分）→ M1.5 IR1。Codex：R0 起草 Bruce issue → R1 起 `rf-lab/`。Scroll Unit 配置延後到其他功能開發時。語音待辦（未排期）：滾輪調音量（等 G2）、B6 MCP＋skill、B6 Hey Friday 喚醒詞（評估見 11-21 紀錄）、自訂聲音、B5 定時推播
 - **未決**：無（按鍵配置已決議，見 `CLAUDE.md` 第 2 節）
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
@@ -32,6 +32,11 @@
   - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
+
+### 2026-11-23｜M4-0 31-m4m 實機 → 31-m4n 拿掉 Apple VID｜Claude Code（Cowork 橋接）
+- Miles 實機（31-m4m）：Mac 藍牙關 5 分鐘以上、Trackpad 斷開，「附近裝置」仍沒有連線按鈕；序列埠完全沒有「已連線」＝Mac 根本沒嘗試連。廣播自 31-m4e 起沒改過，31-m4k 以前有按鈕 → 推測是 31-m4l 那次連線讓 Mac 快取了 Apple VID 0x05AC／PID 0（log：`Device lost … VID 0x05AC`），被當成 Apple 配件（要走 Apple 自家配對流程）而不給按鈕。
+- 31-m4n：Apple VID 預設關（`@p1` 也不再開）；Mac 端用 `sudo pkill bluetoothd` 重啟藍牙服務清快取。
+- 規則：不要用 Apple 的 VID（會讓 Mac 走 Apple 配件流程，且快取不易清）。
 
 ### 2026-11-23｜M4-0 31-m4l 實機 → 31-m4m HID 特徵值加密＋讀寫紀錄｜Claude Code（Cowork 橋接）
 - Miles 實機（31-m4l 對照組設定、不主動要求加密）：Mac「附近裝置」點了沒反應；斷開 Trackpad 後才連上，但只連線不配對（63 秒仍未加密），Mac 端一直轉圈、無法忘記。Mac log：讀到 DIS（Apple VID）、標成 HID 裝置，之後沒有任何配對或讀取動作。

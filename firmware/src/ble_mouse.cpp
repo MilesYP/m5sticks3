@@ -78,7 +78,7 @@ std::atomic<uint32_t> s_auth_t{0};                           // 配對完成時�
 // 31-m4l：預設改成對照 HijelHID_BLEMouse（Apache-2.0，README 標 macOS Ventura 實測可用）的 HID 設定，
 // 每一項都可用序列埠切回舊設定，逐項找出 Mac 不接手的原因。改了會自動重建藍牙（要重新配對）。
 bool                  s_opt_rid    = false;                  // @r：報告帶 Report ID 1（舊）；關＝不帶 Report ID（對照組）
-bool                  s_opt_vid    = true;                   // @v：PnP 用 Apple VID 0x05AC／PID 0（對照組）；關＝Espressif 0x303A（舊）
+bool                  s_opt_vid    = false;                  // @v：PnP 用 Apple VID 0x05AC／PID 0（對照組）；關＝Espressif 0x303A。31-m4n 預設關：Mac 快取到 Apple VID 後「附近裝置」不給連線按鈕、也不再嘗試連線
 bool                  s_opt_wake   = true;                   // @h：HID Information flags 0x01 遠端喚醒（對照組）；關＝0x02 一般可連線（舊）
 bool                  s_opt_enc    = true;                   // @e：HID 服務特徵值全部要加密（31-m4m，規範要求）；關＝NimBLE 預設（Report Map 等不加密）
 bool                  s_opt_reqsec = false;                  // @s：連上後由裝置主動要求加密（舊＝開；對照組不主動要求）
@@ -247,7 +247,7 @@ void setOption(char opt, bool on) {
     else if (opt == 'r') s_opt_rid = on;
     else if (opt == 'v') s_opt_vid = on;
     else if (opt == 'h') s_opt_wake = on;
-    else { s_opt_rid = !on; s_opt_vid = on; s_opt_wake = on; s_opt_reqsec = !on; s_opt_enc = on; }   // @p1 對照組全套、@p0 舊設定全套
+    else { s_opt_rid = !on; s_opt_vid = false; s_opt_wake = on; s_opt_reqsec = !on; s_opt_enc = on; }   // @p1 對照組全套、@p0 舊設定全套
     Serial.printf("[ble] HID 設定：HID 特徵值加密 %s｜Report ID %s｜VID %s｜HID 旗標 %s｜主動要求加密 %s（電腦端先「忘記此裝置」，這邊會清配對並重建藍牙）\n",
                   s_opt_enc ? "要" : "不要", s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple 0x05AC" : "Espressif 0x303A",
                   s_opt_wake ? "0x01" : "0x02", s_opt_reqsec ? "開" : "關");
