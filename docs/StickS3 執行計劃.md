@@ -22,7 +22,9 @@
 
 ---
 
-## 目前進度（更新於 2026-11-22）
+## 目前進度（更新於 2026-11-23）
+
+> **11-23 起暫時由 Claude Code 與 Codex 共同維護**（Claude 的 token 恢復前）：正式韌體 M4 交接見 `docs/KICKOFF_M4-1.md`，分工規則見 `AGENTS.md` 第 0.1 節；Codex 原本的 RF 軌（`rf-lab/`、分支 `codex/rf-lab`）照舊。
 
 正式韌體 `firmware/` 的里程碑依 `CLAUDE.md` 第 6 節排序。RF Pack 接收已驗證正常，SPI 需依規則防錯，**不卡任何里程碑**。每個里程碑的切片清單見下一節。
 
@@ -30,10 +32,10 @@
 flowchart TD
     H["H 硬體驗收<br>完成 11-12"]
     M0["M0 韌體骨架<br>實機驗收通過 11-16"]
-    M1A["M1-A 表情<br>9／11 片・下一片 A8＋A4b"]
+    M1A["M1-A 表情<br>完成 11-21"]
     M1B["M1-B 語音對話<br>完成 11-20"]
     M15["M1.5 紅外線遙控<br>3 片"]
-    M4["M4 空中滑鼠<br>3 片・下一個里程碑"]
+    M4["M4 空中滑鼠<br>BLE 滑鼠 ✅・M4-1 調手感"]
     M2["M2 HID 外掛<br>4 片・最後做"]
     M3S["M3 S3 軌<br>3 片・可並行"]
     M3R["M3 RF 軌（Codex）<br>R0 待貼文・R1 待開工"]
@@ -50,11 +52,11 @@ flowchart TD
     classDef next fill:#b26a00,color:#ffffff,stroke:#7a4900
     classDef todo fill:#5a6672,color:#ffffff,stroke:#3a434c
     classDef gate fill:#8a4fbf,color:#ffffff,stroke:#5e2f8a
-    class H,M0,M1B done
-    class M1A doing
+    class H,M0,M1A,M1B done
+    class M4 doing
     class M15 next
     class G doing
-    class M4,M2,M3S,M3R todo
+    class M2,M3S,M3R todo
     class RS gate
 ```
 
@@ -65,7 +67,7 @@ flowchart TD
 | G | Grove 配件驗收 | 🔵 1／2 片 | CardKB、Scroll 11-19 到貨；G1 偵測通過，G2 功能驗收（`grove-test/`）待確認後寫 |
 | M1-A | 表情 | ✅ 11／11 片 | **11-21：A7 外觀統一 ✅**（NERV 橘黑：單一資訊頁＋單一像素表情頁、六角格背景與六角符號徽章、「初號機」浮水印、受信對話框、螢幕部分更新；EVA 角色與 q0／q1 退休）、**A5-2 雲端資料 ✅**、**P1 省電 ✅**。**A8 甩碎＋A4b 充電液體 ✅（29-a4g）**；B5 簡化版待實機驗收 |
 | M1-B | 語音對話（常駐） | ✅ 13／13 片（11-20） | 中控（Cloudflare）＋ token、錄放音、Wi-Fi 滋滋聲、邊錄邊傳／邊收邊播、斷線重送；**B3c＋B4（合併一片）接 GPT-Live**：助理 **Friday**（聲音 meridian）、會上網查天氣新聞、記得最近 10 輪與使用者記憶、字幕對齊聲音、簡轉繁、每日額度。待辦：滾輪音量、MCP＋skill、Hey Friday 喚醒詞、自訂聲音、新聞快報 |
-| M4 | 空中體感滑鼠 | 🟠 進行中（BLE 滑鼠 Mac／iPhone ✅ 11-23，iPad 待測；下一片 M4-1） | BMI270 → 低通濾波 → BLE HID |
+| M4 | 空中體感滑鼠 | 🟠 進行中：**BLE 滑鼠 ✅ Mac／iPhone／iPad（11-23）**；**M4-1 陀螺儀游標實作完成（31-m4r），手感調整中**；下一片 M4-3 Scroll 捲動／右鍵＋畫面 | 陀螺儀轉速 → 零點校正／死區／線性增益 → BLE HID；A＝左鍵（點擊／拖曳）。Mac 測試前先關其他 app 的藍牙權限（鐵則十二第 17 點）。交接：`docs/KICKOFF_M4-1.md` |
 | M1.5 | 紅外線萬能遙控器 | ⏳ M4 之後 | S3 本體內建紅外線，腳位待實機驗證 |
 | M2 | 跨裝置 HID 外掛 | ⏳ 4 片・最後 | 先做 PC／macOS 版；急停為安全關鍵 |
 | M3（RF 軌） | 無線電工具箱 | 🟣 Codex 平行開發（11-22） | `rf-lab/`＋分支 `codex/rf-lab`，規則與交件介面見 `AGENTS.md`；repo 改 AGPL-3.0-or-later，可複製 Bruce 協定層。詳細計畫與實測進度見下方「M3 無線電工具箱」的 RF 軌協作 |
