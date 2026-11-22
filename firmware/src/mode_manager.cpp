@@ -99,6 +99,21 @@ void emergencyStop() {
   switchTo(Mode::Safe);
 }
 
+bool currentReady(const char** step) {
+  switch (s_current) {
+    case Mode::Desktop:
+      if (audio_io::suspended()) { *step = "音訊…"; return false; }
+      if (net_hub::radioOff()) return true;            // 省電主動斷著（不該發生在剛切進來）→ 不等
+      if (!net_hub::linkUp()) { *step = "連線中…"; return false; }
+      return true;
+    case Mode::AirMouse:
+      if (ble_mouse::starting() || ble_mouse::state() == ble_mouse::State::Off) { *step = "開藍牙…"; return false; }
+      return true;
+    default:
+      return true;
+  }
+}
+
 void resumeFromSafe() {
   if (s_current != Mode::Safe) return;
   killswitch::clear();

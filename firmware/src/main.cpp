@@ -150,6 +150,7 @@ void loop() {
       break;
 
     case InputEvent::BtnA_Press:
+      if (ui_modeswitch::active()) { s_a_skip_release = true; break; }   // 31-m4f：過場（等連線）中按 A 不理
       // Desktop：按住 A 講話（錄音 → 上傳中控 → 邊收邊播，見 voice_turn）
       if (mode_manager::current() == Mode::Desktop && !voice_turn::busy() &&
           (!power_save::screenOn() || power_save::level() == power_save::Level::Asleep)) {

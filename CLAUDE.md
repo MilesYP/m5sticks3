@@ -221,6 +221,7 @@
 7. **離開 AirMouse 一定要真的關藍牙（31-m4d 定案）**：(a) NimBLE 2.5.0 的 `deinit()` 有競態——`nimble_port_stop()` 後 host task 還在收尾就 `nimble_port_deinit()` → `InstrFetchProhibited, PC=0`（`host_task`）。修法：`firmware/scripts/patch_nimble.py`（PlatformIO 建置前腳本）在 `.pio/libdeps` 的 `NimBLEDevice.cpp` stop 成功後插入等 100ms；找不到要改的那段會讓建置失敗。(b) 31-m4c 試過保留藍牙（不 deinit）→ **不行**：藍牙控制器開著時 Wi-Fi 不能設 `WIFI_PS_NONE`，ESP-IDF 直接 abort（"Should enable WiFi modem sleep when both WiFi and Bluetooth are enabled"），按 A 錄音或 Wi-Fi 重連時重開。保險：`net_hub::setPsNone()` 先查 `esp_bt_controller_get_status()`，藍牙開著就退回 MIN_MODEM。
 8. **廣播內容自己組（31-m4e）**：flags 要有「不支援傳統藍牙」（`BLE_HS_ADV_F_BREDR_UNSUP`）——NimBLE 預設只有「一般可發現」，Mac 在「附近裝置」看得到卻沒有連線按鈕（iPhone 可以連）。內容：flags＋外觀（滑鼠 0x03C2）＋HID 服務 0x1812＋偏好連線間隔＋名稱，共 27／31 bytes。
 9. **離開 AirMouse 後 Wi-Fi 先試關之前連著的那一組**（31-m4e，`net_hub` WifiOn）：原本會輪到下一組（家裡 → 先試熱點、白等 10 秒），回 Desktop 要約 12 秒才連上，這段時間按 A 說話會先錄著、連上後重送；重送前又按 A 會蓋掉上一輪。
+10. **切模式過場等資源好了才進新畫面**（31-m4f，Miles 11-22 提議）：`main` 照舊 `start()` → `next()` → `ready()`，但 `ui_modeswitch::render()` 之後再問 `mode_manager::currentReady()`：Desktop 等中控 WebSocket 連上（`net_hub::linkUp()`）、AirMouse 等藍牙開始廣播；狀態字顯示「連線中…／開藍牙…」，進度條 25% 起慢慢爬到最多 80%，好了才在 450ms 內跑完。最多等 `UI_MODESWITCH_WAIT_MAX_MS`（15 秒），逾時照樣進去（斷線臉）。**過場中按 A 不理**（避免還沒連上就錄音、重送時又被新的一輪蓋掉）；按 B 照樣切下一個模式、B 3 秒急停照樣最高優先（過場 cancel）。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。

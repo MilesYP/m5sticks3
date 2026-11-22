@@ -18,6 +18,12 @@ Mode s_target = Mode::Desktop;
 uint32_t s_t0 = 0, s_t_ready = 0;
 int s_drawn_rot = -1;
 int s_filled_pixels = 0;
+// 31-m4f：enter() 回來後還要等新模式資源（mode_manager::currentReady）才結束過場
+bool s_res_ready = false;
+uint32_t s_t_enter = 0;        // ready()（enter 回來）的時刻
+float s_p_at_ready = 0.25f;    // 資源好了那一刻進度條在哪，從這裡跑完
+const char* s_step = "切換中…";
+const char* s_drawn_step = nullptr;
 
 // EVA 風配色（RGB565 在 begin() 算好）
 uint16_t C_AMBER, C_YELLOW, C_RED, C_WHITE;
@@ -92,13 +98,20 @@ void drawKanji(const kanji::Bmp& glyph, int x, int y, int boxWidth, int boxHeigh
 void drawSwitching(int x, int y) {
   s_cv.setFont(&fonts::efontTW_10_b);
   s_cv.setTextColor(C_AMBER);
-  s_cv.drawString("切換中…", x, y);
+  s_cv.drawString(s_step, x, y);
   s_cv.setFont(&fonts::Font0);
 }
 
+float waitProgress(uint32_t now) {   // 等資源：25% 起慢慢爬，最多到 80%（照實：好了才跑完）
+  if (!s_mode_ready) return 0.25f;
+  float t = (float)(now - s_t_enter) / (float)cfg::UI_MODESWITCH_WAIT_MAX_MS;
+  if (t > 1.0f) t = 1.0f;
+  return 0.25f + 0.55f * (1.0f - (1.0f - t) * (1.0f - t));   // 先快後慢
+}
+
 float progress(uint32_t now) {
-  if (!s_mode_ready) return 0.25f;   // 資源還在開關：照實停在 25%
-  const float p = 0.25f + 0.75f * (float)(now - s_t_ready) / (float)cfg::UI_MODESWITCH_MS;
+  if (!s_res_ready) return waitProgress(now);
+  const float p = s_p_at_ready + (1.0f - s_p_at_ready) * (float)(now - s_t_ready) / (float)cfg::UI_MODESWITCH_MS;
   return p > 1.0f ? 1.0f : p;
 }
 
@@ -119,7 +132,7 @@ void drawPortrait(int width, int height, const char* number,
   snprintf(subtitle, sizeof subtitle, "%s -", name);
   const int titleWidth = s_cv.textWidth(subtitle);
   s_cv.setFont(&fonts::efontTW_10_b);
-  const int statusWidth = s_cv.textWidth("切換中…");
+  const int statusWidth = s_cv.textWidth(s_step);
   s_cv.setFont(&fonts::Font0);
   const int titleX = (width - titleWidth - 3 - statusWidth) / 2;
   s_cv.drawString(subtitle, titleX, 139);
@@ -148,7 +161,7 @@ void draw(uint32_t now) {
   const Orient orient = ui_expression::orientation();
   const uint8_t rot = orient == Orient::LandALeft ? cfg::ORIENT_ROT_A_LEFT
                     : orient == Orient::LandARight ? cfg::ORIENT_ROT_A_RIGHT : 0;
-  const bool redraw = s_drawn_rot != rot;
+  const bool redraw = s_drawn_rot != rot || s_drawn_step != s_step;   // 狀態字變了也整張重畫
   if (redraw) s_cv.setRotation(rot);
   const int width = s_cv.width();
   const int height = s_cv.height();
@@ -171,6 +184,7 @@ void draw(uint32_t now) {
     else drawLandscape(width, height, number, label(s_target), glyph);
     s_cv.drawRect(barX, barY, barWidth, barHeight, C_AMBER);
     s_drawn_rot = rot;
+    s_drawn_step = s_step;
     s_filled_pixels = 0;
   }
 
@@ -202,6 +216,8 @@ void start(Mode target) {
   s_target = target;
   s_active = true;
   s_mode_ready = false;
+  s_res_ready = false;
+  s_step = "切換中…";
   s_drawn_rot = -1;
   s_t0 = millis();
   draw(s_t0);
@@ -209,8 +225,8 @@ void start(Mode target) {
 
 void ready() {
   s_mode_ready = true;
-  s_t_ready = millis();
-  Serial.printf("[modeswitch] 切換完成 %lu ms\n", (unsigned long)(s_t_ready - s_t0));
+  s_t_enter = s_t_ready = millis();
+  Serial.printf("[modeswitch] 切換完成 %lu ms（等新模式資源…）\n", (unsigned long)(s_t_enter - s_t0));
 }
 
 bool active() { return s_active; }
@@ -218,7 +234,22 @@ bool active() { return s_active; }
 bool render() {
   if (!s_active) return false;
   const uint32_t now = millis();
-  if (s_mode_ready && now - s_t_ready >= cfg::UI_MODESWITCH_MS) {
+  if (s_mode_ready && !s_res_ready) {   // 31-m4f：等新模式資源（Wi-Fi＋中控、藍牙）
+    const char* step = "切換中…";
+    const bool ok = mode_manager::currentReady(&step);
+    const bool timeout = now - s_t_enter >= cfg::UI_MODESWITCH_WAIT_MAX_MS;
+    if (ok || timeout) {
+      s_p_at_ready = waitProgress(now);
+      s_res_ready = true;
+      s_t_ready = now;
+      s_step = "切換中…";
+      Serial.printf("[modeswitch] %s（等了 %lu ms）\n", ok ? "資源就緒" : "等太久，先進去（斷線狀態）",
+                    (unsigned long)(now - s_t_enter));
+    } else {
+      s_step = step;
+    }
+  }
+  if (s_res_ready && now - s_t_ready >= cfg::UI_MODESWITCH_MS) {
     s_active = false;
     // 過場結束直接換畫面，避免警戒條與新畫面疊在一起。
     ui_fx::cancel();

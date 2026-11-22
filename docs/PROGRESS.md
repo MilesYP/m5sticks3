@@ -36,6 +36,7 @@
 ### 2026-11-22｜M4-0 31-m4d 實機 → 31-m4e｜Claude Code（Cowork 橋接）
 - Miles 實機（31-m4d）：**不再當機**（離開 AirMouse 藍牙關閉 102ms、heap 回到 183KB；回 Desktop 按 A 正常）；**iPhone 配對成功**（已加密、連線間隔 15ms）。問題：(1) Mac 藍牙「附近裝置」看得到但沒有連線按鈕；(2) 回 Desktop 後要約 12 秒才連上中控（先試熱點 10 秒才換家裡），期間說的話連上後重送，偶爾沒回（log 看到重送前又按了 A，新的一輪蓋掉舊的）。
 - 31-m4e：廣播 flags 加「不支援傳統藍牙」（Mac 推測原因，未證實）；Wi-Fi 重開先試關之前連著的那組。
+- 31-m4f（Miles 提議）：切模式過場等新模式資源好了才進畫面（Desktop 等中控連上、AirMouse 等藍牙廣播），最多 15 秒；過場中 A 不理（CLAUDE.md 鐵則十二第 10 點）。
 - 待實機：Mac 連線；回 Desktop 連線時間；iPhone `@1` 畫圓、急停、來回切。
 
 ### 2026-11-22｜M4-0 31-m4c 失敗 → 31-m4d 修補 NimBLE deinit｜Claude Code（Cowork 橋接）

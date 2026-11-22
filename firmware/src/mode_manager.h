@@ -24,4 +24,8 @@ void switchTo(Mode m);        // 先 exit() 舊模式，再 enter() 新模式
 void emergencyStop();         // 目前模式 exit() → Safe
 void resumeFromSafe();        // 解除急停 → 重新 enter() 急停前的模式
 
+// 31-m4f（Miles 11-22）：新模式的資源是否真的好了（切模式過場等它，好了才進新畫面）。
+// *step＝還在等什麼（給過場畫面顯示，4 個全形字以內）。Desktop＝中控連上；AirMouse＝藍牙開始廣播。
+bool currentReady(const char** step);
+
 }  // namespace mode_manager

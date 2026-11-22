@@ -192,6 +192,7 @@ constexpr int      WIFI_BARS_4 = -55, WIFI_BARS_3 = -65, WIFI_BARS_2 = -75;
 constexpr uint32_t UI_XFADE_MS = 120;
 // B 切模式的過場（EVA 風，11-20 定案）：新模式資源準備好之後，進度條再跑這麼久才換到新模式的畫面
 constexpr uint32_t UI_MODESWITCH_MS = 450;
+constexpr uint32_t UI_MODESWITCH_WAIT_MAX_MS = 15000;   // 31-m4f：過場最多等新模式資源這麼久（Desktop 等中控連上）；逾時照樣進去（顯示斷線臉）
 
 // ── UI ──
 constexpr uint32_t UI_REFRESH_MS = 500;      // 狀態沒變時的定期重畫間隔

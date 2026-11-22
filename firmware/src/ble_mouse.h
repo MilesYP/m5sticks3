@@ -22,6 +22,7 @@ void end();                      // 斷線、關藍牙、釋放（可重複呼�
 void loop();                     // 每圈主迴圈呼叫：代印 log、畫圓測試、急停檢查
 
 State state();
+bool  starting();               // 進 AirMouse 了，還在等 Wi-Fi 關掉才開藍牙
 const char* stateName();         // "OFF" / "ADV" / "CONN"
 bool  secured();                 // 已加密（配對完成，HID 報告才會被對方接受）
 int   bondCount();

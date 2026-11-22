@@ -270,6 +270,7 @@ const char* stateName() {
     default: return "CONN";
   }
 }
+bool starting() { return s_pending; }
 bool secured() { return s_secured.load(); }
 int bondCount() { return NimBLEDevice::isInitialized() ? NimBLEDevice::getNumBonds() : -1; }
 
