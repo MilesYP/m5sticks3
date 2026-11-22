@@ -68,7 +68,7 @@ static M5Canvas* showingCanvas() { return ui_info::shown() ? ui_info::canvas() :
 //  - 資訊頁上按住 A 滿 0.6 秒（或這輪還在忙）→ 自動回表情頁（對話區在表情頁）。
 //  - 離開 Desktop → 回到表情頁（下次進 Desktop 從表情頁開始）。
 static bool s_a_was_busy = false;
-// P2：Desktop 關螢幕時 A 鍵：短按不理，按住滿 0.6 秒＝亮螢幕＋連回中控（不錄音，要說話放開再按）
+// P2：Desktop 關螢幕時 A 鍵：短按不理，按住滿 1.5 秒（PWR_WAKE_A_MS）＝亮螢幕＋連回中控（不錄音，要說話放開再按）
 static uint32_t s_a_off_down = 0;    // 關螢幕時按下 A 的時刻（0＝沒有）
 static bool     s_a_skip_release = false;
 static void updatePage() {
@@ -145,7 +145,7 @@ void loop() {
     case InputEvent::BtnA_Press:
       // Desktop：按住 A 講話（錄音 → 上傳中控 → 邊收邊播，見 voice_turn）
       if (mode_manager::current() == Mode::Desktop && !power_save::screenOn()) {
-        s_a_off_down = millis() | 1;   // P2：關螢幕：等按滿 0.6 秒才亮（見下面）
+        s_a_off_down = millis() | 1;   // P2：關螢幕：等按滿 1.5 秒才亮（見下面）
         break;
       }
       if (mode_manager::current() == Mode::Desktop) {
@@ -186,7 +186,7 @@ void loop() {
 
   // 看實際按鍵狀態，不只看事件：快速點一下時「按下／放開」可能落在同一次 M5.update，放開事件被吃掉 → 以前會誤亮
   if (s_a_off_down && !M5.BtnA.isPressed()) s_a_off_down = 0;
-  if (s_a_off_down && millis() - s_a_off_down >= cfg::VOICE_MIN_PRESS_MS) {
+  if (s_a_off_down && millis() - s_a_off_down >= cfg::PWR_WAKE_A_MS) {
     s_a_off_down = 0;
     s_a_skip_release = true;
     if (!power_save::screenOn()) power_save::setScreenOn(true, "長按 A");
