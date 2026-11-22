@@ -119,10 +119,7 @@ void loop() {
   // (2) 輸入事件
   switch (input_hal::poll()) {
     case InputEvent::BtnB_Click:
-      if (!power_save::screenOn()) {   // P2：關螢幕時 B 短按只亮螢幕（不切模式，免得看不到就切走）
-        power_save::setScreenOn(true, "B 短按");
-        break;
-      }
+      if (!power_save::screenOn()) break;   // P2（11-22 Miles）：關螢幕時 B 短按不理（只有長按 A、單按電源鍵會亮；B 按住 3 秒急停照樣亮）
       if (mode_manager::current() == Mode::Safe) {
         mode_manager::resumeFromSafe();
       } else {
@@ -187,6 +184,8 @@ void loop() {
       break;
   }
 
+  // 看實際按鍵狀態，不只看事件：快速點一下時「按下／放開」可能落在同一次 M5.update，放開事件被吃掉 → 以前會誤亮
+  if (s_a_off_down && !M5.BtnA.isPressed()) s_a_off_down = 0;
   if (s_a_off_down && millis() - s_a_off_down >= cfg::VOICE_MIN_PRESS_MS) {
     s_a_off_down = 0;
     s_a_skip_release = true;
@@ -217,7 +216,8 @@ void loop() {
   if (power_save::screenOn() && !power_key::overlayActive()) {   // P2：關螢幕／電源鍵長按畫面時不畫一般畫面
     renderActive(false);
     ui_fx::loop();
-    power_key::drawBadge();   // root 模式：角落「ROOT」
+    // root 模式角落「ROOT」：表情頁已畫在狀態列（電量左邊），其他畫面才蓋小標
+    if (!(mode_manager::current() == Mode::Desktop && !ui_info::shown())) power_key::drawBadge();
   }
   delay(power_save::yieldMs());   // P1：兩張畫面之間讓 CPU 休息（最多 10ms 一圈）
 }

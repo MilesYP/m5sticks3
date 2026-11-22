@@ -6,6 +6,7 @@
 
 #include "battery_ui.h"
 #include "config.h"
+#include "power_key.h"
 #include "ui_fx.h"
 #include "ui_labels.h"
 #include <cstring>   // A7：狀態大字點陣圖（不連結整套 efontTW_24，見 tools/gen_kanji.py）
@@ -864,6 +865,28 @@ void pxHeader(int fx0, int W, Mood m, const Rgb& accent, uint16_t batCol) {
   s_cv.fillRect(fx0, 0, W, 12, TFT_BLACK);   // 狀態列底塗黑：符號、眉毛不會壓到字
   s_cv.setTextSize(1);
   s_cv.setTextDatum(top_left);
+  // 右邊：電量 %，左邊依序 ROOT／斷線 實心小標籤（P2 11-22 Miles：取代右上角 ROOT 角標與 Wi-Fi 斜線圖示）
+  int rx = fx0 + W - 3;
+  if (s_px_battery >= 0) {
+    char b[8];
+    snprintf(b, sizeof b, "%d%%", s_px_battery);
+    s_cv.setFont(&fonts::Font0);
+    s_cv.setTextColor(batCol);
+    s_cv.drawString(b, rx - s_cv.textWidth(b), 3);
+    rx -= s_cv.textWidth("100%") + 3;
+  }
+  auto tag = [&](const char* t, const lgfx::IFont* f, int ty, uint16_t bg) {
+    s_cv.setFont(f);
+    const int tw = s_cv.textWidth(t);
+    rx -= tw + 4;
+    s_cv.fillRect(rx, 1, tw + 4, 11, bg);
+    s_cv.setTextColor(TFT_BLACK);
+    s_cv.drawString(t, rx + 2, ty);
+    rx -= 3;
+  };
+  if (power_key::rootMode()) tag("ROOT", &fonts::Font0, 3, s_cv.color565(0xFF, 0x29, 0x23));
+  if (s_offline) tag("斷線", &fonts::efontTW_10, 1, s_cv.color565(150, 150, 150));
+  // 左邊：FRIDAY・狀態（放不下就省略狀態字，標籤優先）
   s_cv.setFont(&fonts::Font0);
   s_cv.setTextColor(c565(accent));
   s_cv.drawString("FRIDAY", fx0 + 3, 3);
@@ -871,14 +894,8 @@ void pxHeader(int fx0, int W, Mood m, const Rgb& accent, uint16_t batCol) {
   s_cv.fillRect(x, 6, 2, 2, c565(accent));
   x += 5;
   s_cv.setFont(&fonts::efontTW_10);
-  s_cv.drawString(s_status_ovr ? s_status_ovr : kPxStatus[static_cast<int>(m)], x, 1);
-  if (s_px_battery >= 0) {
-    char b[8];
-    snprintf(b, sizeof b, "%d%%", s_px_battery);
-    s_cv.setFont(&fonts::Font0);
-    s_cv.setTextColor(batCol);
-    s_cv.drawString(b, fx0 + W - 3 - s_cv.textWidth(b), 3);
-  }
+  const char* st = s_status_ovr ? s_status_ovr : kPxStatus[static_cast<int>(m)];
+  if (x + s_cv.textWidth(st) <= rx) s_cv.drawString(st, x, 1);
   s_cv.drawFastHLine(fx0, 12, W, c565(accent));
 }
 // 強度方格（右側直排，從下往上亮）：n 格亮、共 total 格
@@ -890,15 +907,6 @@ void pxMeter(int x, int yBottom, int total, int n, uint16_t on, uint16_t off) {
   }
 }
 
-// 右上角「Wi-Fi 加紅色斜線」
-void drawWifiOff(int x, int y) {
-  const uint16_t c = s_cv.color565(150, 150, 150);
-  s_cv.fillArc(x, y, 13, 11, 225, 315, c);
-  s_cv.fillArc(x, y, 8, 6, 225, 315, c);
-  s_cv.fillCircle(x, y - 1, 2, c);
-  const uint16_t red = s_cv.color565(226, 75, 74);
-  for (int d = -1; d <= 1; ++d) s_cv.drawLine(x - 9 + d, y - 14, x + 9 + d, y + 2, red);
-}
 
 // ── 繪圖小工具（像素座標）──
 void quad(float x0, float y0, float cx, float cy, float x1, float y1, float th, uint16_t col) {
@@ -1816,7 +1824,6 @@ void render() {
   }
   drawConv(W, H, true);    // A7：對話框兩版都用 EVA「受信」版
 
-  if (s_offline) drawWifiOff(W - 16, 20);
 
   ui_fx::present(&s_cv);   // A5-1：換整頁時由 ui_fx 交叉淡化
 }

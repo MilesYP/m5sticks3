@@ -233,6 +233,7 @@ constexpr uint8_t  PWR_KEY_FORCE_OFF_CLICKS = 5;   // 連按五下＝強制關�
 constexpr uint32_t PWR_KEY_OVERLAY_MS  = 800;   // 按住超過這麼久開始顯示長按畫面
 constexpr uint32_t PWR_KEY_OFF_MS      = 3000;  // 3～5 秒之間放開＝關機
 constexpr uint32_t PWR_KEY_ROOT_MS     = 5000;  // 按滿 5 秒放開＝進 root
+constexpr uint32_t PWR_AUTO_SCREEN_OFF_MS = 30000;  // 沒插線時表情睡著滿 30 秒 → 自動關螢幕（11-22 Miles）
 constexpr uint32_t PWR_RADIO_OFF_MS    = 180000;   // Desktop 睡著或關螢幕滿 3 分鐘 → 斷 Wi-Fi（插線時只看關螢幕）
 constexpr float    BAT_CUTOFF_PCT      = 3.0f;  // 實際電量 ≤ 這個＝強制關機；畫面顯示 (實際−3)÷97×100
 constexpr uint32_t BAT_CUTOFF_HOLD_MS  = 30000; // 連續這麼久才關（說話、播放時電壓會瞬間掉）

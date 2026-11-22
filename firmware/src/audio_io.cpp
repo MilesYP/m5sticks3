@@ -9,7 +9,7 @@
 #include "config.h"
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "30-p2b"
+#define AUDIO_BUILD_TAG "30-p2c"
 namespace audio_io { const char* buildTag() { return AUDIO_BUILD_TAG; } }
 
 namespace {

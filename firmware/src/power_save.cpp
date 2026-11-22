@@ -26,6 +26,7 @@ uint32_t s_last_frame = 0;
 bool     s_force_frame = true;
 bool     s_screen_on = true;     // P2：螢幕開關（電源鍵單按）
 uint32_t s_sleep_t = 0;          // P2：Desktop 開始「睡」（睡著或關螢幕）的時刻；0＝醒著
+uint32_t s_asleep_t = 0;         // P2：表情睡著（沒插線）的時刻，滿 30 秒自動關螢幕
 
 uint32_t frameMs(power_save::Level l) {
   switch (l) {
@@ -113,6 +114,16 @@ void loop() {
                   frameMs(want) ? (want == Level::Calm ? "30fps" : want == Level::Drowsy ? "10fps" : "5fps") : "全速");
   }
   if (s_screen_on) applyBacklight(now);
+
+  // P2（11-22 Miles）：沒插線時表情睡著滿 30 秒 → 自動關螢幕（之後只有長按 A、單按電源鍵會亮）
+  const bool asleep_face = mode_manager::current() == Mode::Desktop && s_screen_on && !voice_turn::busy() &&
+                           ui_expression::mood() == Mood::Asleep && battery_ui::chargeState() == 0;
+  if (!asleep_face) s_asleep_t = 0;
+  else if (!s_asleep_t) s_asleep_t = now | 1;
+  else if (s_enabled && now - s_asleep_t >= cfg::PWR_AUTO_SCREEN_OFF_MS) {
+    s_asleep_t = 0;
+    setScreenOn(false, "睡著滿 30 秒");
+  }
 
   // P2：Desktop 睡著或關螢幕滿 3 分鐘 → 斷 Wi-Fi；醒來就重連（語音中、上傳沒送完一律算醒著）
   const bool sleeping = mode_manager::current() == Mode::Desktop && !voice_turn::busy() &&

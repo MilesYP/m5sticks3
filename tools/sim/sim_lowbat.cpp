@@ -5,6 +5,7 @@
 
 
 namespace battery_ui { int level() { return 87; } }
+namespace power_key { bool rootMode() { return false; } }   // P2：狀態列 ROOT 標籤
 SimSerial Serial; SimEsp ESP; SimM5 M5;
 static uint32_t g_ms = 100000; static uint32_t g_seed = 12345;
 uint32_t millis() { return g_ms; } uint32_t micros() { return g_ms * 1000; }
