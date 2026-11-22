@@ -110,6 +110,30 @@ class ServerCb : public NimBLEServerCallbacks {
 };
 ServerCb s_cb;
 
+// 31-m4g：主機有沒有訂閱滑鼠報告（訂閱了＝HID 真的接上，Mac 連上秒斷時看有沒有走到這步）
+std::atomic<uint8_t>  s_ev_sub{0};
+std::atomic<uint16_t> s_sub_val{0};
+class InputCb : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo&, uint16_t subValue) override {
+    s_sub_val.store(subValue);
+    s_ev_sub.fetch_add(1);
+  }
+};
+InputCb s_input_cb;
+
+const char* discReason(int r) {
+  switch (r) {
+    case 0x213: return "對方主動斷線";
+    case 0x208: return "連線逾時（訊號或對方沒回應）";
+    case 0x216: return "這邊主動斷線";
+    case 0x23D: return "加密驗證失敗（MIC）";
+    case 0x206: return "對方說沒有配對金鑰（要重新配對）";
+    case 0x205: return "驗證失敗";
+    case 0x23E: return "連線建立失敗";
+    default:    return "";
+  }
+}
+
 int8_t clamp127(int v) { return (int8_t)(v > 127 ? 127 : v < -127 ? -127 : v); }
 
 bool sendRaw(int dx, int dy, int wheel, uint8_t buttons) {
@@ -146,14 +170,17 @@ bool startNow() {
     // 配對：要綁定（bonding，下次自動重連）、不需輸入密碼（裝置沒有螢幕鍵盤可比對）、用 LE Secure Connections
     NimBLEDevice::setSecurityAuth(true, false, cfg::BLE_SECURE_CONN);
     NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+    // 31-m4g：配對時雙方都交換「加密金鑰＋身分金鑰（IRK）」。預設只交換加密金鑰；
+    // Mac 會用身分金鑰認出重連的裝置，少了它常見「連上又馬上斷」。
+    NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+    NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
     NimBLEDevice::setPower(cfg::BLE_TX_DBM);
 
     s_server = NimBLEDevice::createServer();
     s_server->setCallbacks(&s_cb, false);
-    s_server->advertiseOnDisconnect(true);
-
     s_hid = new NimBLEHIDDevice(s_server);
     s_input = s_hid->getInputReport(kReportId);
+    s_input->setCallbacks(&s_input_cb);
     s_hid->setManufacturer("M5S3Pack");
     s_hid->setPnp(0x02, 0x303A, 0x4D41, 0x0100);   // 0x02＝USB VID 來源；0x303A＝Espressif
     s_hid->setHidInfo(0x00, 0x02);                 // 國碼 0、可被喚醒
@@ -173,6 +200,7 @@ bool startNow() {
     if (!adv->setAdvertisementData(ad)) Serial.println("[ble] 自訂廣播內容設定失敗（改用函式庫預設）");
     s_built = true;
   }
+  if (s_server) s_server->advertiseOnDisconnect(true);
   NimBLEDevice::getAdvertising()->start();
 
   s_on.store(true);
@@ -188,11 +216,17 @@ void end() {
   const uint32_t t0 = millis();
   s_circle = false;
   s_on.store(false);                     // 先關：之後 report() 一律不送
+  if (s_server) s_server->advertiseOnDisconnect(false);   // 31-m4g：斷線後不要自己又開廣播
+  NimBLEDevice::getAdvertising()->stop();
   if (s_server && s_connected.load()) {
     if (killswitch::outputAllowed()) sendRaw(0, 0, 0, 0);   // 放開所有按鍵（急停時不送）
     s_server->disconnect(s_conn.load());
+    // 31-m4g：連著的時候直接 deinit 會當機（host task 還在處理斷線事件）→ 等斷線回呼回來（最多 600ms）
+    const uint32_t tw = millis();
+    while (s_connected.load() && millis() - tw < 600) delay(5);
+    Serial.printf("[ble] 等斷線 %lu ms%s\n", (unsigned long)(millis() - tw), s_connected.load() ? "（逾時）" : "");
+    delay(50);                                 // 讓 host task 把斷線後的事情做完
   }
-  NimBLEDevice::getAdvertising()->stop();
   if (cfg::BLE_DEINIT_ON_EXIT) {         // 關藍牙控制器並釋放記憶體（鐵則二）；下次 begin 重建
     delete s_hid;                        // 只是包裝物件；服務本身由 deinit(true) 一起清
     s_hid = nullptr; s_input = nullptr; s_server = nullptr;
@@ -233,7 +267,10 @@ void loop() {
   if (s_ev_auth.exchange(0)) Serial.println("[ble] 配對完成（已加密），可以送滑鼠資料");
   if (s_ev_auth_fail.exchange(0)) Serial.println("[ble] 配對失敗（沒加密）— 對方可能要先「忘記此裝置」再重配");
   if (s_ev_disc.exchange(0))
-    Serial.printf("[ble] 斷線（原因 0x%X）→ 重新廣播\n", s_disc_reason.load());
+    Serial.printf("[ble] 斷線（原因 0x%X %s）→ 重新廣播\n", s_disc_reason.load(), discReason(s_disc_reason.load()));
+  if (s_ev_sub.exchange(0))
+    Serial.printf("[ble] 主機%s訂閱滑鼠報告（0x%X）%s\n", s_sub_val.load() ? "" : "取消", s_sub_val.load(),
+                  s_sub_val.load() ? "＝HID 接上了" : "");
   if (!s_on.load()) return;
 
   // 鐵則三：急停閘門關了 → 停測試、斷線（mode_manager 隨後會 exit → end()）
