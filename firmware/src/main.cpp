@@ -68,7 +68,7 @@ static M5Canvas* showingCanvas() { return ui_info::shown() ? ui_info::canvas() :
 //  - 資訊頁上按住 A 滿 0.6 秒（或這輪還在忙）→ 自動回表情頁（對話區在表情頁）。
 //  - 離開 Desktop → 回到表情頁（下次進 Desktop 從表情頁開始）。
 static bool s_a_was_busy = false;
-// P2：Desktop 關螢幕時 A 鍵：短按不理，按住滿 1.5 秒（PWR_WAKE_A_MS）＝亮螢幕＋連回中控（不錄音，要說話放開再按）
+// P2：Desktop 關螢幕或睡著變暗（省電等級 Asleep）時 A 鍵：短按不理，按住滿 1 秒（PWR_WAKE_A_MS）＝醒來（亮螢幕＋連回中控，不錄音，要說話放開再按）
 static uint32_t s_a_off_down = 0;    // 關螢幕時按下 A 的時刻（0＝沒有）
 static bool     s_a_skip_release = false;
 static void updatePage() {
@@ -144,8 +144,9 @@ void loop() {
 
     case InputEvent::BtnA_Press:
       // Desktop：按住 A 講話（錄音 → 上傳中控 → 邊收邊播，見 voice_turn）
-      if (mode_manager::current() == Mode::Desktop && !power_save::screenOn()) {
-        s_a_off_down = millis() | 1;   // P2：關螢幕：等按滿 1.5 秒才亮（見下面）
+      if (mode_manager::current() == Mode::Desktop && !voice_turn::busy() &&
+          (!power_save::screenOn() || power_save::level() == power_save::Level::Asleep)) {
+        s_a_off_down = millis() | 1;   // P2：關螢幕／睡著變暗：等按滿 1 秒才醒（見下面）
         break;
       }
       if (mode_manager::current() == Mode::Desktop) {
@@ -161,7 +162,7 @@ void loop() {
       break;
 
     case InputEvent::BtnA_Release:
-      if (s_a_off_down || s_a_skip_release) {   // P2：關螢幕時按的 A（短按不理；長按已在按住時亮螢幕）
+      if (s_a_off_down || s_a_skip_release) {   // P2：關螢幕／睡著時按的 A（短按不理；長按已在按住時叫醒）
         s_a_off_down = 0;
         s_a_skip_release = false;
         break;
@@ -190,6 +191,7 @@ void loop() {
     s_a_off_down = 0;
     s_a_skip_release = true;
     if (!power_save::screenOn()) power_save::setScreenOn(true, "長按 A");
+    else imu_pet::wake("長按 A");   // 睡著變暗（螢幕還開著）：叫醒回待機，背光立刻亮
   }
 
   // 錄音餵資料、播完切回麥克風（B3b-1）；一輪語音的上傳／等待／收尾（B3b-2）
