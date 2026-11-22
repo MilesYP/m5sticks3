@@ -18,6 +18,7 @@
 #include "mode_manager.h"
 #include "audio_io.h"
 #include "battery_ui.h"
+#include "ble_mouse.h"
 #include "net_hub.h"
 #include "power_key.h"
 #include "power_save.h"
@@ -197,6 +198,7 @@ void loop() {
   // 錄音餵資料、播完切回麥克風（B3b-1）；一輪語音的上傳／等待／收尾（B3b-2）
   audio_io::loop();
   voice_turn::loop();
+  ble_mouse::loop();    // M4：藍牙滑鼠（代印連線 log、@1 畫圓測試、急停檢查）
 
   imu_pet::loop();      // A3：讀 IMU、搖／拍／靜置／睡著聽聲音 → 表情（非阻塞）
   battery_ui::loop();   // A3：每 5 秒讀電量 → 休息臉顏色

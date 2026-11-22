@@ -3,6 +3,7 @@
 
 #include <M5Unified.h>
 
+#include "ble_mouse.h"
 #include "config.h"
 #include "input_hal.h"
 #include "killswitch.h"
@@ -40,6 +41,19 @@ void drawNormal() {
   c.setTextColor(armed ? TFT_ORANGE : TFT_GREEN);
   c.setTextSize(2);
   c.drawString(armed ? "A=ARMED" : "OK", 4, 124);
+
+  if (mode_manager::current() == Mode::AirMouse) {   // M4-0 暫時畫面：藍牙狀態（正式畫面 M4-2）
+    c.setTextSize(1);
+    c.setTextColor(TFT_DARKGREY);
+    c.drawString("BLE MOUSE", 4, 144);
+    const auto st = ble_mouse::state();
+    const bool sec = ble_mouse::secured();
+    c.setTextColor(st == ble_mouse::State::Connected ? (sec ? TFT_GREEN : TFT_YELLOW)
+                   : st == ble_mouse::State::Advertising ? TFT_CYAN : TFT_RED);
+    c.setTextSize(2);
+    c.drawString(st == ble_mouse::State::Connected ? (sec ? "PAIRED" : "CONN..")
+                 : st == ble_mouse::State::Advertising ? "PAIRING" : "OFF", 4, 156);
+  }
 
   c.setTextSize(1);
   c.setTextColor(TFT_DARKGREY);
@@ -98,6 +112,8 @@ void printReport() {
                 killswitch::isTriggered() ? "TRIGGERED" : "idle", killswitch::sourceName(),
                 killswitch::outputAllowed() ? "open" : "CLOSED",
                 killswitch::armedByBtnA() ? "yes" : "no", (long)killswitch::lastLatencyUs());
+  Serial.printf("ble      : %s%s  bonds=%d\n", ble_mouse::stateName(), ble_mouse::secured() ? " (secured)" : "",
+                ble_mouse::bondCount());
   Serial.printf("heap     : %u free / psram %u free\n", (unsigned)ESP.getFreeHeap(),
                 (unsigned)ESP.getFreePsram());
   Serial.println("============================");

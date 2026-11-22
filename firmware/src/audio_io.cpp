@@ -9,7 +9,7 @@
 #include "config.h"
 
 // 燒錄版本標記：開機會印出來，用來確認板子上跑的是哪一版
-#define AUDIO_BUILD_TAG "30-p2k"
+#define AUDIO_BUILD_TAG "31-m4a"
 namespace audio_io { const char* buildTag() { return AUDIO_BUILD_TAG; } }
 
 namespace {
@@ -236,7 +236,10 @@ void speakerOn() {
   M5.Speaker.setVolume(SPK_VOLUME);
 }
 
+bool s_suspended = false;   // M4：AirMouse 等模式關掉 ES8311，期間 micOn() 不動作
+
 void micOn() {
+  if (s_suspended) return;
   speakerOff();
   auto cfg = M5.Mic.config();
   cfg.sample_rate        = SAMPLE_RATE;
@@ -423,8 +426,28 @@ void begin() {
   Serial.printf("[audio] 就緒 v%s（麥克風待機）\n", AUDIO_BUILD_TAG);
 }
 
+void suspend() {
+  if (s_suspended || !s_ready) { s_suspended = true; return; }
+  s_suspended = true;                // 先設旗標：streamAbort 等路徑不會再把麥克風打開
+  if (s_st_active) streamAbort();
+  if (M5.Speaker.isPlaying()) M5.Speaker.stop();
+  s_sb_inflight = false;
+  if (M5.Mic.isRunning()) M5.Mic.end();
+  speakerOff();
+  Serial.println("[audio] 暫停（麥克風、喇叭關）");
+}
+
+void resume() {
+  if (!s_suspended) return;
+  s_suspended = false;
+  if (s_ready) micOn();
+  Serial.println("[audio] 恢復（麥克風待機）");
+}
+
+bool suspended() { return s_suspended; }
+
 void startRecording() {
-  if (!s_ready || s_recording) return;
+  if (!s_ready || s_recording || s_suspended) return;
   if (s_st_active) streamAbort();             // B3b-4：上一輪回答還在播 → 停掉
   if (M5.Speaker.isPlaying()) M5.Speaker.stop();
   if (!M5.Mic.isRunning()) micOn();

@@ -243,4 +243,11 @@ constexpr uint32_t PWR_RADIO_OFF_MS    = 180000;   // Desktop 睡著或關螢幕
 constexpr float    BAT_CUTOFF_PCT      = 3.0f;  // 實際電量 ≤ 這個＝強制關機；畫面顯示 (實際−3)÷97×100
 constexpr uint32_t BAT_CUTOFF_HOLD_MS  = 30000; // 連續這麼久才關（說話、播放時電壓會瞬間掉）
 
+// ── M4 空中滑鼠：BLE HID（ble_mouse，2026-11-22 M4-0）──
+constexpr const char* BLE_DEVICE_NAME  = "M5S3Pack";   // 電腦／平板藍牙清單上顯示的名稱
+constexpr int8_t   BLE_TX_DBM          = 3;      // 藍牙發射功率（dBm）：桌面距離夠用、省電
+constexpr bool     BLE_DEINIT_ON_EXIT  = true;   // 離開 AirMouse 關藍牙並釋放記憶體（鐵則二）；來回切模式出問題時改 false 對照
+constexpr uint32_t BLE_REPORT_MS       = 15;     // 滑鼠報告間隔（≈ 連線間隔上限 15ms；送太快只會塞隊列）
+constexpr float    BLE_CIRCLE_R        = 120.0f; // @1 畫圓測試的半徑（滑鼠單位，約等於像素）
+
 }  // namespace cfg

@@ -211,6 +211,15 @@
 9. **ROOT、斷線標示**（11-22 Miles）：表情頁狀態列電量左邊的實心小標籤（ROOT 紅底 Font0、斷線灰底 efontTW_10），放不下時省略「待機中」等狀態字；原本右上角的 Wi-Fi 斜線圖示拿掉、表情頁不再蓋 ROOT 角標（資訊頁與其他模式畫面仍蓋右上角 ROOT 小標）。斷線時表情定格變灰維持不變。
 10. 序列埠 `q`：PM1 設定與按鍵狀態；`q0` 進 root、`q1` 回新機制、`q9` 主迴圈卡死（測看門狗）。（`p` 已被發射功率用掉。）
 
+### 鐵則十二：空中滑鼠（M4，2026-11-22 起，31-m4a 待實機驗收）
+1. **Miles 定案（11-22）**：連線對象優先順序 Mac → iPad → iPhone（iOS／iPadOS 要開 AssistiveTouch 才有游標）；沒插 Scroll Unit 時 A 短按＝左鍵、按住＝拖曳（右鍵、捲動只在有 Scroll 時）；游標拿起來就動、放下靜止就停（不用按住才動）。
+2. **游標跟陀螺儀「轉速」走，不跟角度走**（技術決定）：轉速 → 位移＋靜止自動校正零點＋死區＋加速曲線；不會因偏航角積分越來越歪。PRD 原寫 Pitch／Yaw 角度映射，已改。
+3. **函式庫**：NimBLE-Arduino 2.5.0（Apache-2.0；原始碼對 IDF < 5 有專門的 deinit 路徑，預期 Arduino 2.0.17 可用，以 Mac 編譯為準；不行改 1.4.3）。HID 描述自己寫（`ble_mouse.cpp`，3 鍵＋X／Y／滾輪，Report ID 1）；HijelHID 等包裝函式庫要 Arduino 3.x，不用。
+4. **鐵則二落實**：`airMouseEnter` → `net_hub::setRadioOff(true)`（斷 Wi-Fi）＋`audio_io::suspend()`（關麥克風／喇叭，期間 `micOn()` 不動作）＋`ble_mouse::begin()`；`airMouseExit` 反過來。`power_save` 只在非 AirMouse 才會把 Wi-Fi 連回來（原本「沒睡著就重連」會跟 AirMouse 打架）。其他模式（HidAgent／RfTool）目前仍連著 Wi-Fi，各自里程碑再處理。
+5. **藍牙回呼在 NimBLE task**：只改原子旗標，log 由 `ble_mouse::loop()` 在主迴圈代印。每筆報告前查 `killswitch::outputAllowed()`；閘門關了停送並斷線。
+6. **配對**：bonding＋LE Secure Connections、不需密碼（IO 能力＝無）；只有加密完成後才送報告（HID 特徵值要加密才能讀）。藍牙同一時間只連一台；換主機要在原主機按「中斷連線」或 `@f` 清配對（一鍵切主機留到 M4-2）。
+7. `cfg::BLE_DEINIT_ON_EXIT`＝true（離開模式釋放藍牙記憶體）；來回切模式若當機或重開藍牙失敗，改 false 對照（只停廣播、保留堆疊）。序列埠 `@` 狀態、`@1`／`@0` 畫圓測試、`@f` 清配對（26 個字母都已被占用）。
+
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
 2. **跨裝置 HID 外掛**：參考 `esp32-iphone-agent`。S3 當免越獄 USB 複合鍵鼠，iOS（配 AssistiveTouch）或 PC/macOS 自適應；視覺大模型截圖定座標→回傳 HID 指令。含實體急停。
@@ -272,6 +281,7 @@ firmware/src/
   audio_io.*          // ES8311 錄放音、PGA、雜訊量測、4MB 錄音環形緩衝（不限長度）、邊收邊播環形緩衝（播放 task 自餵）（M1-B 已建）
   voice_turn.*        // 一輪語音：錄（邊傳）→送尾巴→邊收邊解壓邊播；表情本機決定（M1-B 已建）
   adpcm.*             // IMA ADPCM／μ-law 解碼、8kHz→16kHz 升取樣（M1-B B3b-3／B3b-4 已建）
+  ble_mouse.*         // M4：NimBLE BLE HID 滑鼠（HID 描述、配對、廣播、急停閘門、@ 指令）（M4-0）
   diag_cmd.*          // 序列埠診斷指令 a/w/s/p/g/f/u/m/x/r/b/i/k/e/j/v/c/d/h/o/y/n/t/#/?（A4b 加 d 假裝充電狀態）（A5-2 加 a 中控重送資訊頁資料）（M1-B B3.6 起；A4 加 h 充電紀錄、o 拿法、y 預覽表情、# 記號；A5-1 加 n 切頁、t 交叉淡化；P1 加 z 省電、l 背光；P2 加 q 電源鍵）
   ui_grok.*           // 模式1：M5GFX 幾何表情 + 音量連動 + 跑馬燈
   hid_injector.*      // 模式2：TinyUSB 跨平台鍵鼠 + 急停整合

@@ -13,6 +13,9 @@
 namespace audio_io {
 
 void begin();                  // 配置 PSRAM 緩衝、讓 ES8311 上電暖機（開機呼叫一次）
+void suspend();                // M4：離開語音用的模式（AirMouse 等）關麥克風與喇叭；期間不會被自動打開
+void resume();                 // 回麥克風待機
+bool suspended();
 void loop();                   // 每圈呼叫：預排錄音區塊、放音結束後切回麥克風
 void startRecording();         // 開始錄（麥克風已開著，只是重設計數）；錄音不設上限（B3b-5）
 size_t stopRecording();        // 停止錄音：定好結尾（切頭尾）、印量測行；回傳切頭尾後的取樣數（0＝太短）

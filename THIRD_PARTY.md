@@ -12,6 +12,7 @@
 | M5Unified | `#0.3.0` | MIT | 全部韌體 |
 | M5GFX（含 efont 點陣字型 `efontTW_*`） | `#0.3.0` | MIT（efont 字型另有其授權，見 M5GFX `src/lgfx/Fonts/efont/`） | 全部韌體 |
 | links2004/WebSockets | `^2.4.224` | LGPL-2.1 | `firmware/`（中控連線） |
+| h2zero/NimBLE-Arduino | `2.5.0` | Apache-2.0 | `firmware/`（M4 BLE 滑鼠） |
 | bmorcelli/SmartRC-CC1101-Driver-Lib | `#7bba5217dc0632f718a3278dc27e401016741a95` | 自訂寬鬆條款（ELECHOUSE 授權修改發布；「可自由使用、修改、散布，需註明來源」，見其 `LICENSE.txt`） | `acceptance-test/`、`rssi-test/`、`rf-lab/` |
 
 ## 二、中控（`cloud/`）npm 套件

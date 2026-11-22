@@ -6,6 +6,7 @@
 
 #include "audio_io.h"
 #include "battery_ui.h"
+#include "ble_mouse.h"
 #include "imu_pet.h"
 #include "input_hal.h"
 #include "mode_manager.h"
@@ -28,12 +29,19 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜q 電源鍵狀態(q0 進root q1 回新機制 q9 主迴圈卡死測看門狗)｜#文字 在 log 做記號｜? 目前設定");
+  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜q 電源鍵狀態(q0 進root q1 回新機制 q9 主迴圈卡死測看門狗)｜@ 藍牙滑鼠狀態(@1 畫圓測試 @0 停 @f 清除配對)｜#文字 在 log 做記號｜? 目前設定");
 }
 
 void run(char* cmd) {
   if (cmd[0] == '#') {   // A4 量測：在 log 裡做記號（例：#1 直拿），方便事後分段
     Serial.printf("[mark] %s ===== 開機後 %lu ms\n", cmd + 1, (unsigned long)millis());
+    return;
+  }
+  if (cmd[0] == '@') {   // M4：藍牙滑鼠（26 個字母都用掉了，改用 @ 開頭）
+    if (cmd[1] == '1') ble_mouse::setCircleTest(true);
+    else if (cmd[1] == '0') ble_mouse::setCircleTest(false);
+    else if (cmd[1] == 'f' || cmd[1] == 'F') ble_mouse::forgetBonds();
+    else ble_mouse::printStatus();
     return;
   }
   for (char* c = cmd; *c; ++c) *c = (char)tolower((unsigned char)*c);

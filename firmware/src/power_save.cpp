@@ -135,7 +135,8 @@ void loop() {
       net_hub::setRadioOff(true, s_screen_on ? "睡著滿 3 分鐘" : "關螢幕滿 3 分鐘");
   } else {
     s_sleep_t = 0;
-    if (net_hub::radioOff()) net_hub::setRadioOff(false, "醒來");
+    // M4：AirMouse 自己關 Wi-Fi（mode_manager enter／exit 管），這裡不能把它連回來
+    if (net_hub::radioOff() && mode_manager::current() != Mode::AirMouse) net_hub::setRadioOff(false, "醒來");
   }
 }
 

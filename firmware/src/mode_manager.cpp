@@ -2,7 +2,10 @@
 
 #include <Arduino.h>
 
+#include "audio_io.h"
+#include "ble_mouse.h"
 #include "killswitch.h"
+#include "net_hub.h"
 
 namespace {
 
@@ -13,8 +16,19 @@ void hidAgentEnter() { Serial.println("  enter(HidAgent)"); }
 void hidAgentExit()  { Serial.println("  exit(HidAgent)"); }
 void rfToolEnter()   { Serial.println("  enter(RfTool)"); }
 void rfToolExit()    { Serial.println("  exit(RfTool)"); }
-void airMouseEnter() { Serial.println("  enter(AirMouse)"); }
-void airMouseExit()  { Serial.println("  exit(AirMouse)"); }
+// M4（鐵則二）：AirMouse 開 BLE HID＋BMI270；關 Wi-Fi、ES8311（Friday 在這個模式不能用）
+void airMouseEnter() {
+  Serial.println("  enter(AirMouse)");
+  net_hub::setRadioOff(true, "AirMouse");   // 網路 task 斷 Wi-Fi（非阻塞）；power_save 在 AirMouse 不會自動重連
+  audio_io::suspend();                       // 關麥克風／喇叭
+  ble_mouse::begin();
+}
+void airMouseExit() {
+  Serial.println("  exit(AirMouse)");
+  ble_mouse::end();
+  audio_io::resume();                        // 回麥克風待機
+  net_hub::setRadioOff(false, "離開 AirMouse");
+}
 void safeEnter()     { Serial.println("  enter(Safe)"); }
 void safeExit()      { Serial.println("  exit(Safe)"); }
 
