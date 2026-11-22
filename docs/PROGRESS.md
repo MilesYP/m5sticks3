@@ -33,6 +33,14 @@
 
 ---
 
+### 2026-11-23｜M4-0 31-m4o 實機：iPhone ✅、Mac 仍 Unused｜Claude Code（Cowork 橋接）
+- Mac 「附近裝置」沒按鈕的真因：系統設定 App 卡住（31-m4l 那次轉圈留下的配對程序）→ `Cmd+Q` 系統設定重開就有按鈕。之前推的「Apple VID 快取」不是主因（換新位址也一樣沒按鈕）。
+- Mac（31-m4o 預設＋`@s1`）：配對成功 → 約 60ms 後設定頁放手、`Unused` 斷線；Mac 沒讀任何 HID 特徵值。
+- **iPhone ✅**（`@a1`＋`@f` 新位址）：要求加密 → 讀 PnP → 配對完成 → 讀 HID Information → 讀 Report Map → **訂閱滑鼠報告** → 連線參數 15ms／延遲 4 → `@1` 手機游標畫圓 ✅。→ HID 實作本身沒問題，是 Mac 端不接手。
+- 讀取紀錄：主機在配對後讀的會印；Mac 配對前讀 DIS 那次沒印（NimBLE 對某些首次讀取不呼叫 onRead）。
+- 線索：OpenSnek #147（Razer 滑鼠）同樣「配對成功 → 設定頁取消連線 → ~50ms 後 Unused 斷線」，原因是另一個用 CoreBluetooth 的 App 也連著裝置、干擾 HID 接手，刪 App＋重開機解決。我們的 Mac log 裡出現過 Brave 瀏覽器的藍牙配對 session。
+- 下一步（Miles：Mac 是主要場景，先解決）：查「隱私權與安全性 → 藍牙」有哪些 App 有藍牙權限；重開機、不開其他 App 後再配一次；log 加看 `CancelPeripheral|session`。
+
 ### 2026-11-23｜M4-0 31-m4n 實機 → 31-m4o 換藍牙位址｜Claude Code（Cowork 橋接）
 - Miles 實機：`@v0`（Espressif VID）、`@p0`（31-m4k 的舊設定全套）都還是沒有連線按鈕、序列埠沒有「已連線」；31-m4k 當時同樣設定有按鈕 → 問題在 Mac 端對這個位址（7C:E8:B1:E1:B5:39）的快取，裝置端怎麼改都看不到。「附近裝置」另一個 43PUH7406/96 是 Philips 電視（型號），與本案無關。
 - 31-m4o：藍牙改用由晶片 MAC 衍生的隨機靜態位址（`cfg::BLE_ADDR_SALT`＝1，存 NVS），對 Mac 來說是一台全新裝置；`@a1` 再換一個、`@a0` 回原廠 public 位址。開藍牙時印出目前位址。
