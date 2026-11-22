@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 #include <math.h>
 
+#include "air_mouse.h"
 #include "audio_io.h"
 #include "battery_ui.h"
 #include "config.h"
@@ -330,6 +331,7 @@ void loop() {
     s_prev_us = us;
     s_have_prev = true;
     s_w.sx += ax; s_w.sy += ay; s_w.sz += az;
+    air_mouse::onImu(ax, ay, az, gx, gy, gz, us);   // M4-1：同一筆資料給空中滑鼠（IMU 只在這裡讀）
 
     // A4 彈珠台：線性加速度（讀數 − 低通重力）換算成目前畫面的右／下方向，每筆交給畫面
     if (!s_fg_init) { s_fgx = ax; s_fgy = ay; s_fgz = az; s_fg_init = true; }

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include "air_mouse.h"
 #include "audio_io.h"
 #include "ble_mouse.h"
 #include "killswitch.h"
@@ -21,10 +22,12 @@ void airMouseEnter() {
   Serial.println("  enter(AirMouse)");
   net_hub::setRadioOff(true, "AirMouse");   // 網路 task 斷 Wi-Fi（非阻塞）；power_save 在 AirMouse 不會自動重連
   audio_io::suspend();                       // 關麥克風／喇叭
+  air_mouse::reset();
   ble_mouse::begin();
 }
 void airMouseExit() {
   Serial.println("  exit(AirMouse)");
+  air_mouse::reset();
   ble_mouse::end();
   audio_io::resume();                        // 回麥克風待機
   net_hub::setRadioOff(false, "離開 AirMouse");

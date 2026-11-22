@@ -16,6 +16,7 @@
 #include "input_hal.h"
 #include "killswitch.h"
 #include "mode_manager.h"
+#include "air_mouse.h"
 #include "audio_io.h"
 #include "battery_ui.h"
 #include "ble_mouse.h"
@@ -162,6 +163,10 @@ void loop() {
         voice_turn::onPress();
         break;
       }
+      if (mode_manager::current() == Mode::AirMouse) {   // M4-1：A＝左鍵（按下）
+        air_mouse::onButton(true);
+        break;
+      }
       // 模式 2 的 A 急停已由硬體中斷處理；其他模式的主動作留給後續里程碑
       if (mode_manager::current() != Mode::Safe && !killswitch::armedByBtnA()) {
         Serial.printf("[input] A pressed in %s (no action yet)\n",
@@ -173,6 +178,10 @@ void loop() {
       if (s_a_off_down || s_a_skip_release) {   // P2：關螢幕／睡著時按的 A（短按不理；長按已在按住時叫醒）
         s_a_off_down = 0;
         s_a_skip_release = false;
+        break;
+      }
+      if (mode_manager::current() == Mode::AirMouse) {   // M4-1：左鍵放開（短按＝點擊、按住移動＝拖曳）
+        air_mouse::onButton(false);
         break;
       }
       if (mode_manager::current() == Mode::Desktop) {
@@ -207,7 +216,8 @@ void loop() {
   voice_turn::loop();
   ble_mouse::loop();    // M4：藍牙滑鼠（代印連線 log、@1 畫圓測試、急停檢查）
 
-  imu_pet::loop();      // A3：讀 IMU、搖／拍／靜置／睡著聽聲音 → 表情（非阻塞）
+  imu_pet::loop();      // A3：讀 IMU（M4-1：每筆也交給 air_mouse）—— 必須在 air_mouse::loop 之前
+  air_mouse::loop();    // M4-1：空中滑鼠送游標／按鍵報告、搖／拍／靜置／睡著聽聲音 → 表情（非阻塞）
   battery_ui::loop();   // A3：每 5 秒讀電量 → 休息臉顏色
   ui_info::loop();      // A5-1：收負載／記憶體歷史、Wi-Fi 連上後開始對時（不畫圖）
   updatePage();

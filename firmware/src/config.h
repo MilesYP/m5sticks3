@@ -260,4 +260,21 @@ constexpr uint8_t  BLE_ADDR_SALT       = 1;      // 31-m4o：預設藍牙位址�
 constexpr uint16_t BLE_SUP_TIMEOUT     = 400;    // 監督逾時（單位 10ms）＝4 秒
 constexpr uint32_t BLE_PARAM_REQ_MS    = 1500;   // 配對完成後等這麼久，再主動要求連線參數（@u0/@u1 開關）   // 31-m4b：進 AirMouse 先等 Wi-Fi 真的關掉（最多這麼久）再開藍牙，避免兩邊同時初始化射頻
 
+// ── M4-1 空中滑鼠游標（air_mouse，31-m4q；數值先用推估，@m 實測後再定）──
+// 拿法預設：像遙控器，螢幕朝上、頂端指向電腦。陀螺儀軸 0=x 1=y 2=z（裝置軸：直拿 右＝+x 上＝+y，z 從螢幕穿出）
+constexpr int      AIR_AXIS_X          = 2;      // 左右轉手腕＝繞 z 軸 → 游標 X
+constexpr int      AIR_SIGN_X          = -1;     // 往右轉 gz 為負（右手定則）→ 乘 −1 才往右（@x 可翻）
+constexpr int      AIR_AXIS_Y          = 0;      // 上下點＝繞 x 軸 → 游標 Y
+constexpr int      AIR_SIGN_Y          = -1;     // 頂端抬起 gx 為正 → 游標往上（HID 的 y 往下為正）（@y 可翻）
+constexpr float    AIR_GAIN            = 4.0f;   // 每秒點數＝增益 ×（轉速−死區）^指數（@g 調）
+constexpr float    AIR_ACCEL_EXP       = 1.2f;   // 加速曲線指數：>1 慢轉精細、快轉跑得遠（Mac 自己還會再加速）
+constexpr float    AIR_DEADZONE_DPS    = 3.0f;   // 死區（度/秒）：手抖不動游標（@d 調；鐵則八：手持不動轉速常 2～24 為窗內峰值）
+constexpr float    AIR_STILL_DPS       = 3.0f;   // 靜止判定：扣偏差後轉速 < 這個（桌上靜置 ≤1.1，鐵則八）
+constexpr float    AIR_STILL_G         = 0.05f;  // 靜止判定：加速度偏離 1g < 這個
+constexpr uint32_t AIR_STILL_MS        = 300;    // 靜止滿這麼久 → 放下了，不送移動；並開始跟零點
+constexpr uint32_t AIR_BIAS_FIRST_MS   = 500;    // 開機後第一次零點：靜止這麼久取平均
+constexpr float    AIR_BIAS_LPF        = 0.01f;  // 之後靜止時每筆零點更新權重（100Hz 約 1 秒）
+constexpr uint32_t AIR_CLICK_FREEZE_MS = 80;     // A 按下／放開後凍結游標（按鍵震動不讓游標跳）
+constexpr uint32_t AIR_SEND_MS         = 10;     // 最快每 10ms 送一筆（Mac 連線間隔 7.5ms）
+
 }  // namespace cfg
