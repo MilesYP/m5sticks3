@@ -66,7 +66,13 @@ std::atomic<bool>     s_conn_bonded{false};
 std::atomic<bool>     s_need_sec{false};
 std::atomic<uint32_t> s_conn_t{0};
 std::atomic<uint16_t> s_itvl{0};
+std::atomic<uint16_t> s_lat{0}, s_tmo{0};   // 31-m4k：延遲（可跳過幾次）、監督逾時（單位 10ms）
 std::atomic<uint8_t>  s_ev_param{0};
+// 31-m4k：連線間隔預設組（單位 1.25ms）；Apple 規範見 config.h BLE_ITVL_PRESET
+const uint16_t        kItvl[3][2] = {{6, 12}, {9, 12}, {12, 24}};
+uint8_t               s_itvl_preset = cfg::BLE_ITVL_PRESET < 3 ? cfg::BLE_ITVL_PRESET : 2;
+bool                  s_opt_upd = true;                      // @u：配對完成後主動要求連線參數
+std::atomic<uint32_t> s_auth_t{0};                           // 配對完成時間（|1，0＝沒有待送的參數要求）
 // 31-m4h：配對選項可用序列埠即時切（Mac 連上秒斷的對照測試，不用重燒）
 bool                  s_opt_reqsec = true;                   // @s：連上後由裝置主動要求加密
 bool                  s_opt_sc     = cfg::BLE_SECURE_CONN;   // @c：LE Secure Connections（關＝舊式配對）
@@ -95,18 +101,22 @@ class ServerCb : public NimBLEServerCallbacks {
     snprintf(s_peer, sizeof(s_peer), "%02X:%02X:%02X:%02X:%02X:%02X", a[5], a[4], a[3], a[2], a[1], a[0]);
     s_peer_ready.store(true);
     s_conn_t.store(millis() | 1);
+    s_itvl.store(ci.getConnInterval()); s_lat.store(ci.getConnLatency()); s_tmo.store(ci.getConnTimeout());
+    s_auth_t.store(0);
     s_ev_conn.fetch_add(1);
     // 31-m4b：由我們主動要求加密（有些主機要等對方先開口）；已加密（重連）就不用
     if (!ci.isEncrypted() && s_opt_reqsec) s_need_sec.store(true);
   }
   void onConnParamsUpdate(NimBLEConnInfo& ci) override {
-    s_itvl.store(ci.getConnInterval());
+    s_itvl.store(ci.getConnInterval()); s_lat.store(ci.getConnLatency()); s_tmo.store(ci.getConnTimeout());
     s_ev_param.fetch_add(1);
   }
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
     s_connected.store(false);
     s_secured.store(false);
     s_conn.store(0xFFFF);
+    s_conn_t.store(0);   // 31-m4k：歸零，否則重連前會印錯的「連上 N 秒仍未加密」
+    s_auth_t.store(0);
     s_disc_reason.store(reason);
     s_ev_disc.fetch_add(1);
     // advertiseOnDisconnect(true) 讓函式庫自己重新廣播
@@ -115,7 +125,7 @@ class ServerCb : public NimBLEServerCallbacks {
     s_conn_bonded.store(ci.isBonded());
     s_auth_flags.store((ci.isEncrypted() ? 1 : 0) | (ci.isBonded() ? 2 : 0) | (ci.isAuthenticated() ? 4 : 0));
     s_auth_key.store(ci.getSecKeySize());
-    if (ci.isEncrypted()) { s_secured.store(true); s_ev_auth.fetch_add(1); }
+    if (ci.isEncrypted()) { s_secured.store(true); s_auth_t.store(millis() | 1); s_ev_auth.fetch_add(1); }
     else s_ev_auth_fail.fetch_add(1);
   }
 };
@@ -162,6 +172,31 @@ namespace ble_mouse {
 
 bool startNow();
 
+// 31-m4e：自己組廣播內容。函式庫預設的 flags 只有「一般可發現」，少了「不支援傳統藍牙（BR/EDR）」——
+// Mac 這種同時有傳統藍牙的主機可能因此把它當雙模裝置、在「附近裝置」不給連線按鈕。
+// 31-m4k：偏好連線間隔改用預設組（@i），預設 15～30ms（Apple 規範）
+void applyAdvData() {
+  NimBLEAdvertisementData ad;
+  ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);   // 3 bytes
+  ad.setAppearance(HID_MOUSE);                   // 4：iOS／iPadOS／macOS 靠這個認成滑鼠
+  ad.setCompleteServices(s_hid->getHidService()->getUUID());   // 4：HID 服務 0x1812
+  ad.setPreferredParams(kItvl[s_itvl_preset][0], kItvl[s_itvl_preset][1]);   // 6：偏好連線間隔（單位 1.25ms）
+  ad.setName(cfg::BLE_DEVICE_NAME);              // 10：共 27 bytes（上限 31）
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  const bool was = adv->isAdvertising();
+  if (was) adv->stop();
+  if (!adv->setAdvertisementData(ad)) Serial.println("[ble] 自訂廣播內容設定失敗（改用函式庫預設）");
+  if (was) adv->start();
+}
+
+void setIntervalPreset(uint8_t p) {
+  if (p > 2) return;
+  s_itvl_preset = p;
+  if (s_built && s_hid) applyAdvData();
+  Serial.printf("[ble] 偏好連線間隔 %.2f～%.2f ms（@i%u；下一次連線生效，連著的話配對後主動要求也用這組）\n",
+                kItvl[p][0] * 1.25f, kItvl[p][1] * 1.25f, (unsigned)p);
+}
+
 // 31-m4g：配對時交換「加密金鑰＋身分金鑰（IRK）」（Mac 用身分金鑰認出重連的裝置）；31-m4h 可用 @k 關掉對照
 void applySecurity() {
   NimBLEDevice::setSecurityAuth(true, false, s_opt_sc);   // 綁定、不需密碼比對、SC 依選項
@@ -175,6 +210,7 @@ void setOption(char opt, bool on) {
   if (opt == 's') s_opt_reqsec = on;
   else if (opt == 'c') s_opt_sc = on;
   else if (opt == 'k') s_opt_irk = on;
+  else if (opt == 'u') { s_opt_upd = on; Serial.printf("[ble] 配對後主動要求連線參數 %s\n", on ? "開" : "關"); return; }
   else return;
   if (NimBLEDevice::isInitialized()) applySecurity();
   Serial.printf("[ble] 選項：主動要求加密 %s｜Secure Connections %s｜交換身分金鑰 %s（下一次配對生效；先在電腦「忘記此裝置」＋ @f）\n",
@@ -213,16 +249,7 @@ bool startNow() {
     s_hid->setBatteryLevel(100);
     s_server->start();
 
-    // 31-m4e：自己組廣播內容。函式庫預設的 flags 只有「一般可發現」，少了「不支援傳統藍牙（BR/EDR）」——
-    // Mac 這種同時有傳統藍牙的主機可能因此把它當雙模裝置、在「附近裝置」不給連線按鈕。
-    NimBLEAdvertisementData ad;
-    ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);   // 3 bytes
-    ad.setAppearance(HID_MOUSE);                   // 4：iOS／iPadOS／macOS 靠這個認成滑鼠
-    ad.setCompleteServices(s_hid->getHidService()->getUUID());   // 4：HID 服務 0x1812
-    ad.setPreferredParams(6, 12);                  // 6：連線間隔偏好 7.5～15ms（單位 1.25ms），游標才順
-    ad.setName(cfg::BLE_DEVICE_NAME);              // 10：共 27 bytes（上限 31）
-    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-    if (!adv->setAdvertisementData(ad)) Serial.println("[ble] 自訂廣播內容設定失敗（改用函式庫預設）");
+    applyAdvData();
     s_built = true;
   }
   if (s_server) s_server->advertiseOnDisconnect(true);
@@ -259,6 +286,7 @@ void end() {
     s_built = false;
   }                                      // 否則保留堆疊，只停廣播（BLE_DEINIT_ON_EXIT＝false 對照用）
   s_connected.store(false); s_secured.store(false); s_conn.store(0xFFFF);
+  s_conn_t.store(0); s_auth_t.store(0);
   Serial.printf("[ble] 藍牙關閉（%lu ms）｜heap %u\n", (unsigned long)(millis() - t0), (unsigned)ESP.getFreeHeap());
 }
 
@@ -274,15 +302,32 @@ void loop() {
     }
     return;
   }
-  if (s_ev_conn.exchange(0))
+  if (s_ev_conn.exchange(0)) {
     Serial.printf("[ble] 已連線：%s%s%s\n", s_peer_ready.load() ? s_peer : "?",
                   s_secured.load() ? "（已加密）" : "（等配對加密…）", s_conn_bonded.load() ? "（有配對紀錄）" : "");
+    Serial.printf("[ble] 主機選的連線參數：間隔 %.2f ms｜延遲 %u｜逾時 %u ms（我們偏好 %.2f～%.2f ms）\n",
+                  s_itvl.load() * 1.25f, (unsigned)s_lat.load(), (unsigned)s_tmo.load() * 10,
+                  kItvl[s_itvl_preset][0] * 1.25f, kItvl[s_itvl_preset][1] * 1.25f);
+  }
   if (s_need_sec.exchange(false) && s_connected.load()) {
     int rc = 0;
     const bool ok = NimBLEDevice::startSecurity(s_conn.load(), &rc);
     Serial.printf("[ble] 要求加密 %s（rc=%d）\n", ok ? "已送出" : "失敗", rc);
   }
-  if (s_ev_param.exchange(0)) Serial.printf("[ble] 連線間隔 %.2f ms\n", s_itvl.load() * 1.25f);
+  if (s_ev_param.exchange(0))
+    Serial.printf("[ble] 連線參數更新：間隔 %.2f ms｜延遲 %u｜逾時 %u ms\n", s_itvl.load() * 1.25f,
+                  (unsigned)s_lat.load(), (unsigned)s_tmo.load() * 10);
+  // 31-m4k：配對完成 BLE_PARAM_REQ_MS 後，若主機選的間隔不在我們的範圍內，主動要求一次（只要求一次）
+  const uint32_t at = s_auth_t.load();
+  if (at && millis() - at >= cfg::BLE_PARAM_REQ_MS) {
+    s_auth_t.store(0);
+    const uint16_t mn = kItvl[s_itvl_preset][0], mx = kItvl[s_itvl_preset][1], cur = s_itvl.load();
+    if (s_opt_upd && s_connected.load() && s_server && (cur < mn || cur > mx)) {
+      s_server->updateConnParams(s_conn.load(), mn, mx, 0, cfg::BLE_SUP_TIMEOUT);
+      Serial.printf("[ble] 目前間隔 %.2f ms 不在偏好範圍 → 要求改 %.2f～%.2f ms、逾時 %u ms\n", cur * 1.25f,
+                    mn * 1.25f, mx * 1.25f, (unsigned)cfg::BLE_SUP_TIMEOUT * 10);
+    }
+  }
   // 連上但一直沒加密：每 3 秒提醒一次（卡在 CONN.. 時看這行）
   if (s_connected.load() && !s_secured.load() && millis() - s_unsec_log_t >= 3000 && s_conn_t.load() &&
       millis() - s_conn_t.load() >= 3000) {
@@ -369,8 +414,12 @@ void forgetBonds() {
 }
 
 void printStatus() {
-  Serial.printf("[ble] 選項 @s 主動要求加密 %s｜@c SC %s｜@k 身分金鑰 %s\n", s_opt_reqsec ? "開" : "關",
-                s_opt_sc ? "開" : "關", s_opt_irk ? "開" : "關");
+  Serial.printf("[ble] 選項 @s 主動要求加密 %s｜@c SC %s｜@k 身分金鑰 %s｜@i%u 偏好間隔 %.2f～%.2f ms｜@u 配對後要求參數 %s\n",
+                s_opt_reqsec ? "開" : "關", s_opt_sc ? "開" : "關", s_opt_irk ? "開" : "關", (unsigned)s_itvl_preset,
+                kItvl[s_itvl_preset][0] * 1.25f, kItvl[s_itvl_preset][1] * 1.25f, s_opt_upd ? "開" : "關");
+  if (s_connected.load())
+    Serial.printf("[ble] 目前連線：間隔 %.2f ms｜延遲 %u｜逾時 %u ms\n", s_itvl.load() * 1.25f, (unsigned)s_lat.load(),
+                  (unsigned)s_tmo.load() * 10);
   Serial.printf("[ble] 狀態 %s%s｜對方 %s｜已配對 %d 台｜送出 %lu 筆、失敗 %lu｜畫圓 %s｜閘門 %s｜heap %u\n",
                 stateName(), s_secured.load() ? "（已加密）" : "", s_connected.load() ? s_peer : "-", bondCount(),
                 (unsigned long)s_tx_ok, (unsigned long)s_tx_fail, s_circle ? "開" : "關",

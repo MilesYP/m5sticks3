@@ -34,7 +34,8 @@ enum : uint8_t { BTN_LEFT = 0x01, BTN_RIGHT = 0x02, BTN_MIDDLE = 0x04 };
 void setCircleTest(bool on);     // @1／@0：游標自己畫圓（驗收連線用）
 bool circleTest();
 void forgetBonds();              // @f：清除所有配對紀錄並斷線
-void setOption(char opt, bool on);   // 31-m4h：@s0/@s1 主動要求加密、@c0/@c1 Secure Connections、@k0/@k1 交換身分金鑰
+void setOption(char opt, bool on);   // 31-m4h：@s0/@s1 主動要求加密、@c0/@c1 Secure Connections、@k0/@k1 交換身分金鑰；31-m4k：@u0/@u1 配對後主動要求連線參數
+void setIntervalPreset(uint8_t p);   // 31-m4k：@i0 7.5～15ms（舊）、@i1 11.25～15ms、@i2 15～30ms（預設）
 void printStatus();              // @
 
 }  // namespace ble_mouse

@@ -252,6 +252,11 @@ constexpr bool     BLE_DEINIT_ON_EXIT  = true;   // 離開 AirMouse 關藍牙並
 constexpr uint32_t BLE_REPORT_MS       = 15;     // 滑鼠報告間隔（≈ 連線間隔上限 15ms；送太快只會塞隊列）
 constexpr float    BLE_CIRCLE_R        = 120.0f; // @1 畫圓測試的半徑（滑鼠單位，約等於像素）
 constexpr bool     BLE_SECURE_CONN     = true;   // 配對用 LE Secure Connections；配對時當機或一直卡加密 → 改 false（舊式配對）對照
-constexpr uint32_t BLE_START_WAIT_MS   = 2000;   // 31-m4b：進 AirMouse 先等 Wi-Fi 真的關掉（最多這麼久）再開藍牙，避免兩邊同時初始化射頻
+constexpr uint32_t BLE_START_WAIT_MS   = 2000;   // (keep)
+// 31-m4k：連線間隔（單位 1.25ms）。Apple 配件設計指南：最短 15ms 且「最長 ≥ 最短＋15ms」，HID 例外可用 11.25～15ms；
+// 監督逾時 2～6 秒。31-m4j 前廣播 7.5～15ms，Mac 選 7.5ms 後配對完就主動斷（0x213）→ 預設改 15～30ms。序列埠 @i0/@i1/@i2 切
+constexpr uint8_t  BLE_ITVL_PRESET     = 2;      // 0＝7.5～15ms（舊，對照）｜1＝11.25～15ms（HID 例外）｜2＝15～30ms
+constexpr uint16_t BLE_SUP_TIMEOUT     = 400;    // 監督逾時（單位 10ms）＝4 秒
+constexpr uint32_t BLE_PARAM_REQ_MS    = 1500;   // 配對完成後等這麼久，再主動要求連線參數（@u0/@u1 開關）   // 31-m4b：進 AirMouse 先等 Wi-Fi 真的關掉（最多這麼久）再開藍牙，避免兩邊同時初始化射頻
 
 }  // namespace cfg

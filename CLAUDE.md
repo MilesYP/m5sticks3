@@ -226,6 +226,7 @@
 12. **Mac「連上秒斷」（31-m4f 實機：原因 0x213＝Mac 主動斷）**：31-m4g 配對改成雙方都交換「加密金鑰＋身分金鑰（IRK）」（預設只交換加密金鑰），並記錄主機有沒有訂閱滑鼠報告（`[ble] 主機訂閱滑鼠報告＝HID 接上了`）。另：已配對的 iPhone 會在廣播時自動搶連，測 Mac 時要先關 iPhone 藍牙。
 13. **`@f` 用 `ble_store_clear()`**：`NimBLEDevice::deleteAllBonds()` 實機回失敗（逐筆刪除失敗就中止）。
 14. **資訊頁不讀晶片溫度（31-m4i，`cfg::INFO_CHIP_TEMP`＝false）**：`temperatureRead()` 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）互卡，11-22 資訊頁放約 30 分鐘後兩核卡死 → 中斷看門狗重開（core1 卡在 `temperature_sensor_get_raw_value`、core0 卡在 `temperature_sensor_power_release`）。顯示「--C」。
+15. **連線間隔照 Apple 規範（31-m4k）**：Apple 配件設計指南——最短間隔 ≥15ms 且最長 ≥ 最短＋15ms（HID 例外可 11.25～15ms）、監督逾時 2～6 秒。31-m4j 前廣播偏好 7.5～15ms，Mac 選 7.5ms、配對完主動斷（0x213，待證實是否為此原因）。預設改 15～30ms（`BLE_ITVL_PRESET`＝2），配對完成 1.5 秒後若主機選的間隔不在範圍內就 `updateConnParams` 要求一次（逾時 4 秒）。序列埠 `@i0/@i1/@i2` 切預設組、`@u0/@u1` 開關主動要求；連上時印主機選的間隔／延遲／逾時。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
