@@ -27,6 +27,7 @@ float    s_acc_x = 0, s_acc_y = 0;   // 還沒送出的游標點數（含小數�
 
 float s_gain = cfg::AIR_GAIN;
 float s_dead = cfg::AIR_DEADZONE_DPS;
+float s_exp  = cfg::AIR_ACCEL_EXP;      // 加速曲線指數（@n 調）
 int   s_sign_x = cfg::AIR_SIGN_X;
 int   s_sign_y = cfg::AIR_SIGN_Y;
 
@@ -52,7 +53,7 @@ float curve(float v) {
   const float a = fabsf(v);
   if (a < s_dead) return 0.0f;
   const float e = a - s_dead;          // 扣掉死區，起步不會跳
-  const float pps = s_gain * powf(e, cfg::AIR_ACCEL_EXP);
+  const float pps = s_gain * powf(e, s_exp);
   return v > 0 ? pps : -pps;
 }
 
@@ -181,12 +182,18 @@ void setDeadzone(float d) {
   s_dead = d;
   Serial.printf("[air] 死區 %.1f 度/秒\n", s_dead);
 }
+void setExponent(float e) {
+  if (e < 0.5f) e = 0.5f;
+  if (e > 3.0f) e = 3.0f;
+  s_exp = e;
+  Serial.printf("[air] 曲線指數 %.2f（1＝線性）\n", s_exp);
+}
 void flipX() { s_sign_x = -s_sign_x; Serial.printf("[air] X 方向 %+d\n", s_sign_x); }
 void flipY() { s_sign_y = -s_sign_y; Serial.printf("[air] Y 方向 %+d\n", s_sign_y); }
 
 void printStatus() {
   Serial.printf("[air] 靈敏度 %.2f｜曲線指數 %.2f｜死區 %.1f 度/秒｜X 軸 %d 方向 %+d｜Y 軸 %d 方向 %+d｜偏差 %+.2f/%+.2f/%+.2f%s｜%s\n",
-                s_gain, cfg::AIR_ACCEL_EXP, s_dead, cfg::AIR_AXIS_X, s_sign_x, cfg::AIR_AXIS_Y, s_sign_y,
+                s_gain, s_exp, s_dead, cfg::AIR_AXIS_X, s_sign_x, cfg::AIR_AXIS_Y, s_sign_y,
                 s_bias[0], s_bias[1], s_bias[2], s_bias_ok ? "" : "（未校正）", s_stopped ? "靜止" : "移動");
 }
 
