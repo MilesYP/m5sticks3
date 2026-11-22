@@ -46,7 +46,7 @@ constexpr C3 K_TXT   = {0xFF, 0x9B, 0x00};   // 主文字（琥珀橘）
 constexpr C3 K_HI    = {0xFF, 0xD0, 0x80};   // 強調（亮橘白）
 constexpr C3 K_RED   = {0xFF, 0x29, 0x23};   // 錯誤／警示線／啟用中的 icon
 constexpr C3 K_YEL   = {0xFF, 0xD0, 0x00};   // 注意
-constexpr C3 K_GRN   = {0x39, 0xFF, 0x14};   // 正常（電量 ≥60%、額度 <70%）；CHIP 負載波形（11-22 Miles）
+constexpr C3 K_GRN   = {0x39, 0xFF, 0x14};   // 正常（電量 ≥60%、額度 <70%）；MEM 最低線（11-22 Miles）
 constexpr C3 K_PUR   = {0xB0, 0x4D, 0xFF};   // MEM 記憶體長條（11-22 Miles：改紫色）
 inline uint16_t col(const C3& c) { return s_cv.color565(c.r, c.g, c.b); }
 
@@ -593,8 +593,7 @@ void chipPart(int x, int y, int w, int h) {
     const int idx = (s_loop_pos - n + k + cfg::INFO_HIST_SEC * 2) % cfg::INFO_HIST_SEC;
     const float v = s_loop_hist[idx] > full ? full : s_loop_hist[idx];
     const int xx = x + w - 1 - n + k, yy = gy + gh - 2 - (int)((gh - 3) * v / full);
-    // 11-22 Miles：波形改綠色、加粗（約 2px）；超過 25ms 的段仍紅色
-    if (px >= 0) s_cv.drawWideLine(px, py, xx, yy, 0.9f, col(s_loop_hist[idx] > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_GRN));
+    if (px >= 0) s_cv.drawLine(px, py, xx, yy, col(s_loop_hist[idx] > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_TXT));
     px = xx; py = yy;
   }
   snprintf(fb, sizeof fb, "%luM", (unsigned long)getCpuFrequencyMhz());
@@ -614,14 +613,24 @@ void memPart(int x, int y, int w, int h) {
   s_cv.drawRect(x, gy, w, gh, col(K_UNLIT));
   uint32_t top = lo;
   for (int k = 0; k < s_heap_n; ++k) if (s_heap_hist[k] > top) top = s_heap_hist[k];
-  if (!top) top = 1;
+  // 11-22 Miles：原本從 0 畫起，heap 幾乎不變 → 柱子全頂到天、最低線貼在柱頂看不出變化。
+  // 改成只畫「最低值附近」那一段：最低線固定在約 56% 高、這 60 秒的最高在約 88%，柱子高低差看得出來
+  const float r = (float)((top - lo) > 4096 ? (top - lo) : 4096);   // 變化太小時至少當 4KB
+  const float vb = (float)lo - 1.8f * r, vt = (float)top + 0.4f * r;   // 圖的底與頂對應的 heap 值
+  auto ypos = [&](uint32_t v) {
+    float f = ((float)v - vb) / (vt - vb);
+    f = f < 0 ? 0 : f > 1 ? 1 : f;
+    return (int)((gh - 2) * f);
+  };
   const int maxBars = (w - 2) / 3, nb = s_heap_n < maxBars ? s_heap_n : maxBars;
   for (int k = 0; k < nb; ++k) {
     const int idx = (s_heap_pos - nb + k + cfg::INFO_HEAP_BARS * 2) % cfg::INFO_HEAP_BARS;
-    const int hh = (int)((uint64_t)(gh - 2) * s_heap_hist[idx] / top);
+    const int hh = ypos(s_heap_hist[idx]);
     s_cv.fillRect(x + w - 1 - (nb - k) * 3, gy + gh - 1 - hh, 2, hh, col(K_PUR));
   }
-  s_cv.drawFastHLine(x + 1, gy + gh - 1 - (int)((uint64_t)(gh - 2) * lo / top), w - 2, col(K_RED));
+  // 最低線（開機以來 heap 最低）：綠色、2px 粗
+  const int lyMin = gy + gh - 1 - ypos(lo);
+  s_cv.fillRect(x + 1, lyMin - 1, w - 2, 2, col(K_GRN));
   kb(hb, sizeof hb, ESP.getFreeHeap());
   kb(psb, sizeof psb, ESP.getFreePsram());
   snprintf(pb, sizeof pb, "P%s", psb);
