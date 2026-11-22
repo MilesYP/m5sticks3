@@ -6,6 +6,7 @@
 #include <atomic>
 #include <math.h>
 #include <WiFi.h>
+#include <Preferences.h>
 
 #include "config.h"
 
@@ -80,6 +81,8 @@ std::atomic<uint32_t> s_auth_t{0};                           // 配對完成時�
 bool                  s_opt_rid    = false;                  // @r：報告帶 Report ID 1（舊）；關＝不帶 Report ID（對照組）
 bool                  s_opt_vid    = false;                  // @v：PnP 用 Apple VID 0x05AC／PID 0（對照組）；關＝Espressif 0x303A。31-m4n 預設關：Mac 快取到 Apple VID 後「附近裝置」不給連線按鈕、也不再嘗試連線
 bool                  s_opt_wake   = true;                   // @h：HID Information flags 0x01 遠端喚醒（對照組）；關＝0x02 一般可連線（舊）
+uint8_t               s_addr_salt  = 0;                      // 31-m4o：0＝原廠 public 位址；1～255＝由晶片 MAC 衍生的隨機靜態位址（@a 換一個，存 NVS）
+bool                  s_addr_loaded = false;
 bool                  s_opt_enc    = true;                   // @e：HID 服務特徵值全部要加密（31-m4m，規範要求）；關＝NimBLE 預設（Report Map 等不加密）
 bool                  s_opt_reqsec = false;                  // @s：連上後由裝置主動要求加密（舊＝開；對照組不主動要求）
 bool                  s_opt_sc     = cfg::BLE_SECURE_CONN;   // @c：LE Secure Connections（關＝舊式配對）
@@ -242,6 +245,15 @@ void setOption(char opt, bool on) {
   else if (opt == 'c') s_opt_sc = on;
   else if (opt == 'k') s_opt_irk = on;
   else if (opt == 'u') { s_opt_upd = on; Serial.printf("[ble] 配對後主動要求連線參數 %s\n", on ? "開" : "關"); return; }
+  else if (opt == 'a') {   // 31-m4o：換藍牙位址（on＝下一個，off＝回原廠 public），存 NVS
+    s_addr_salt = on ? (uint8_t)(s_addr_salt == 255 ? 1 : s_addr_salt + 1) : 0;
+    s_addr_loaded = true;
+    Preferences pr;
+    if (pr.begin("ble", false)) { pr.putUChar("salt", s_addr_salt); pr.end(); }
+    Serial.printf("[ble] 換藍牙位址 #%u（0＝原廠）→ 重建藍牙；電腦會當成一台新裝置\n", (unsigned)s_addr_salt);
+    if (s_on.load() || s_pending) { end(); begin(); }
+    return;
+  }
   else if (opt == 'r' || opt == 'v' || opt == 'h' || opt == 'p' || opt == 'e') {   // 31-m4l：GATT 內容變了 → 重建藍牙
     if (opt == 'e') s_opt_enc = on;
     else if (opt == 'r') s_opt_rid = on;
@@ -279,6 +291,26 @@ bool startNow() {
     if (!NimBLEDevice::init(cfg::BLE_DEVICE_NAME)) {
       Serial.println("[ble] NimBLE 初始化失敗");
       return false;
+    }
+    // 31-m4o：換藍牙位址＝對主機來說是一台全新的裝置（Mac 會快取舊位址的裝置資料，清不乾淨時用）
+    if (!s_addr_loaded) {
+      Preferences pr;
+      if (pr.begin("ble", true)) { s_addr_salt = pr.getUChar("salt", cfg::BLE_ADDR_SALT); pr.end(); }
+      else s_addr_salt = cfg::BLE_ADDR_SALT;
+      s_addr_loaded = true;
+    }
+    if (s_addr_salt) {
+      const uint64_t mac = ESP.getEfuseMac();
+      uint8_t a[6];
+      for (int i = 0; i < 6; ++i) a[i] = (uint8_t)(mac >> (8 * i));   // a[0]＝最低位元組
+      a[0] ^= s_addr_salt;
+      a[1] ^= (uint8_t)(s_addr_salt * 37);
+      a[5] |= 0xC0;                                                     // 最高 2 bit＝11：隨機靜態位址
+      const bool ok = NimBLEDevice::setOwnAddr(a) && NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
+      Serial.printf("[ble] 位址 %02X:%02X:%02X:%02X:%02X:%02X（隨機靜態 #%u）%s\n", a[5], a[4], a[3], a[2], a[1], a[0],
+                    (unsigned)s_addr_salt, ok ? "" : "設定失敗，改用原廠位址");
+    } else {
+      Serial.printf("[ble] 位址 %s（原廠 public）\n", NimBLEDevice::getAddress().toString().c_str());
     }
     // 配對：要綁定（bonding，下次自動重連）、不需輸入密碼（裝置沒有螢幕鍵盤可比對）、用 LE Secure Connections
     applySecurity();

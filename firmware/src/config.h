@@ -256,6 +256,7 @@ constexpr uint32_t BLE_START_WAIT_MS   = 2000;   // (keep)
 // 31-m4k：連線間隔（單位 1.25ms）。Apple 配件設計指南：最短 15ms 且「最長 ≥ 最短＋15ms」，HID 例外可用 11.25～15ms；
 // 監督逾時 2～6 秒。31-m4j 前廣播 7.5～15ms，Mac 選 7.5ms 後配對完就主動斷（0x213）→ 預設改 15～30ms。序列埠 @i0/@i1/@i2 切
 constexpr uint8_t  BLE_ITVL_PRESET     = 2;      // 0＝7.5～15ms（舊，對照）｜1＝11.25～15ms（HID 例外）｜2＝15～30ms
+constexpr uint8_t  BLE_ADDR_SALT       = 1;      // 31-m4o：預設藍牙位址（0＝原廠 public；1～255＝衍生的隨機靜態位址）。Mac 快取了舊位址的 Apple VID，換位址當新裝置；@a 再換、@a0 回原廠
 constexpr uint16_t BLE_SUP_TIMEOUT     = 400;    // 監督逾時（單位 10ms）＝4 秒
 constexpr uint32_t BLE_PARAM_REQ_MS    = 1500;   // 配對完成後等這麼久，再主動要求連線參數（@u0/@u1 開關）   // 31-m4b：進 AirMouse 先等 Wi-Fi 真的關掉（最多這麼久）再開藍牙，避免兩邊同時初始化射頻
 
