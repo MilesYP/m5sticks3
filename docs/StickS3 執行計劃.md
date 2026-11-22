@@ -22,7 +22,7 @@
 
 ---
 
-## 目前進度（更新於 2026-11-21）
+## 目前進度（更新於 2026-11-22）
 
 正式韌體 `firmware/` 的里程碑依 `CLAUDE.md` 第 6 節排序。RF Pack 接收已驗證正常，SPI 需依規則防錯，**不卡任何里程碑**。每個里程碑的切片清單見下一節。
 
@@ -36,7 +36,7 @@ flowchart TD
     M4["M4 空中滑鼠<br>3 片・下一個里程碑"]
     M2["M2 HID 外掛<br>4 片・最後做"]
     M3S["M3 S3 軌<br>3 片・可並行"]
-    M3R["M3 RF 軌<br>RF-0 完成・4 片可做"]
+    M3R["M3 RF 軌（Codex）<br>R0 待貼文・R1 待開工"]
     RS["RF Pack 狀態<br>接收正常・SPI 需防錯"]
     G["G Grove 配件驗收<br>1／2 片・可並行"]
 
@@ -68,7 +68,9 @@ flowchart TD
 | M4 | 空中體感滑鼠 | 🟠 下一個（11-22 Miles 調到 M1.5 之前） | BMI270 → 低通濾波 → BLE HID |
 | M1.5 | 紅外線萬能遙控器 | ⏳ M4 之後 | S3 本體內建紅外線，腳位待實機驗證 |
 | M2 | 跨裝置 HID 外掛 | ⏳ 4 片・最後 | 先做 PC／macOS 版；急停為安全關鍵 |
-| M3（RF 軌） | 無線電工具箱 | 🟣 Codex 平行開發（11-22） | `rf-lab/`＋分支 `codex/rf-lab`，規則與交件介面見 `AGENTS.md`；repo 改 AGPL-3.0-or-later，可複製 Bruce 協定層 |
+| M3（RF 軌） | 無線電工具箱 | 🟣 Codex 平行開發（11-22） | `rf-lab/`＋分支 `codex/rf-lab`，規則與交件介面見 `AGENTS.md`；repo 改 AGPL-3.0-or-later，可複製 Bruce 協定層。詳細計畫與實測進度見下方「M3 無線電工具箱」的 RF 軌協作 |
+| R0 | Bruce issue 草稿 | 🟡 草稿完成，待 Miles 貼文 | Codex 整理的英文 issue 草稿（PINGEQUA 回覆、重現步驟、SPI 錯誤率） |
+| R1 | RF 骨架與 CC1101 安全存取層 | ⏸ 待 Miles 說「開始實作」 | `rf-lab/` 獨立測試韌體：CC1101 多數決讀取／寫入驗證、逾時處理、nRF24 自檢與省電；驗收全程不發射。和「RF-1｜RSSI 掃描」是不同項目 |
 | M3 | 無線電工具箱 | ⏳ S3 軌 3 片／RF 軌 5 片 | S3 軌（Wi-Fi／BLE 掃描）可並行；RF 軌接收已驗證，讀寫層依鐵則五第 7 點防錯 |
 
 ### 中控（雲端）現狀
@@ -212,6 +214,16 @@ G2 測試項目（螢幕＋序列埠同時顯示；換配件先關機）：
 | M2-4 | 語音驅動：接 M1-B 中控的工具呼叫，語音直接指揮電腦操作 | 對它說一句話，電腦照做 | ⏳ |
 
 ### M3 無線電工具箱（S3 軌 3 片・RF 軌 5 片，RF-0 已完成）
+
+**RF 軌協作（11-22 起）**：Codex 在本機 `~/Developer/m5sticks3-rf`（分支 `codex/rf-lab`）維護 RF 詳細計畫與實測進度，這裡只放摘要與入口；RF 分支的合併與韌體整合另行安排。
+
+| 代號 | 項目 | 狀態 | 詳細入口（本機） |
+| :-- | :-- | :-- | :-- |
+| R0 | Bruce issue 草稿 | 🟡 草稿完成，待 Miles 貼文 | `~/Developer/m5sticks3-rf/docs/rf/bruce-issue-draft.md` |
+| R1 | RF 骨架與 CC1101 安全存取層 | ⏸ 待 Miles 說「開始實作」 | `~/Developer/m5sticks3-rf/docs/rf/R1-plan.md` |
+| — | RF 實測進度 | 以此檔為準 | `~/Developer/m5sticks3-rf/rf-lab/PROGRESS.md` |
+
+公開連結：`codex/rf-lab` 尚未推上 GitHub，有可存取的網址後再補。「R1｜RF 骨架與 CC1101 安全存取層」是 RF-1～RF-4 共用的底層，和下表「RF-1｜RSSI 掃描」是不同項目。
 
 | 片 | 內容 | 驗收方式 | 狀態 |
 | :-- | :-- | :-- | :-- |
