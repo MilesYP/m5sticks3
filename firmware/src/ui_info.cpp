@@ -628,9 +628,8 @@ void memPart(int x, int y, int w, int h) {
     const int hh = ypos(s_heap_hist[idx]);
     s_cv.fillRect(x + w - 1 - (nb - k) * 3, gy + gh - 1 - hh, 2, hh, col(K_PUR));
   }
-  // 最低線（開機以來 heap 最低）：綠色、2px 粗
-  const int lyMin = gy + gh - 1 - ypos(lo);
-  s_cv.fillRect(x + 1, lyMin - 1, w - 2, 2, col(K_GRN));
+  // 最低線（開機以來 heap 最低）：綠色 1px
+  s_cv.drawFastHLine(x + 1, gy + gh - 1 - ypos(lo), w - 2, col(K_GRN));
   kb(hb, sizeof hb, ESP.getFreeHeap());
   kb(psb, sizeof psb, ESP.getFreePsram());
   snprintf(pb, sizeof pb, "P%s", psb);
