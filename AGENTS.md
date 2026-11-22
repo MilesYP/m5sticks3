@@ -27,6 +27,7 @@
 
 - 進度寫在 **`rf-lab/PROGRESS.md`**（格式同 `docs/PROGRESS.md`，最新在最上面）；新的工程規則寫在 **`docs/rf/RULES.md`**，併回時由 Claude Code 搬進 `CLAUDE.md`。
 - Git：在分支 **`codex/rf-lab`** 上 commit（訊息用繁體中文、說清楚改了什麼）；併回 `main` 由 Miles／Claude Code 處理。
+- **一定要用獨立資料夾（git worktree），不要在主資料夾 `~/Developer/m5sticks3` 切分支**：主資料夾是 Claude Code 在用的 `main`，在那裡 `git checkout` 會把 Claude 的工作檔換掉、Claude 的 commit 也會落到你的分支（11-22 發生過一次）。做法：在主資料夾 `git worktree add ../m5sticks3-rf codex/rf-lab`，之後只在 `~/Developer/m5sticks3-rf` 工作；要拿 `main` 的新東西就在你的資料夾 `git merge main`。
 - **絕不提交或讀取**：`firmware/src/secrets.h`、`firmware/persona_local/`、`cloud/persona/miles.local.md`、任何密碼／token／Wi-Fi 帳密。
 
 ## 3. 必讀（依序）
