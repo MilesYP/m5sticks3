@@ -321,6 +321,8 @@ void handleCmd(const CmdMsg& m) {
       s_wifi_on = true;
       WiFi.mode(WIFI_STA);
       s_need_pick = true;   // 11-21：交給 wifiPickStep 掃描挑網路（家裡優先）
+      // 31-m4e：重開 Wi-Fi 先試「關之前連著的那一組」（原本會輪到下一組，家裡→先試熱點、白等 10 秒）
+      s_net_idx = s_net_idx < 0 ? -1 : s_net_idx - 1;
       net_hub::applyIdlePs();   // P2：重開 Wi-Fi 後重套省電深度（錄放音中由 voiceActive 管）
       netlog("[wifi] Wi-Fi → 開（等 [hub] WS connected）\n");
       break;

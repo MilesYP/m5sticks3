@@ -161,11 +161,16 @@ bool startNow() {
     s_hid->setBatteryLevel(100);
     s_server->start();
 
+    // 31-m4e：自己組廣播內容。函式庫預設的 flags 只有「一般可發現」，少了「不支援傳統藍牙（BR/EDR）」——
+    // Mac 這種同時有傳統藍牙的主機可能因此把它當雙模裝置、在「附近裝置」不給連線按鈕。
+    NimBLEAdvertisementData ad;
+    ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);   // 3 bytes
+    ad.setAppearance(HID_MOUSE);                   // 4：iOS／iPadOS／macOS 靠這個認成滑鼠
+    ad.setCompleteServices(s_hid->getHidService()->getUUID());   // 4：HID 服務 0x1812
+    ad.setPreferredParams(6, 12);                  // 6：連線間隔偏好 7.5～15ms（單位 1.25ms），游標才順
+    ad.setName(cfg::BLE_DEVICE_NAME);              // 10：共 27 bytes（上限 31）
     NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-    adv->setAppearance(HID_MOUSE);                 // iOS／iPadOS 靠這個認成滑鼠
-    adv->addServiceUUID(s_hid->getHidService()->getUUID());
-    adv->setName(cfg::BLE_DEVICE_NAME);
-    adv->setPreferredParams(6, 12);                // 連線間隔偏好 7.5～15ms（單位 1.25ms），游標才順
+    if (!adv->setAdvertisementData(ad)) Serial.println("[ble] 自訂廣播內容設定失敗（改用函式庫預設）");
     s_built = true;
   }
   NimBLEDevice::getAdvertising()->start();
