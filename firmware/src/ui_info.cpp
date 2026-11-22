@@ -578,7 +578,9 @@ int txtAt(int x, int y, const char* str, const C3& c, bool draw = true) {
 // 晶片：標籤＋溫度｜負載波形｜頻率、這一秒最長一圈
 void chipPart(int x, int y, int w, int h) {
   hexLabelAt(x - 2, y, "CHIP");
-  const float tc = temperatureRead();
+  // 31-m4i：不再讀晶片溫度。temperatureRead() 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）會互卡，
+  // 11-22 實機在資訊頁放了約 30 分鐘後兩個核心卡死 → 中斷看門狗重開（ESP-IDF 4.4 的已知問題）。
+  const float tc = cfg::INFO_CHIP_TEMP ? temperatureRead() : NAN;
   char tb[10], fb[10], ms[8];
   if (isnan(tc)) strcpy(tb, "--C"); else snprintf(tb, sizeof tb, "%dC", (int)lroundf(tc));
   txtAt(x + w - mixedWidth(tb), y, tb, tc >= 60 ? K_RED : K_TXT);

@@ -8,6 +8,8 @@
 #include <WiFi.h>
 
 #include "config.h"
+
+extern "C" int ble_store_clear(void);   // NimBLE host：清空配對資料庫（NimBLEDevice::deleteAllBonds 逐筆刪會失敗）
 #include "killswitch.h"
 
 namespace {
@@ -358,8 +360,10 @@ void forgetBonds() {
     return;
   }
   if (s_connected.load() && s_server) s_server->disconnect(s_conn.load());
-  const bool ok = NimBLEDevice::deleteAllBonds();
-  Serial.printf("[ble] 清除所有配對紀錄%s（電腦／平板那邊也要「忘記此裝置」）\n", ok ? "" : "失敗");
+  const int before = NimBLEDevice::getNumBonds();
+  const bool ok = ble_store_clear() == 0;   // 31-m4i：deleteAllBonds() 實機回失敗，改直接清整個資料庫
+  Serial.printf("[ble] 清除所有配對紀錄%s（%d → %d 台；電腦／平板那邊也要「忘記此裝置」）\n", ok ? "" : "失敗", before,
+                NimBLEDevice::getNumBonds());
 }
 
 void printStatus() {

@@ -224,6 +224,8 @@
 10. **切模式過場等資源好了才進新畫面**（31-m4f，Miles 11-22 提議）：`main` 照舊 `start()` → `next()` → `ready()`，但 `ui_modeswitch::render()` 之後再問 `mode_manager::currentReady()`：Desktop 等中控 WebSocket 連上（`net_hub::linkUp()`）、AirMouse 等藍牙開始廣播；狀態字顯示「連線中…／開藍牙…」，進度條 25% 起慢慢爬到最多 80%，好了才在 450ms 內跑完。最多等 `UI_MODESWITCH_WAIT_MAX_MS`（15 秒），逾時照樣進去（斷線臉）。**過場中按 A 不理**（避免還沒連上就錄音、重送時又被新的一輪蓋掉）；按 B 照樣切下一個模式、B 3 秒急停照樣最高優先（過場 cancel）。
 11. **連著主機時離開 AirMouse 也會當機（31-m4g）**：`disconnect()` 是非同步的，馬上 `deinit()` → host task 還在處理斷線 → 一樣 `PC=0`。`end()` 改成：先關「斷線自動重新廣播」、停廣播 → 斷線 → 等斷線回呼（最多 600ms）→ 再等 50ms → deinit。
 12. **Mac「連上秒斷」（31-m4f 實機：原因 0x213＝Mac 主動斷）**：31-m4g 配對改成雙方都交換「加密金鑰＋身分金鑰（IRK）」（預設只交換加密金鑰），並記錄主機有沒有訂閱滑鼠報告（`[ble] 主機訂閱滑鼠報告＝HID 接上了`）。另：已配對的 iPhone 會在廣播時自動搶連，測 Mac 時要先關 iPhone 藍牙。
+13. **`@f` 用 `ble_store_clear()`**：`NimBLEDevice::deleteAllBonds()` 實機回失敗（逐筆刪除失敗就中止）。
+14. **資訊頁不讀晶片溫度（31-m4i，`cfg::INFO_CHIP_TEMP`＝false）**：`temperatureRead()` 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）互卡，11-22 資訊頁放約 30 分鐘後兩核卡死 → 中斷看門狗重開（core1 卡在 `temperature_sensor_get_raw_value`、core0 卡在 `temperature_sensor_power_release`）。顯示「--C」。
 
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
