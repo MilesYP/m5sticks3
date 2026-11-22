@@ -19,6 +19,7 @@
 #include "audio_io.h"
 #include "battery_ui.h"
 #include "net_hub.h"
+#include "power_key.h"
 #include "power_save.h"
 #include "ui_expression.h"
 #include "ui_fx.h"
@@ -33,7 +34,9 @@
 // 恢復連線後回待機臉（這一輪語音若還在播已收到的部分，播完自己會回 Idle）。
 static void updateOffline() {
   static bool shown = false;
-  const bool off = net_hub::linkDownMs() > cfg::OFFLINE_SHOW_MS;
+  // P2：省電主動斷 Wi-Fi 時不算斷線；剛叫醒重連（含 TLS 約 3～5 秒）的那段也先不顯示
+  const uint32_t thr = net_hub::radioOnForMs() < cfg::OFFLINE_WAKE_GRACE_MS ? cfg::OFFLINE_WAKE_GRACE_MS : cfg::OFFLINE_SHOW_MS;
+  const bool off = !net_hub::radioOff() && net_hub::linkDownMs() > thr;
   if (off == shown) return;
   shown = off;
   ui_expression::setOffline(off);
@@ -65,6 +68,9 @@ static M5Canvas* showingCanvas() { return ui_info::shown() ? ui_info::canvas() :
 //  - 資訊頁上按住 A 滿 0.6 秒（或這輪還在忙）→ 自動回表情頁（對話區在表情頁）。
 //  - 離開 Desktop → 回到表情頁（下次進 Desktop 從表情頁開始）。
 static bool s_a_was_busy = false;
+// P2：Desktop 關螢幕時 A 鍵：短按不理，按住滿 0.6 秒＝亮螢幕＋連回中控（不錄音，要說話放開再按）
+static uint32_t s_a_off_down = 0;    // 關螢幕時按下 A 的時刻（0＝沒有）
+static bool     s_a_skip_release = false;
 static void updatePage() {
   if (!ui_info::shown()) return;
   if (mode_manager::current() != Mode::Desktop) ui_info::setShown(false, "離開 Desktop");
@@ -93,15 +99,18 @@ void setup() {
   imu_pet::begin();              // A3：IMU 桌寵互動（序列埠 j／v 量測）
   battery_ui::begin();           // A3：休息臉顏色跟電量（序列埠 c 假裝電量）
   power_save::begin();           // P1：背光／畫面張數／CPU／Wi-Fi 依桌寵狀態省電（序列埠 z）
+  power_key::begin();            // P2：電源鍵新機制（PM1 設定、看門狗；序列埠 q）
   ui_status::printReport();
 }
 
 void loop() {
   net_hub::loop();   // B3b-5：代印網路 task 的 log、依序處理收到的訊息（WebSocket 本身在網路 task 跑）
   diag_cmd::loop();  // 序列埠診斷指令（B3.6，非阻塞）
+  power_key::loop(); // P2：餵 PM1 看門狗、輪詢電源鍵（單按＝開關螢幕、長按＝關機／root、連按五下＝強制關機）
 
   // (1) 急停第二段
   if (killswitch::isTriggered() && mode_manager::current() != Mode::Safe) {
+    power_save::setScreenOn(true, "急停");   // P2：急停一律亮螢幕
     ui_modeswitch::cancel();   // 急停不走過場
     mode_manager::emergencyStop();
     renderActive(true);
@@ -110,6 +119,10 @@ void loop() {
   // (2) 輸入事件
   switch (input_hal::poll()) {
     case InputEvent::BtnB_Click:
+      if (!power_save::screenOn()) {   // P2：關螢幕時 B 短按只亮螢幕（不切模式，免得看不到就切走）
+        power_save::setScreenOn(true, "B 短按");
+        break;
+      }
       if (mode_manager::current() == Mode::Safe) {
         mode_manager::resumeFromSafe();
       } else {
@@ -125,6 +138,7 @@ void loop() {
       break;
 
     case InputEvent::BtnB_Hold3s:
+      power_save::setScreenOn(true, "急停");
       killswitch::triggerSoftware();
       ui_modeswitch::cancel();
       mode_manager::emergencyStop();
@@ -133,6 +147,10 @@ void loop() {
 
     case InputEvent::BtnA_Press:
       // Desktop：按住 A 講話（錄音 → 上傳中控 → 邊收邊播，見 voice_turn）
+      if (mode_manager::current() == Mode::Desktop && !power_save::screenOn()) {
+        s_a_off_down = millis() | 1;   // P2：關螢幕：等按滿 0.6 秒才亮（見下面）
+        break;
+      }
       if (mode_manager::current() == Mode::Desktop) {
         s_a_was_busy = voice_turn::busy();
         voice_turn::onPress();
@@ -146,6 +164,11 @@ void loop() {
       break;
 
     case InputEvent::BtnA_Release:
+      if (s_a_off_down || s_a_skip_release) {   // P2：關螢幕時按的 A（短按不理；長按已在按住時亮螢幕）
+        s_a_off_down = 0;
+        s_a_skip_release = false;
+        break;
+      }
       if (mode_manager::current() == Mode::Desktop) {
         const uint32_t t0 = millis();
         const bool tap = voice_turn::onRelease();   // true＝按不到 0.6 秒，這輪已取消
@@ -162,6 +185,12 @@ void loop() {
 
     case InputEvent::None:
       break;
+  }
+
+  if (s_a_off_down && millis() - s_a_off_down >= cfg::VOICE_MIN_PRESS_MS) {
+    s_a_off_down = 0;
+    s_a_skip_release = true;
+    if (!power_save::screenOn()) power_save::setScreenOn(true, "長按 A");
   }
 
   // 錄音餵資料、播完切回麥克風（B3b-1）；一輪語音的上傳／等待／收尾（B3b-2）
@@ -185,7 +214,10 @@ void loop() {
   }
   if (mode_manager::current() != Mode::Desktop && !ui_modeswitch::active()) ui_fx::cancel();
   power_save::loop();   // P1：依這一圈的狀態決定省電等級（在畫圖之前）
-  renderActive(false);
-  ui_fx::loop();
+  if (power_save::screenOn() && !power_key::overlayActive()) {   // P2：關螢幕／電源鍵長按畫面時不畫一般畫面
+    renderActive(false);
+    ui_fx::loop();
+    power_key::drawBadge();   // root 模式：角落「ROOT」
+  }
   delay(power_save::yieldMs());   // P1：兩張畫面之間讓 CPU 休息（最多 10ms 一圈）
 }

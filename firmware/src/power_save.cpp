@@ -24,6 +24,8 @@ uint32_t s_cpu_mhz = 0;
 bool     s_wifi_deep = false;
 uint32_t s_last_frame = 0;
 bool     s_force_frame = true;
+bool     s_screen_on = true;     // P2：螢幕開關（電源鍵單按）
+uint32_t s_sleep_t = 0;          // P2：Desktop 開始「睡」（睡著或關螢幕）的時刻；0＝醒著
 
 uint32_t frameMs(power_save::Level l) {
   switch (l) {
@@ -35,8 +37,6 @@ uint32_t frameMs(power_save::Level l) {
 }
 
 uint8_t blTarget(power_save::Level l) {
-  // A4b：插著線時背光最低停在想睡那一級（睡著也看得到充電液體；不用省電池）
-  if (battery_ui::chargeState() > 0 && l == power_save::Level::Asleep) l = power_save::Level::Drowsy;
   if (l == power_save::Level::Drowsy) return s_bl_awake < cfg::PWR_BL_DROWSY ? s_bl_awake : cfg::PWR_BL_DROWSY;
   if (l == power_save::Level::Asleep) return s_bl_awake < cfg::PWR_BL_ASLEEP ? s_bl_awake : cfg::PWR_BL_ASLEEP;
   return s_bl_awake;
@@ -45,6 +45,7 @@ uint8_t blTarget(power_save::Level l) {
 power_save::Level decide() {
   using L = power_save::Level;
   if (!s_enabled || mode_manager::current() != Mode::Desktop) return L::Active;
+  if (!s_screen_on) return voice_turn::busy() ? L::Active : L::Asleep;   // P2：Desktop 關螢幕＝睡（Friday 還在講就全速）
   // 資訊頁跟表情頁同一套（11-20 Miles）：依桌寵心情分級；資訊頁本來就每秒才重畫一次，所以只影響背光／CPU／Wi-Fi
   if (voice_turn::busy() || ui_modeswitch::active() || ui_fx::active()) return L::Active;
   if (ui_info::shown()) {   // 資訊頁：看靜置時間（10 秒變暗、30 秒微光），被拍／搖的反應中全速
@@ -111,7 +112,19 @@ void loop() {
                   (unsigned long)getCpuFrequencyMhz(), deep ? "深度省電" : "一般",
                   frameMs(want) ? (want == Level::Calm ? "30fps" : want == Level::Drowsy ? "10fps" : "5fps") : "全速");
   }
-  applyBacklight(now);
+  if (s_screen_on) applyBacklight(now);
+
+  // P2：Desktop 睡著或關螢幕滿 3 分鐘 → 斷 Wi-Fi；醒來就重連（語音中、上傳沒送完一律算醒著）
+  const bool sleeping = mode_manager::current() == Mode::Desktop && !voice_turn::busy() &&
+                        (!s_screen_on || s_level == Level::Asleep);
+  if (sleeping) {
+    if (!s_sleep_t) s_sleep_t = now | 1;
+    if (!net_hub::radioOff() && now - s_sleep_t >= cfg::PWR_RADIO_OFF_MS)
+      net_hub::setRadioOff(true, s_screen_on ? "睡著滿 3 分鐘" : "關螢幕滿 3 分鐘");
+  } else {
+    s_sleep_t = 0;
+    if (net_hub::radioOff()) net_hub::setRadioOff(false, "醒來");
+  }
 }
 
 bool frameDue() {
@@ -126,6 +139,7 @@ void frameDrawn() {
 }
 
 uint32_t yieldMs() {
+  if (!s_screen_on && mode_manager::current() == Mode::Desktop && !voice_turn::busy()) return cfg::PWR_YIELD_MAX_MS;
   if (!s_enabled || mode_manager::current() != Mode::Desktop) return cfg::LOOP_YIELD_MS;
   if (voice_turn::busy() || ui_modeswitch::active() || ui_fx::active()) return cfg::LOOP_YIELD_MS;
   if (ui_info::shown()) return cfg::PWR_YIELD_MAX_MS;   // 資訊頁每秒才重畫一次
@@ -161,6 +175,27 @@ void setAwakeBrightness(uint8_t v) {
   Serial.printf("[pwr] 正常背光 → %u（想睡 %u、睡著 %u，不會比正常亮）\n", (unsigned)v,
                 (unsigned)blTarget(Level::Drowsy), (unsigned)blTarget(Level::Asleep));
 }
+
+void setScreenOn(bool on, const char* why) {
+  if (on == s_screen_on) return;
+  s_screen_on = on;
+  if (on) {
+    M5.Display.wakeup();
+    s_bl_now = 0;                 // 下一圈 applyBacklight 立刻亮到目標
+    s_force_frame = true;
+    ui_fx::invalidate();          // 螢幕睡著時內容不可信 → 下一張整張送
+    imu_pet::wake(why);           // 醒來：靜置從頭計時、回待機臉
+  } else {
+    ui_fx::cancel();
+    M5.Display.setBrightness(0);
+    M5.Display.sleep();
+  }
+  Serial.printf("[pwr] 螢幕 → %s（%s）\n", on ? "開" : "關", why);
+}
+
+void toggleScreen(const char* why) { setScreenOn(!s_screen_on, why); }
+bool screenOn() { return s_screen_on; }
+void reapplyBacklight() { s_bl_now = 0; }
 
 void printStatus() {
   Serial.printf("[pwr] 省電 %s｜等級 %s｜背光 %u（正常 %u）｜CPU %lu MHz｜Wi-Fi %s｜電池 %d mV\n",

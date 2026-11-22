@@ -7,6 +7,7 @@
 #include "battery_ui.h"
 #include "config.h"
 #include "mode_manager.h"
+#include "power_save.h"
 #include "ui_expression.h"
 #include "voice_turn.h"
 
@@ -244,8 +245,18 @@ void evaluate(uint32_t now, float snd_hi, uint32_t snd_n) {
     return;
   }
 
+  // P2：關螢幕時拍、拿起、聲音都不叫醒（只有開螢幕／長按 A 才醒，見 wake()）
+  if (!power_save::screenOn()) {
+    s_last_active = now;
+    s_react = Mood::Idle;
+    s_tap_pending = false;
+    updateListening(false);
+    return;
+  }
+
   const Mood cur = ui_expression::mood();
   const bool sleeping = (cur == Mood::Sleepy || cur == Mood::Asleep);
+  const bool plugged = battery_ui::chargeState() > 0;   // P2：插著線永不睡（只有手動關螢幕才睡）
 
   if (shake) {
     if (s_react != Mood::Scared) react(Mood::Scared, now, "搖晃");
@@ -268,6 +279,10 @@ void evaluate(uint32_t now, float snd_hi, uint32_t snd_n) {
   } else if (active) {
     s_last_active = now;
     if (sleeping) setMoodIfChanged(Mood::Idle, "被拿起來");
+  } else if (plugged) {
+    s_last_active = now;           // 拔線那一刻才開始算靜置
+    if (sleeping) setMoodIfChanged(Mood::Idle, "插著線，不睡");
+    else if (cur != Mood::Idle) setMoodIfChanged(Mood::Idle, "回待機");
   } else {
     const uint32_t idle = now - s_last_active;
     if (idle >= cfg::PET_ASLEEP_MS) setMoodIfChanged(Mood::Asleep, "靜置 11 秒");
@@ -386,6 +401,18 @@ bool tilt(float* right, float* up, float* z) {
   return true;
 }
 bool measureSound() { return s_m_snd; }
+
+void wake(const char* why) {
+  s_last_active = millis();
+  s_react = Mood::Idle;
+  s_tap_pending = false;
+  if (mode_manager::current() != Mode::Desktop || voice_turn::busy()) return;
+  const Mood m = ui_expression::mood();
+  if (m == Mood::Sleepy || m == Mood::Asleep) {
+    ui_expression::setMood(Mood::Idle);
+    Serial.printf("[pet] %s → 醒來\n", why);
+  }
+}
 
 uint32_t idleMs() {
   if (s_react != Mood::Idle || voice_turn::busy()) return 0;

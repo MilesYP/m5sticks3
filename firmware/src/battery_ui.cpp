@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 
 #include "config.h"
+#include "power_key.h"
 #include "ui_expression.h"
 
 namespace {
@@ -20,7 +21,14 @@ constexpr int kTierCount = sizeof(kTiers) / sizeof(kTiers[0]);
 constexpr int TIER_BLINK = kTierCount - 1;      // 紅灰閃
 constexpr int TIER_WARN  = kTierCount - 2;      // 原色紅閃
 
-float    s_level = -1.0f;      // 平滑後的電量
+float    s_level = -1.0f;      // 平滑後的實際電量（M5PM1 讀數）
+float    s_disp = -1.0f;       // P2：畫面電量＝(實際−3)÷97×100（實際 3% 時關機，畫面看到 0% 才關）
+uint32_t s_low_since = 0;      // P2：實際電量 ≤3% 從什麼時候開始
+
+float dispOf(float real) {
+  const float d = (real - cfg::BAT_CUTOFF_PCT) * 100.0f / (100.0f - cfg::BAT_CUTOFF_PCT);
+  return d < 0 ? 0 : d > 100 ? 100 : d;
+}
 int      s_vbat_mv = 0;        // A5-1：上次讀到的電池電壓
 bool     s_charging = false;   // A5-1：上次判斷的充電中
 int      s_cstate = 0;         // A4b：0 沒充電、1 充電中、2 充飽（readAndApply 也要用，宣告在前面）
@@ -60,8 +68,9 @@ void readAndApply(bool first) {
   bool charging = false;
   float pct;
   if (s_override >= 0) {
-    pct = (float)s_override;
-    s_level = pct;                     // 假裝電量：不平滑、不遲滯，立即換色
+    pct = (float)s_override;           // 假裝的是畫面電量
+    s_disp = pct;                      // 假裝電量：不平滑、不遲滯，立即換色
+    s_level = cfg::BAT_CUTOFF_PCT + pct * (100.0f - cfg::BAT_CUTOFF_PCT) / 100.0f;
     const int before = s_tier;
     s_tier = rawTier(pct);
     if (s_tier != before) Serial.printf("[bat] 假裝 %d%% → %s\n", s_override, kTiers[s_tier].name);
@@ -77,10 +86,11 @@ void readAndApply(bool first) {
       return;
     }
     s_level = (first || s_level < 0) ? (float)raw : s_level + ((float)raw - s_level) * cfg::BAT_SMOOTH;
+    s_disp = dispOf(s_level);          // 分級、閃爍、畫面、Friday 一律用畫面電量
     const int before = s_tier;
-    s_tier = nextTier(s_tier, s_level);
+    s_tier = nextTier(s_tier, s_disp);
     if (s_tier != before)
-      Serial.printf("[bat] 電量 %.0f%%（讀數 %d%%）%s → 休息臉%s\n", s_level, raw,
+      Serial.printf("[bat] 畫面電量 %.0f%%（實際 %.0f%%，讀數 %d%%）%s → 休息臉%s\n", s_disp, s_level, raw,
                     charging ? "充電中" : "", kTiers[s_tier].name);
   }
   s_charging = charging;
@@ -205,6 +215,15 @@ void loop() {
   if (millis() - s_last_read < cfg::BAT_READ_MS) return;
   s_last_read = millis();
   readAndApply(false);
+  // P2：實際電量 ≤3%、沒插線（序列埠 c 假裝時不看插線，方便測）連續 30 秒 → 關機
+  const bool low = s_level >= 0 && s_level <= cfg::BAT_CUTOFF_PCT + 0.01f && (s_override >= 0 || !s_plug);
+  if (!low) { s_low_since = 0; return; }
+  if (!s_low_since) {
+    s_low_since = s_last_read | 1;
+    Serial.printf("[bat] 實際電量 %.1f%% ≤ %.0f%%：%lu 秒後關機（插線或回升就取消）\n", s_level, cfg::BAT_CUTOFF_PCT,
+                  (unsigned long)(cfg::BAT_CUTOFF_HOLD_MS / 1000));
+  }
+  if (s_last_read - s_low_since >= cfg::BAT_CUTOFF_HOLD_MS) power_key::shutdown("電量不足", "電量不足", "關機");
 }
 
 const char* chargeStateName(int s) {
@@ -288,7 +307,7 @@ void setOverride(int pct) {
   }
 }
 
-int level() { return s_level < 0 ? -1 : (int)(s_level + 0.5f); }
+int level() { return s_disp < 0 ? -1 : (int)(s_disp + 0.5f); }   // P2：畫面電量
 const char* tierName() { return s_tier < 0 ? "-" : kTiers[s_tier].name; }
 int voltageMv() { return s_vbat_mv; }
 bool charging() { return s_charging; }

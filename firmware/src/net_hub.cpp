@@ -25,7 +25,7 @@
 #error "secrets.h 缺少 HUB_TOKEN：照 secrets.h.example 加一行 #define HUB_TOKEN \"...\"（值與 wrangler secret 的 HUB_TOKEN 相同）"
 #endif
 
-namespace net_hub { extern std::atomic<bool> s_voice_on; }   // 定義在下面（錄放音中）
+namespace net_hub { extern std::atomic<bool> s_voice_on; void applyIdlePs(); }   // 定義在下面（錄放音中、省電深度）
 
 namespace {
 
@@ -320,14 +320,15 @@ void handleCmd(const CmdMsg& m) {
       s_wifi_on = true;
       WiFi.mode(WIFI_STA);
       s_need_pick = true;   // 11-21：交給 wifiPickStep 掃描挑網路（家裡優先）
-      netlog("[diag] Wi-Fi → 開（等 [hub] WS connected）\n");
+      net_hub::applyIdlePs();   // P2：重開 Wi-Fi 後重套省電深度（錄放音中由 voiceActive 管）
+      netlog("[wifi] Wi-Fi → 開（等 [hub] WS connected）\n");
       break;
     case Cmd::WifiOff:
       s_wifi_on = false;
       if (s_ws_started) s_ws.disconnect();
       WiFi.disconnect(true);
       WiFi.mode(WIFI_OFF);
-      netlog("[diag] Wi-Fi → 關\n");
+      netlog("[wifi] Wi-Fi → 關\n");
       break;
   }
 }
@@ -825,6 +826,26 @@ void setPingInterval(uint32_t sec) {
 
 // ── B3.6 Wi-Fi 干擾量測 ───────────────────────────────────────────────────
 void setWifiEnabled(bool on) { postSimple(on ? Cmd::WifiOn : Cmd::WifiOff); }
+
+// P2：睡著／關螢幕滿 3 分鐘斷 Wi-Fi（power_save 決定）；叫醒時重連。斷著的時候不算「斷線」（不顯示斷線提示）
+std::atomic<bool>     s_radio_off{false};
+std::atomic<uint32_t> s_radio_on_t{0};
+void setRadioOff(bool off, const char* why) {
+  if (s_radio_off.load() == off) return;
+  s_radio_off.store(off);
+  if (!off) {
+    const uint32_t now = millis();
+    s_radio_on_t.store(now | 1);
+    if (!s_link.load()) s_down_since.store(now | 1);   // 斷線提示從叫醒那一刻起算（見 OFFLINE_WAKE_GRACE_MS）
+  }
+  postSimple(off ? Cmd::WifiOff : Cmd::WifiOn);
+  Serial.printf("[pwr] Wi-Fi %s（%s）\n", off ? "斷開省電" : "重連", why);
+}
+bool radioOff() { return s_radio_off.load(); }
+uint32_t radioOnForMs() {
+  const uint32_t t = s_radio_on_t.load();
+  return t ? millis() - t : UINT32_MAX;
+}
 void pingNow() { postSimple(Cmd::Ping); }
 void dropLink() { postSimple(Cmd::DropLink); }
 

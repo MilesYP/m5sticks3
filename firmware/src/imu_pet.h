@@ -28,4 +28,6 @@ bool tilt(float* right, float* up, float* z);
 bool measureSound();
 // P1 省電（資訊頁用）：距離上次有人動多久（ms）；反應中、語音中回 0
 uint32_t idleMs();
+// P2：開螢幕／長按 A 叫醒：靜置從頭計時、睡著的臉回待機
+void wake(const char* why);
 }

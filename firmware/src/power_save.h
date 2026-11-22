@@ -29,4 +29,13 @@ void setEnabled(bool on);        // z0／z1
 bool enabled();
 void setAwakeBrightness(uint8_t v);   // l<n>
 void printStatus();              // z
+
+// ── P2（2026-11-22）螢幕開關、Wi-Fi 斷線 ──
+// 螢幕關：背光 0＋面板睡眠，主迴圈不畫；模式照常運作。Desktop 關螢幕時拍、拿起、聲音都不叫醒（imu_pet 不反應）。
+// Desktop 睡著（表情頁睡著／資訊頁靜置 30 秒）或關螢幕滿 3 分鐘 → 斷 Wi-Fi；叫醒、按 A、離開 Desktop → 重連。
+// 插著線：桌寵不睡（imu_pet），只有手動關螢幕才算睡。
+void setScreenOn(bool on, const char* why);
+void toggleScreen(const char* why);
+bool screenOn();
+void reapplyBacklight();         // 別的畫面直接改過背光（電源鍵長按畫面）→ 下一圈重設
 }

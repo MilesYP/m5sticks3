@@ -63,6 +63,10 @@ const char* perfLine();
 
 // ── B3.6 Wi-Fi 干擾量測（序列埠指令，見 diag_cmd）──
 void setWifiEnabled(bool on);        // 整個 Wi-Fi 關／開
+// P2：省電斷 Wi-Fi（power_save 呼叫）。radioOff()＝目前是主動斷開（不顯示斷線提示）；radioOnForMs()＝距離上次叫醒重連多久
+void setRadioOff(bool off, const char* why);
+bool radioOff();
+uint32_t radioOnForMs();
 void setPowerSave(bool on);          // 手動：Wi-Fi 省電開／關；之後自動切換暫停，直到 setPowerSaveAuto()
 void setPowerSaveAuto();
 void voiceActive(bool active);       // true＝錄放音中（關省電，避免滋滋聲）；false＝結束（開回省電）

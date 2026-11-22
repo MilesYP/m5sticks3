@@ -209,5 +209,32 @@ constexpr uint32_t PWR_CPU_AWAKE_MHZ   = 240;
 constexpr uint32_t PWR_CPU_ASLEEP_MHZ  = 80;    // Wi-Fi 最低要 80MHz        // loop 結尾讓出 CPU 的時間（非阻塞）
 // B3b-4：中控斷線超過這麼久才顯示斷線提示（重連常在 1～2 秒內完成，避免圖示一閃一閃）
 constexpr uint32_t OFFLINE_SHOW_MS = 2000;
+// 睡著／關螢幕後主動斷 Wi-Fi，叫醒時重連（重連含 TLS 約 3～5 秒）→ 叫醒後這段時間內不顯示斷線提示
+constexpr uint32_t OFFLINE_WAKE_GRACE_MS = 10000;
+
+// ── P2 電源鍵與省電（2026-11-22，規格 docs/KICKOFF_P2.md）──
+// 電源鍵由 M5PM1 管（內部 I2C 0x6E）；暫存器依官方 m5stack/M5PM1 src/M5PM1.h
+constexpr uint8_t  PM1_ADDR            = 0x6E;
+constexpr uint32_t PM1_I2C_HZ          = 100000;
+constexpr uint8_t  PM1_REG_WDT_CNT     = 0x0A;  // 看門狗倒數（秒）；0＝關
+constexpr uint8_t  PM1_REG_WDT_KEY     = 0x0B;  // 寫 0xA5＝餵狗
+constexpr uint8_t  PM1_WDT_FEED_KEY    = 0xA5;
+constexpr uint8_t  PM1_REG_BTN_STATUS  = 0x48;  // bit7 BTN_FLAG（讀了就清）、bit0 BTN_STATE（即時）
+constexpr uint8_t  PM1_REG_BTN_CFG1    = 0x49;  // bit7 DL_LOCK、bit0 SINGLE_RST_DIS
+constexpr uint8_t  PM1_REG_BTN_CFG2    = 0x4A;  // bit0 DOUBLE_OFF_DIS
+constexpr uint8_t  PM1_BTN_PRESSED_BIT = 0x01;  // BTN_STATE＝1 當作按下（P2-1 用序列埠 P 實測確認極性）
+constexpr uint8_t  PWR_WDT_SEC         = 60;    // 看門狗逾時（USB 燒錄約 20～40 秒，要實測燒錄中不會被重置）
+constexpr uint32_t PWR_WDT_FEED_MS     = 1000;  // 主迴圈每秒餵一次
+constexpr uint32_t PWR_KEY_POLL_MS     = 20;    // 輪詢電源鍵
+constexpr uint32_t PWR_KEY_ARM_MS      = 150;   // 開機後要先看到「放開」這麼久才開始判斷（開機時手可能還按著／極性錯時不會亂動）
+constexpr uint32_t PWR_KEY_CLICK_MS    = 700;   // 按住不到這麼久放開＝單按
+constexpr uint32_t PWR_KEY_MULTI_GAP_MS = 500;  // 兩次單按間隔 < 這個＝連按
+constexpr uint8_t  PWR_KEY_FORCE_OFF_CLICKS = 5;   // 連按五下＝強制關機
+constexpr uint32_t PWR_KEY_OVERLAY_MS  = 800;   // 按住超過這麼久開始顯示長按畫面
+constexpr uint32_t PWR_KEY_OFF_MS      = 3000;  // 3～5 秒之間放開＝關機
+constexpr uint32_t PWR_KEY_ROOT_MS     = 5000;  // 按滿 5 秒放開＝進 root
+constexpr uint32_t PWR_RADIO_OFF_MS    = 180000;   // Desktop 睡著或關螢幕滿 3 分鐘 → 斷 Wi-Fi（插線時只看關螢幕）
+constexpr float    BAT_CUTOFF_PCT      = 3.0f;  // 實際電量 ≤ 這個＝強制關機；畫面顯示 (實際−3)÷97×100
+constexpr uint32_t BAT_CUTOFF_HOLD_MS  = 30000; // 連續這麼久才關（說話、播放時電壓會瞬間掉）
 
 }  // namespace cfg

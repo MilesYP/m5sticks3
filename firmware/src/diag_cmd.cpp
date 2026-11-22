@@ -13,6 +13,7 @@
 #include "ui_expression.h"
 #include "ui_fx.h"
 #include "ui_info.h"
+#include "power_key.h"
 #include "power_save.h"
 #include "voice_turn.h"
 
@@ -27,7 +28,7 @@ void printConfig() {
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜#文字 在 log 做記號｜? 目前設定");
+  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜q 電源鍵狀態(q0 進root q1 回新機制 q9 主迴圈卡死測看門狗)｜#文字 在 log 做記號｜? 目前設定");
 }
 
 void run(char* cmd) {
@@ -138,6 +139,12 @@ void run(char* cmd) {
       else power_save::printStatus();
       break;
     }
+    case 'q':   // P2：電源鍵（q 狀態、q0 進 root、q1 回新機制、q9 主迴圈卡死測看門狗）
+      if (cmd[1] == '0') power_key::setRoot(true);
+      else if (cmd[1] == '1') power_key::setRoot(false);
+      else if (cmd[1] == '9') power_key::hangTest();
+      else power_key::printStatus();
+      break;
     case 'h':   // A4 量測：充電紀錄（h 印出、h0 清空）
       if (cmd[1] == '0') battery_ui::clearLog();
       else battery_ui::printLog();
