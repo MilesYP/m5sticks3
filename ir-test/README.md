@@ -27,6 +27,16 @@
 
 IR1 的驗收以實際遙控器送出的穩定碼值為準。G46 發射驗證排在 IR3。
 
+## 接收診斷
+
+按 A 或送 `?` 時，`[ir1] DIAG` 同時回報：
+
+- `ext_mv`：M5PM1 的 5V 輸出電壓讀值，單位為毫伏。
+- `amp_latch`：喇叭功放控制的輸出設定，`0` 為低電位，`?` 為讀取失敗。
+- `gpio42` 與 `edges`：G42 當下電位及開機後偵測到的總跳變次數。兩次取樣的差值可用來對照按鍵或遮光前後。`probe=ESP_OK` 代表跳變計數已掛上。
+
+跳變計數只用來判斷腳位有無活動，完整訊號與 NEC 解碼仍由 RMT 路徑判斷。官方電路圖標示接收器為 38 kHz 的 VSOP38338。手機相機可確認遙控器有發光，載波頻率需要另外量測。 [M5Stack 電路圖](https://docs.m5stack.com/en/core/StickS3#schematics) · [Vishay 接收器規格](https://www.vishay.com/en/ir-receiver-modules/vsop/)
+
 ## 回到正式韌體
 
 關閉序列埠監看，燒回正式韌體。開機會自動恢復正式韌體電源鍵與看門狗設定。

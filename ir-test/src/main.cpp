@@ -1,4 +1,6 @@
 #include <M5Unified.h>
+#include <atomic>
+#include <driver/gpio.h>
 #include <driver/rmt.h>
 #include <freertos/ringbuf.h>
 
@@ -30,6 +32,21 @@ uint32_t repeats = 0;
 uint32_t unknown = 0;
 uint32_t lastUnknownLog = 0;
 bool redraw = true;
+std::atomic<uint32_t> rxEdges{0};
+esp_err_t edgeProbe = ESP_ERR_INVALID_STATE;
+
+void IRAM_ATTR countEdge(void*) {
+  rxEdges.fetch_add(1, std::memory_order_relaxed);
+}
+
+esp_err_t startEdgeProbe() {
+  // 只計算 G42 有幾次跳變；RMT 繼續負責收碼和計時。
+  esp_err_t err = gpio_install_isr_service(0);
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+  err = gpio_set_intr_type(kRxPin, GPIO_INTR_ANYEDGE);
+  if (err != ESP_OK) return err;
+  return gpio_isr_handler_add(kRxPin, countEdge, nullptr);
+}
 
 esp_err_t startReceiver() {
   rmt_config_t config = RMT_DEFAULT_CONFIG_RX(kRxPin, kRxChannel);
@@ -60,6 +77,7 @@ void restorePower() {
 }
 
 void stopReceiver() {
+  if (edgeProbe == ESP_OK) gpio_isr_handler_remove(kRxPin);
   rmt_rx_stop(kRxChannel);
   rmt_driver_uninstall(kRxChannel);
   rxBuffer = nullptr;
@@ -80,6 +98,13 @@ void printStatus() {
   if (state == ir_test::State::Error) Serial.printf("[ir1] ERROR %s\n", errorText);
   else if (state == ir_test::State::Stopped) Serial.println("[ir1] STOPPED");
   else Serial.printf("[ir1] READY RX=G%d RMT=%d EXT_5V=ON\n", kRxPin, kRxChannel);
+  bool ampLatch = false;
+  const bool ampRead = M5.Power.M5pm1.getGPIOOutputLatch(m5::M5PM1_Class::gpio3, &ampLatch);
+  const uint16_t outMv = M5.Power.M5pm1.get5VoutVoltage();
+  Serial.printf("[ir1] DIAG ext_mv=%u amp_latch=%s gpio42=%d edges=%lu probe=%s\n",
+                static_cast<unsigned>(outMv), ampRead ? (ampLatch ? "1" : "0") : "?",
+                gpio_get_level(kRxPin), static_cast<unsigned long>(rxEdges.load(std::memory_order_relaxed)),
+                esp_err_to_name(edgeProbe));
   if (decoded) printFrame();
   Serial.printf("[ir1] count=%lu repeat=%lu unknown=%lu\n",
                 static_cast<unsigned long>(decoded), static_cast<unsigned long>(repeats),
@@ -165,6 +190,8 @@ void setup() {
       errorText = esp_err_to_name(err);
       state = ir_test::State::Error;
       restorePower();
+    } else {
+      edgeProbe = startEdgeProbe();
     }
   }
   printStatus();
