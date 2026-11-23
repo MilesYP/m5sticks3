@@ -17,6 +17,7 @@ constexpr uint32_t kCounterHz = 1000000;
 constexpr uint16_t kIdleUs = 20000;
 constexpr size_t kRxBufferBytes = 1024;
 constexpr uint32_t kUnknownLogMs = 500;
+constexpr uint32_t kBacklightSampleMs = 10000;
 
 M5Canvas canvas(&M5.Display);
 bool canvasReady = false;
@@ -34,6 +35,63 @@ uint32_t lastUnknownLog = 0;
 bool redraw = true;
 std::atomic<uint32_t> rxEdges{0};
 esp_err_t edgeProbe = ESP_ERR_INVALID_STATE;
+
+struct RxCounts {
+  uint32_t edges;
+  uint32_t decoded;
+  uint32_t repeats;
+  uint32_t unknown;
+};
+
+struct BacklightTest {
+  uint8_t step = 0;
+  uint8_t originalBrightness = 0;
+  uint32_t startedAt = 0;
+  RxCounts baseline{};
+} backlightTest;
+
+RxCounts readCounts() {
+  return {rxEdges.load(std::memory_order_relaxed), decoded, repeats, unknown};
+}
+
+void startBacklightTest() {
+  if (backlightTest.step) return;
+  const uint8_t brightness = M5.Display.getBrightness();
+  if (!rxBuffer || edgeProbe != ESP_OK || !brightness) {
+    Serial.println("[ir1] BL ERROR 要先開始接收並打開背光");
+    return;
+  }
+  backlightTest.step = 1;
+  backlightTest.originalBrightness = brightness;
+  Serial.printf("[ir1] BL START brightness=%u\n", static_cast<unsigned>(brightness));
+  backlightTest.baseline = readCounts();
+  backlightTest.startedAt = millis();
+}
+
+void pollBacklightTest() {
+  if (!backlightTest.step) return;
+  const uint32_t elapsed = millis() - backlightTest.startedAt;
+  if (elapsed < kBacklightSampleMs) return;
+
+  const RxCounts current = readCounts();
+  const RxCounts before = backlightTest.baseline;
+  Serial.printf("[ir1] BL step=%u brightness=%u ms=%lu edges=%lu count=%lu repeat=%lu unknown=%lu\n",
+                static_cast<unsigned>(backlightTest.step), static_cast<unsigned>(M5.Display.getBrightness()),
+                static_cast<unsigned long>(elapsed), static_cast<unsigned long>(current.edges - before.edges),
+                static_cast<unsigned long>(current.decoded - before.decoded),
+                static_cast<unsigned long>(current.repeats - before.repeats),
+                static_cast<unsigned long>(current.unknown - before.unknown));
+
+  if (backlightTest.step == 3) {
+    backlightTest.step = 0;
+    Serial.println("[ir1] BL DONE");
+    return;
+  }
+  ++backlightTest.step;
+  M5.Display.setBrightness(backlightTest.step == 2 ? 0 : backlightTest.originalBrightness);
+  backlightTest.baseline = readCounts();
+  backlightTest.startedAt = millis();
+}
 
 void IRAM_ATTR countEdge(void*) {
   rxEdges.fetch_add(1, std::memory_order_relaxed);
@@ -82,6 +140,10 @@ void stopReceiver() {
   rmt_driver_uninstall(kRxChannel);
   rxBuffer = nullptr;
   restorePower();
+  if (backlightTest.step) {
+    M5.Display.setBrightness(backlightTest.originalBrightness);
+    backlightTest.step = 0;
+  }
   state = ir_test::State::Stopped;
   redraw = true;
   if (Serial) Serial.println("[ir1] STOPPED");
@@ -205,8 +267,13 @@ void loop() {
     redraw = true;
     printStatus();
   }
-  if (Serial.available() && Serial.read() == '?') printStatus();
+  if (Serial.available()) {
+    const int command = Serial.read();
+    if (command == '?') printStatus();
+    else if (command == 'b') startBacklightTest();
+  }
   pollReceiver();
+  pollBacklightTest();
   if (redraw && canvasReady) {
     ir_test::drawScreen(canvas, state, lastFrame, errorText, battery);
     ui_fx::present(&canvas);
