@@ -7,6 +7,7 @@
 #include "kanji_bitmaps.h"
 #include "ui_expression.h"
 #include "ui_fx.h"
+#include "ui_kit.h"
 
 namespace {
 
@@ -47,52 +48,11 @@ const char* label(Mode m) {
   }
 }
 
-// 一列一列畫固定寬度的色塊，讓斜紋邊緣落在 LCD 原生像素上。
-void stripes(int y, int width, int height) {
-  constexpr int stripeWidth = 8, period = stripeWidth * 2;
-  for (int row = 0; row < height; ++row) {
-    const int phase = row % period;
-    for (int left = -phase; left < width; left += period) {
-      const int start = left < 0 ? 0 : left;
-      const int end = left + stripeWidth < width ? left + stripeWidth : width;
-      if (end > start) s_cv.drawFastHLine(start, y + row, end - start, C_YELLOW);
-    }
-  }
-}
+// 黃黑斜紋與點陣大字都在 ui_kit（docs/design/COMPONENTS.md C4／C4b）
+void stripes(int y, int width, int height) { ui_kit::stripes(s_cv, 0, y, width, height, C_YELLOW, 8, 16, 0); }
 
 void drawKanji(const kanji::Bmp& glyph, int x, int y, int boxWidth, int boxHeight) {
-  // 原生 1-bit 字形可容納就直接畫，較寬的詞才等比縮小。
-  int width = glyph.w;
-  int height = glyph.h;
-  if (width > boxWidth) {
-    width = boxWidth;
-    height = glyph.h * boxWidth / glyph.w;
-  }
-  if (height > boxHeight) {
-    height = boxHeight;
-    width = glyph.w * boxHeight / glyph.h;
-  }
-  x += (boxWidth - width) / 2;
-  y += (boxHeight - height) / 2;
-  if (width == glyph.w && height == glyph.h) {
-    s_cv.drawBitmap(x, y, glyph.bits, glyph.w, glyph.h, C_RED);
-    return;
-  }
-  // 依原始點陣的橫向連續區段縮放，維持明朝體字形的銳利邊緣。
-  const int stride = (glyph.w + 7) / 8;
-  for (int row = 0; row < height; ++row) {
-    const uint8_t* bits = glyph.bits + (row * glyph.h / height) * stride;
-    int runStart = -1;
-    for (int col = 0; col <= width; ++col) {
-      const int srcX = col * glyph.w / width;
-      const bool set = col < width && (bits[srcX / 8] & (0x80 >> (srcX % 8)));
-      if (set && runStart < 0) runStart = col;
-      if (!set && runStart >= 0) {
-        s_cv.drawFastHLine(x + runStart, y + row, col - runStart, C_RED);
-        runStart = -1;
-      }
-    }
-  }
+  ui_kit::glyphFit(s_cv, glyph.bits, glyph.w, glyph.h, x, y, boxWidth, boxHeight, C_RED);
 }
 
 void drawSwitching(int x, int y) {

@@ -12,10 +12,11 @@
 
 ## 0.1 暫時共同維護正式韌體（2026-11-23 Miles 決定，到 Claude 的 token 恢復為止）
 
-- 這段期間 **Codex 也可以改 `firmware/`、`docs/PROGRESS.md`、`docs/StickS3 執行計劃.*`、`docs/KICKOFF_*.md`**，接手正式韌體的進行中工作（目前是 M4-1 手感收尾 → M4-3，交接見 `docs/KICKOFF_M4-1.md`）。`CLAUDE.md` 仍以 Claude 維護為主；Codex 得出的新工程規則先寫在 PROGRESS 該筆紀錄的「新規則」，Claude 回來後搬進 `CLAUDE.md`（Miles 明確要求時 Codex 也可直接改）。
+- 這段期間 **Codex 也可以改 `firmware/`、`docs/PROGRESS.md`、`docs/StickS3 執行計劃.*`、`docs/KICKOFF_*.md`**，接手正式韌體的進行中工作（11-23 起：M4 已完成，接下來狀態列字型決定 → M1.5 紅外線，交接見 `docs/HANDOFF_CODEX.md`）。`CLAUDE.md` 仍以 Claude 維護為主；Codex 得出的新工程規則先寫在 PROGRESS 該筆紀錄的「新規則」，Claude 回來後搬進 `CLAUDE.md`（Miles 明確要求時 Codex 也可直接改）。
 - 改正式韌體在主資料夾 `~/Developer/m5sticks3`（`main`）；**開工前 `git pull`、收工前 commit＋請 Miles `git push`**，一次只做一件事、commit 小一點，避免和 Claude 同時改同一檔。RF 軌照舊在 `codex/rf-lab` worktree。
 - 正式韌體一律遵守 `CLAUDE.md` 全部鐵則（急停最高優先、主迴圈不阻塞、網路只在網路 task、藍牙開著不可設 Wi-Fi `PS_NONE`、不碰語音流程與 P2 電源鍵規則除非 Miles 要求）；版本號改 `firmware/src/audio_io.cpp` 的 `AUDIO_BUILD_TAG`；每片結束在 `docs/PROGRESS.md` 最上方新增一筆（Session 類型寫「Codex」）。
-- 原本第 2 節「不可以改」對上述檔案暫停適用；`cloud/`、`selftest/`、`acceptance-test/`、`rssi-test/`、`tools/`、`LICENSE` 仍不改（Miles 要求除外）。
+- 原本第 2 節「不可以改」對上述檔案暫停適用；`cloud/`、`selftest/`、`acceptance-test/`、`rssi-test/`、`LICENSE` 仍不改（Miles 要求除外）。**11-23 起 `tools/sim/`、`tools/gen_kanji.py`、`tools/gen_air_labels.py`、`docs/design/` 也可以改**（畫面工作需要）；`cloud/persona/friday.md` 可依 CLAUDE.md 第 9 節更新功能說明。
+- **畫面一律照 `docs/design/README.md`（介面設計總則）與 `docs/design/COMPONENTS.md`**：共用元件用 `firmware/src/ui_kit.*`，不要自創風格；先用 `tools/sim/` 出所有狀態的模擬圖給 Miles 看，他同意才改 `firmware/`；改到 `ui_kit` 或共用畫圖時先跑 `bash tools/sim/regress.sh` 前後比對。
 
 ## 1. 和 Miles 協作
 

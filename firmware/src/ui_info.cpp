@@ -19,6 +19,7 @@
 #include "ui_expression.h"
 #include "voice_turn.h"
 #include "ui_wxicon.h"
+#include "ui_kit.h"
 #include "ui_labels.h"   // A7：「台北時間」點陣圖（不連結整套 efontTW_16_b）
 
 #ifdef INFO_SIM
@@ -96,26 +97,8 @@ void simCheck(int ti, const char* s, int x, int y, int w, int h) {
 }
 #endif
 
-enum { RUN_THIN, RUN_NUM, RUN_CJK };
-inline int runClass(char ch) {
-  if ((uint8_t)ch >= 0x80) return RUN_CJK;
-  return ((ch >= '0' && ch <= '9') || ch == '.' || ch == ':' || ch == '/' || ch == '%' || ch == '-' || ch == '+') ? RUN_NUM : RUN_THIN;
-}
-const lgfx::IFont* runFont(int k) { return k == RUN_NUM ? BOLD : k == RUN_CJK ? (const lgfx::IFont*)&fonts::efontTW_10 : THIN; }
-size_t nextRun(const char* p, char* run, size_t cap, int* kind) {
-  *kind = runClass(*p);
-  size_t n = 0;
-  while (p[n] && runClass(p[n]) == *kind && n < cap - 1) { run[n] = p[n]; ++n; }
-  while (n > 0 && p[n] && ((uint8_t)p[n] & 0xC0) == 0x80) --n;
-  if (n == 0) n = 1;
-  run[n] = '\0';
-  return n;
-}
-int mixedWidth(const char* s) {
-  int w = 0; char run[64];
-  for (const char* p = s; *p;) { int k; const size_t n = nextRun(p, run, sizeof run, &k); s_cv.setFont(runFont(k)); w += s_cv.textWidth(run); p += n; }
-  return w;
-}
+// 小字混排在 ui_kit（英文 Font0、數字 efontTW_10_b、中文 efontTW_10）
+int mixedWidth(const char* s) { return ui_kit::mixedWidth(s_cv, s); }
 void txt(int ti, int dx, int dy, const char* s, const C3& c, bool right = false) {
   const Tile& t = s_t[ti];
   const int w = mixedWidth(s);
@@ -124,14 +107,7 @@ void txt(int ti, int dx, int dy, const char* s, const C3& c, bool right = false)
 #ifdef INFO_SIM
   simCheck(ti, s, x, y, w, 10);
 #endif
-  s_cv.setTextColor(col(c));
-  char run[64];
-  for (const char* p = s; *p;) {
-    int k; const size_t n = nextRun(p, run, sizeof run, &k);
-    s_cv.setFont(runFont(k));
-    x += s_cv.drawString(run, x, k == RUN_THIN ? y + THIN_DY : y);
-    p += n;
-  }
+  ui_kit::drawMixed(s_cv, x, y, s, col(c));
 }
 void txtF(int ti, int dx, int dy, const char* s, const C3& c, const lgfx::IFont* f, bool right = false) {
   const Tile& t = s_t[ti];
@@ -148,67 +124,16 @@ void txtF(int ti, int dx, int dy, const char* s, const C3& c, const lgfx::IFont*
 
 // ── EVA 元件 ──
 // 邊緣警示線：紅黑斜紋（Miles A7：跟 B 切模式過場呼應）
-void hazard(int y, int h) {
-  const uint16_t red = col(K_RED);
-  for (int row = 0; row < h; ++row)
-    for (int left = -row - 8; left < s_W; left += 12) {
-      const int a = left < 0 ? 0 : left, b = left + 6 < s_W ? left + 6 : s_W;
-      if (b > a) s_cv.drawFastHLine(a, y + row, b - a, red);
-    }
-}
+void hazard(int y, int h) { ui_kit::hazardRed(s_cv, y, s_W, h); }
 // 磚塊標題：六角實心標籤（琥珀底黑字），寬依文字
-int hexLabel(int ti, const char* s) {
-  const Tile& t = s_t[ti];
-  s_cv.setFont((uint8_t)s[0] >= 0x80 ? (const lgfx::IFont*)&fonts::efontTW_10 : THIN);
-  const int w = s_cv.textWidth(s) + 8, h = 10;
-  const int x = t.x + 1, y = t.y + 1;
-  for (int row = 0; row < h; ++row) {
-    const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
-    const int in = fc * 3 / (h / 2);
-    s_cv.drawFastHLine(x + in, y + row, w - 2 * in, col(K_TXT));
-  }
-  s_cv.setTextColor(col(K_BG));
-  s_cv.drawString(s, x + 4, (uint8_t)s[0] >= 0x80 ? y : y + 1);
-  return w;
-}
+int hexLabel(int ti, const char* s) { return ui_kit::hexLabel(s_cv, s_t[ti].x + 1, s_t[ti].y + 1, s, col(K_TXT), col(K_BG)); }
 void frame(int ti) {
   const Tile& t = s_t[ti];
   if (!t.w) return;
-  s_cv.drawRect(t.x, t.y, t.w, t.h, col(K_FRAME));
-  // 四角亮一點（EVA 取景框感）
-  const uint16_t c = col(K_DIM);
-  s_cv.drawFastHLine(t.x, t.y, 4, c); s_cv.drawFastVLine(t.x, t.y, 4, c);
-  s_cv.drawFastHLine(t.x + t.w - 4, t.y + t.h - 1, 4, c); s_cv.drawFastVLine(t.x + t.w - 1, t.y + t.h - 4, 4, c);
+  ui_kit::tile(s_cv, t.x, t.y, t.w, t.h, col(K_FRAME), col(K_DIM));   // 四角亮一點（EVA 取景框感）
 }
-// 七段數字（A7 Miles：原本太糊 → 每段兩端削尖、段與段之間留 1px 縫，沒亮的段更暗）
-void hseg(int x, int y, int len, int t, uint16_t c) {
-  for (int r = 0; r < t; ++r) {
-    const int in = r < (t - 1) / 2 ? (t - 1) / 2 - r : r - t / 2 > 0 ? r - t / 2 : 0;
-    if (len - 2 * in > 0) s_cv.drawFastHLine(x + in, y + r, len - 2 * in, c);
-  }
-}
-void vseg(int x, int y, int len, int t, uint16_t c) {
-  for (int k = 0; k < t; ++k) {
-    const int in = k < (t - 1) / 2 ? (t - 1) / 2 - k : k - t / 2 > 0 ? k - t / 2 : 0;
-    if (len - 2 * in > 0) s_cv.drawFastVLine(x + k, y + in, len - 2 * in, c);
-  }
-}
-void seg7(int x, int y, int w, int h, int n, const C3& on) {
-  constexpr uint8_t mask[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f, 0x40};
-  const int t = w >= 11 ? 3 : 2;
-  const int mid = (h - t) / 2;                 // 中間那段的 y
-  const int hl = w - 2;                        // 橫段長（左右各讓 1px 縫）
-  const int vu = mid - 1, vl = h - t - mid - 1;   // 上、下直段長（上下各讓縫）
-  const uint16_t c1 = col(on), c0 = col(K_UNLIT);
-  auto c = [&](int i) { return (mask[n] & (1 << i)) ? c1 : c0; };
-  hseg(x + 1, y, hl, t, c(0));                       // a
-  vseg(x + w - t, y + 1, vu, t, c(1));               // b
-  vseg(x + w - t, y + mid + 1, vl + t - 1, t, c(2)); // c
-  hseg(x + 1, y + h - t, hl, t, c(3));               // d
-  vseg(x, y + mid + 1, vl + t - 1, t, c(4));         // e
-  vseg(x, y + 1, vu, t, c(5));                       // f
-  hseg(x + 1, y + mid, hl, t, c(6));                 // g
-}
+// 七段數字（A7 Miles：段兩端削尖、段間 1px 縫，沒亮的段更暗）→ ui_kit::seg7
+void seg7(int x, int y, int w, int h, int n, const C3& on) { ui_kit::seg7(s_cv, x, y, w, h, n, col(on), col(K_UNLIT)); }
 void seg7pair(int x, int y, int w, int h, int v, const C3& on) {
   seg7(x, y, w, h, v < 0 ? 10 : (v / 10) % 10, on);
   seg7(x + w + 2, y, w, h, v < 0 ? 10 : v % 10, on);
@@ -564,18 +489,7 @@ void drawPwr() {
   }
 }
 
-int hexLabelAt(int x, int y, const char* s) {
-  s_cv.setFont((uint8_t)s[0] >= 0x80 ? (const lgfx::IFont*)&fonts::efontTW_10 : THIN);
-  const int w = s_cv.textWidth(s) + 8, h = 10;
-  for (int row = 0; row < h; ++row) {
-    const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
-    const int in = fc * 3 / (h / 2);
-    s_cv.drawFastHLine(x + in, y + row, w - 2 * in, col(K_TXT));
-  }
-  s_cv.setTextColor(col(K_BG));
-  s_cv.drawString(s, x + 4, y + 1);
-  return w;
-}
+int hexLabelAt(int x, int y, const char* s) { return ui_kit::hexLabel(s_cv, x, y, s, col(K_TXT), col(K_BG), 1); }
 // 不綁磚塊的小字（模擬時檢查超出整個 SYS 磚）
 int txtAt(int x, int y, const char* str, const C3& c, bool draw = true) {
   const int w = mixedWidth(str);
@@ -583,14 +497,7 @@ int txtAt(int x, int y, const char* str, const C3& c, bool draw = true) {
 #ifdef INFO_SIM
   simCheck(T_SYS, str, x, y, w, 10);
 #endif
-  s_cv.setTextColor(col(c));
-  char run[64];
-  for (const char* p = str; *p;) {
-    int k; const size_t n = nextRun(p, run, sizeof run, &k);
-    s_cv.setFont(runFont(k));
-    x += s_cv.drawString(run, x, k == RUN_THIN ? y + THIN_DY : y);
-    p += n;
-  }
+  ui_kit::drawMixed(s_cv, x, y, str, col(c));
   return w;
 }
 // 時脈相對於全速的比例。下方保留實際 MHz 與主迴圈耗時。

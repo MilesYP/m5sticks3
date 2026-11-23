@@ -8,6 +8,7 @@
 #include "config.h"
 #include "power_key.h"
 #include "ui_fx.h"
+#include "ui_kit.h"
 #include "ui_labels.h"
 #include <cstring>   // A7：狀態大字點陣圖（不連結整套 efontTW_24，見 tools/gen_kanji.py）
 
@@ -855,52 +856,18 @@ void pxEye(float ex, float ey, float w, float h, int side, float ang, float slp,
     s_cv.drawFastHLine((int)lroundf(xl), y, (int)lroundf(xr - xl), c);
   }
 }
-void pxBrackets(int x, int y, int w, int h, uint16_t c) {
-  const int l = 9;
-  s_cv.drawFastHLine(x, y, l, c);  s_cv.drawFastVLine(x, y, l, c);
-  s_cv.drawFastHLine(x + w - l, y, l, c);  s_cv.drawFastVLine(x + w - 1, y, l, c);
-  s_cv.drawFastHLine(x, y + h - 1, l, c);  s_cv.drawFastVLine(x, y + h - l, l, c);
-  s_cv.drawFastHLine(x + w - l, y + h - 1, l, c);  s_cv.drawFastVLine(x + w - 1, y + h - l, l, c);
-}
+void pxBrackets(int x, int y, int w, int h, uint16_t c) { ui_kit::brackets(s_cv, x, y, w, h, c); }
 // 狀態列：「FRIDAY・待機中」＋右邊電量 %，下面一條細線
 int s_px_battery = -1;
 const char* s_status_ovr = nullptr;   // A4b：狀態列文字改成「充電中／充飽」
 void pxHeader(int fx0, int W, Mood m, const Rgb& accent, uint16_t batCol) {
-  s_cv.fillRect(fx0, 0, W, 12, TFT_BLACK);   // 狀態列底塗黑：符號、眉毛不會壓到字
-  s_cv.setTextSize(1);
-  s_cv.setTextDatum(top_left);
-  // 右邊：電量 %，左邊依序 ROOT／斷線 實心小標籤（P2 11-22 Miles：取代右上角 ROOT 角標與 Wi-Fi 斜線圖示）
-  int rx = fx0 + W - 3;
-  if (s_px_battery >= 0) {
-    char b[8];
-    snprintf(b, sizeof b, "%d%%", s_px_battery);
-    s_cv.setFont(&fonts::Font0);
-    s_cv.setTextColor(batCol);
-    s_cv.drawString(b, rx - s_cv.textWidth(b), 3);
-    rx -= s_cv.textWidth("100%") + 3;
-  }
-  auto tag = [&](const char* t, const lgfx::IFont* f, int ty, uint16_t bg) {
-    s_cv.setFont(f);
-    const int tw = s_cv.textWidth(t);
-    rx -= tw + 4;
-    s_cv.fillRect(rx, 1, tw + 4, 11, bg);
-    s_cv.setTextColor(TFT_BLACK);
-    s_cv.drawString(t, rx + 2, ty);
-    rx -= 3;
-  };
-  if (power_key::rootMode()) tag("ROOT", &fonts::Font0, 3, s_cv.color565(0xFF, 0x29, 0x23));
-  if (s_offline) tag("斷線", &fonts::efontTW_10, 1, s_cv.color565(150, 150, 150));
-  // 左邊：FRIDAY・狀態（放不下就省略狀態字，標籤優先）
-  s_cv.setFont(&fonts::Font0);
-  s_cv.setTextColor(c565(accent));
-  s_cv.drawString("FRIDAY", fx0 + 3, 3);
-  int x = fx0 + 3 + s_cv.textWidth("FRIDAY") + 3;
-  s_cv.fillRect(x, 6, 2, 2, c565(accent));
-  x += 5;
-  s_cv.setFont(&fonts::efontTW_10);
+  // 狀態列畫法在 ui_kit::statusBar（體感同一套）；ROOT（紅底）／斷線（灰底）標籤放電量左邊
+  ui_kit::Tag tags[2];
+  int n = 0;
+  if (power_key::rootMode()) tags[n++] = {"ROOT", &fonts::Font0, 3, s_cv.color565(0xFF, 0x29, 0x23)};
+  if (s_offline) tags[n++] = {"斷線", &fonts::efontTW_10, 1, s_cv.color565(150, 150, 150)};
   const char* st = s_status_ovr ? s_status_ovr : kPxStatus[static_cast<int>(m)];
-  if (x + s_cv.textWidth(st) <= rx) s_cv.drawString(st, x, 1);
-  s_cv.drawFastHLine(fx0, 12, W, c565(accent));
+  ui_kit::statusBar(s_cv, fx0, W, "FRIDAY", st, c565(accent), s_px_battery, batCol, tags, n);
 }
 // 強度方格（右側直排，從下往上亮）：n 格亮、共 total 格
 void pxMeter(int x, int yBottom, int total, int n, uint16_t on, uint16_t off) {

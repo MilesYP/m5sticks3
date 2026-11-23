@@ -309,6 +309,7 @@ firmware/src/
   hid_injector.*      // 模式2：TinyUSB 跨平台鍵鼠 + 急停整合
   rf_transceiver.*    // 模式3：CC1101 學習/存/發 + RSSI 掃描
   air_mouse.*         // 模式4：陀螺儀轉速 → 零點校正／死區／加速曲線 → BLE 滑鼠報告；takeMotion() 給畫面（M4-1／M4-2）
+  ui_kit.*            // 共用畫圖元件（色票、斜紋、七段、六角、磚塊、六角標籤、取景角、小字混排、截斷字、點陣字縮放、狀態列、底部動作帶）；新畫面一律用它（11-23 抽出，模擬 1441 張逐像素相同）
   ui_airmenu.*        // 模式4：體感選單／等待／已連線／B 倒數畫面與按鍵分派（M4-2，畫面 11-23 定稿）
   air_labels.h        // tools/gen_air_labels.py 產生的體感固定字點陣圖（Noto Serif CJK TC Black）
 ```

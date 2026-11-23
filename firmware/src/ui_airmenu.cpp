@@ -10,6 +10,7 @@
 #include "air_labels.h"
 #include "kanji_bitmaps.h"
 #include "ui_fx.h"
+#include "ui_kit.h"
 
 namespace {
 enum class Page { Menu, Waiting, Mouse };
@@ -21,17 +22,10 @@ constexpr uint32_t kExitOverlayMs = 800;
 constexpr uint32_t kScrollDebounceMs = 25;
 constexpr uint32_t kStaticRefreshMs = 250;
 constexpr int kWidth = 135, kHeight = 240;
-constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
-  return ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3);
-}
-// 沿用資訊頁的主色、磚框及狀態色。
-constexpr uint16_t kAmber = rgb565(0xff, 0x9b, 0x00);
-constexpr uint16_t kBright = rgb565(0xff, 0xd0, 0x80);
-constexpr uint16_t kDim = rgb565(0xb0, 0x6a, 0x10);
-constexpr uint16_t kFrame = rgb565(0x6a, 0x3a, 0x00);
-constexpr uint16_t kUnlit = rgb565(0x24, 0x13, 0x00);
-constexpr uint16_t kRed = rgb565(0xff, 0x29, 0x23);
-constexpr uint16_t kGreen = rgb565(0x39, 0xff, 0x14);
+// 色票一律用 ui_kit（docs/design/README.md 第 1 節）
+namespace kc = ui_kit::color;   // 不用 using namespace：Arduino 有全域 RED 等名稱會撞
+constexpr uint16_t kAmber = kc::AMBER, kBright = kc::BRIGHT, kDim = kc::DIM, kFrame = kc::FRAME, kUnlit = kc::UNLIT,
+                   kRed = kc::RED, kGreen = kc::GREEN, kYellow = kc::YELLOW;
 
 M5Canvas s_canvas(&M5.Display);
 bool s_active = false, s_dirty = true;
@@ -101,68 +95,18 @@ void move(int delta) {
 }
 
 // ── 畫圖（11-23 v4：跟表情頁／介面規格同一套——狀態列「MODE 04・體感」＋電量、雷達、六角徽章、底部斜紋帶）──
-constexpr uint16_t kYellow = rgb565(0xff, 0xd0, 0x00);
-constexpr uint16_t kGrid = rgb565(0x3a, 0x22, 0x00);
 
 void textAt(const char* s, int x, int y, uint16_t color, const lgfx::IFont* font, int maxWidth = 0,
             textdatum_t datum = top_left) {
-  char buf[64];
-  snprintf(buf, sizeof buf, "%s", s);
-  s_canvas.setFont(font);
-  if (maxWidth > 0 && s_canvas.textWidth(buf) > maxWidth) {
-    size_t len = strlen(buf);
-    char tmp[64];
-    while (len) {
-      do { --len; } while (len && (uint8_t(buf[len]) & 0xc0) == 0x80);
-      while (len && buf[len - 1] == ' ') --len;
-      snprintf(tmp, sizeof tmp, "%.*s…", int(len), buf);
-      if (s_canvas.textWidth(tmp) <= maxWidth) break;
-    }
-    snprintf(tmp, sizeof tmp, "%.*s…", int(len), buf);
-    snprintf(buf, sizeof buf, "%s", tmp);
-  }
-  s_canvas.setTextDatum(datum);
-  s_canvas.setTextColor(color);
-  s_canvas.drawString(buf, x, y);
-  s_canvas.setTextDatum(top_left);
+  ui_kit::textFit(s_canvas, s, x, y, color, font, maxWidth, datum);
 }
-// 中英混排：英文 Font0（往下 1px 對齊）、中文 efontTW_10。回傳寬度。
-int mixed(const char* s, int x, int y, uint16_t color, bool draw = true) {
-  int w = 0;
-  char run[48];
-  for (const char* p = s; *p;) {
-    const bool cjk = uint8_t(*p) >= 0x80;
-    size_t n = 0;
-    while (p[n] && (uint8_t(p[n]) >= 0x80) == cjk && n < sizeof run - 1) { run[n] = p[n]; ++n; }
-    while (n > 0 && p[n] && (uint8_t(p[n]) & 0xc0) == 0x80) --n;
-    run[n] = 0;
-    s_canvas.setFont(cjk ? (const lgfx::IFont*)&fonts::efontTW_10 : (const lgfx::IFont*)&fonts::Font0);
-    if (draw) {
-      s_canvas.setTextColor(color);
-      s_canvas.drawString(run, x + w, cjk ? y : y + 1);
-    }
-    w += s_canvas.textWidth(run);
-    p += n;
-  }
-  return w;
-}
+// 小字混排（ui_kit：英文 Font0、數字粗、中文 efontTW_10）。回傳寬度。
+int mixed(const char* s, int x, int y, uint16_t color) { return ui_kit::drawMixed(s_canvas, x, y, s, color); }
 
-// 狀態列（同表情頁 pxHeader）：MODE 04・體感＋右邊電量 %，下面一條細線
+// 狀態列（ui_kit，同表情頁）：MODE 04・體感＋右邊電量 %
 void statusBar() {
-  s_canvas.setTextDatum(top_left);
   const int lv = battery_ui::level();
-  if (lv >= 0) {
-    char b[8];
-    snprintf(b, sizeof b, "%d%%", lv);
-    const uint16_t c = lv >= 60 ? kGreen : lv >= 20 ? kYellow : kRed;
-    textAt(b, kWidth - 3, 3, c, &fonts::Font0, 0, top_right);
-  }
-  textAt("MODE 04", 3, 3, kAmber, &fonts::Font0);
-  s_canvas.setFont(&fonts::Font0);
-  int x = 3 + s_canvas.textWidth("MODE 04") + 3;
-  s_canvas.fillRect(x, 6, 2, 2, kAmber);
-  textAt("體感", x + 5, 1, kAmber, &fonts::efontTW_10);
-  s_canvas.drawFastHLine(0, 12, kWidth, kAmber);
+  ui_kit::statusBar(s_canvas, 0, kWidth, "MODE 04", "體感", kAmber, lv, ui_kit::batteryColor(lv));
 }
 
 // 固定字：Noto Serif CJK TC Black 點陣圖（air_labels.h，同 B 切模式過場的字型）。查不到就退回 efontTW_12。
@@ -186,64 +130,15 @@ void plainName(const char* s, int x, int y, uint16_t color, int maxWidth) {
 
 // 底部斜紋帶（同介面規格「A 發射」）：斜紋＋中間黑底字
 constexpr int kFootH = 18, kFootY = kHeight - kFootH;
-// 斜紋同 ui_modeswitch::stripes()：寬 8、週期 16，上面一條 2px 琥珀線
+// 斜紋同切模式（ui_kit::actionBand）；破壞性頁面紅色
 void footer(const char* label, uint16_t color) {
-  constexpr int stripeWidth = 8, period = stripeWidth * 2;
-  for (int row = 0; row < kFootH; ++row) {
-    const int phase = (kFootY + row) % period;
-    for (int left = -phase; left < kWidth; left += period) {
-      const int a = max(0, left), b = min(kWidth, left + stripeWidth);
-      if (b > a) s_canvas.drawFastHLine(a, kFootY + row, b - a, color);
-    }
-  }
-  s_canvas.fillRect(0, kFootY - 2, kWidth, 2, color == kRed ? kRed : kAmber);
   const air_labels::Bmp* g = air_labels::find(label);
-  const int w = (g ? g->w : 60) + 14;
-  const int x = (kWidth - w) / 2;
-  s_canvas.fillRect(x, kFootY + 1, w, kFootH - 2, TFT_BLACK);
-  lbl(label, x + 7, kFootY + 2, color);
+  ui_kit::actionBand(s_canvas, kFootY, kWidth, kFootH, color, color == kRed ? kRed : kAmber,
+                     g ? g->bits : nullptr, g ? g->w : 0, g ? g->h : 0);
 }
 
-// 六角（左右尖，同背景格方向）
-void hexShape(int cx, int cy, int a, uint16_t c, bool fill) {
-  const int h = a * 866 / 1000;
-  const int l = cx - a, ml = cx - a / 2, mr = cx + a / 2, r = cx + a, t = cy - h, b = cy + h;
-  if (fill) {
-    s_canvas.fillRect(ml, t, mr - ml + 1, b - t + 1, c);
-    s_canvas.fillTriangle(l, cy, ml, t, ml, b, c);
-    s_canvas.fillTriangle(r, cy, mr, t, mr, b, c);
-  } else {
-    s_canvas.drawLine(l, cy, ml, t, c); s_canvas.drawFastHLine(ml, t, mr - ml + 1, c); s_canvas.drawLine(mr, t, r, cy, c);
-    s_canvas.drawLine(r, cy, mr, b, c); s_canvas.drawFastHLine(ml, b, mr - ml + 1, c); s_canvas.drawLine(ml, b, l, cy, c);
-  }
-}
-
-// 七段數字（同資訊頁）
-void hseg(int x, int y, int len, int t, uint16_t c) {
-  for (int r = 0; r < t; ++r) {
-    const int in = r < (t - 1) / 2 ? (t - 1) / 2 - r : r - t / 2 > 0 ? r - t / 2 : 0;
-    if (len - 2 * in > 0) s_canvas.drawFastHLine(x + in, y + r, len - 2 * in, c);
-  }
-}
-void vseg(int x, int y, int len, int t, uint16_t c) {
-  for (int k = 0; k < t; ++k) {
-    const int in = k < (t - 1) / 2 ? (t - 1) / 2 - k : k - t / 2 > 0 ? k - t / 2 : 0;
-    if (len - 2 * in > 0) s_canvas.drawFastVLine(x + k, y + in, len - 2 * in, c);
-  }
-}
-void seg7(int x, int y, int w, int h, int n, uint16_t on) {
-  constexpr uint8_t mask[] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f};
-  const int t = w >= 11 ? 3 : 2, mid = (h - t) / 2, hl = w - 2;
-  const int vu = mid - 1, vl = h - t - mid - 1;
-  auto c = [&](int i) { return (mask[n] & (1 << i)) ? on : kUnlit; };
-  hseg(x + 1, y, hl, t, c(0));
-  vseg(x + w - t, y + 1, vu, t, c(1));
-  vseg(x + w - t, y + mid + 1, vl + t - 1, t, c(2));
-  hseg(x + 1, y + h - t, hl, t, c(3));
-  vseg(x, y + mid + 1, vl + t - 1, t, c(4));
-  vseg(x, y + 1, vu, t, c(5));
-  hseg(x + 1, y + mid, hl, t, c(6));
-}
+void hexShape(int cx, int cy, int a, uint16_t c, bool fill) { ui_kit::hexShape(s_canvas, cx, cy, a, c, fill); }
+void seg7(int x, int y, int w, int h, int n, uint16_t on) { ui_kit::seg7(s_canvas, x, y, w, h, n, on); }
 
 // 雷達（同介面規格空中滑鼠）：三圈＋十字＋外圈刻度。progress 0～1000＝外圈亮起比例（順時針、從 12 點）
 constexpr int kRadarX = 67, kRadarY = 61, kRadarR = 44;

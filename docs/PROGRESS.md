@@ -18,8 +18,8 @@
 
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**M4 空中體感滑鼠 ✅ 完成（11-23，畫面定稿）**。介面設計總則定稿於 `docs/design/`（所有新畫面照它做）。下一步 M1.5 紅外線（交接 `docs/KICKOFF_M15.md`），之後 M2 HID。
-- **進行中**：`codex/m4-2` 待合併回 main。RF R1 在 `codex/rf-lab` 已編譯，仍待 Miles 實機驗收（Codex）。
-- **未決**：`codex/m4-2` 合併時機；狀態列中文要不要改粗明朝（三頁一起改，未決）；共用元件抽成 `ui_kit.*`（另開切片）。
+- **進行中**：`codex/m4-2` 已合併回 main（11-24）；共用元件 `ui_kit.*`；下一棒 Codex（`docs/HANDOFF_CODEX.md`）。RF R1 在 `codex/rf-lab` 已編譯，仍待 Miles 實機驗收（Codex）。
+- **未決**：狀態列中文 A／B／C（預覽 `docs/design/img/statusbar_options.png`）。
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
   - **設定後台＋LINE 入口（11-23 Miles 提出，未排期）**：中控 Worker 網域下架網頁後台調裝置參數（先做 M4 的 `@g/@n/@d/@x/@y`），LINE 官方機器人當入口（參考「Netflix 驗證碼」專案，位置待指定）。細節與待釐清事項見執行計劃「設定後台與 LINE 入口待辦」
@@ -33,6 +33,13 @@
   - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
+
+### 2026-11-24｜ui_kit 共用元件＋狀態列字型預覽＋合併 main｜Claude Code CLI
+- 做了什麼：把各頁重複的畫圖元件抽成 `firmware/src/ui_kit.*`（色票、紅黑／黃黑斜紋、七段、六角、磚塊、六角標籤、取景角、小字混排、截斷字、點陣字縮放、狀態列、底部動作帶），表情頁、資訊頁、切模式、體感改呼叫它。新增 `tools/sim/regress.sh`（全頁模擬輸出，`time()` 固定）、`tools/sim/sim_modeswitch.cpp`、`build.sh ms`。狀態列中文三版預覽 `docs/design/img/statusbar_options.png`（A 現行／B 明朝 11px／C 明朝 14px 加高）。
+- 驗收結果：模擬 1441 張（表情 face／anim／lowbat／motion、資訊、體感、切模式）重構前後逐像素 0 差異；編譯 Flash 74.5%、RAM 40.4%；已燒錄。
+- 遇到的坑／新規則：`ui_kit::color` 不能 `using namespace`（Arduino 有全域 `RED` 會撞名）。改 `ui_kit` 或共用畫圖前後一定跑 `tools/sim/regress.sh` 比對（寫進 `docs/design/COMPONENTS.md`）。電源鍵長按頁的 `seg7`／`stripeBand` 沒有模擬器，未搬。
+- 下一步：Codex 接手（`docs/HANDOFF_CODEX.md`）：先請 Miles 選狀態列 A／B／C，再做 M1.5 紅外線。AGENTS.md 0.1 已開放 `tools/sim/`、產生器、`docs/design/`。
+- 待辦：Miles 實機看一眼 ui_kit 版（應與前一版完全相同）。
 
 ### 2026-11-23｜M4-2 畫面定稿＋介面設計總則｜Claude Code CLI
 - 做了什麼：體感畫面重做（`ui_airmenu.cpp`）。第一版自創磚塊版面被退件，改照介面規格與表情頁：狀態列「MODE 04・體感」＋電量、選單左上紅色「體感」大字（同 B 切模式）、六角徽章清單、等待頁雷達倒數、已連線雷達圈綠黃交錯＋準星跟游標位移、六角鍵（左／捲／右／停）按下亮起、底部黃黑斜紋帶、B 長按紅色倒數。固定字改 Noto Serif CJK TC Black 點陣（新 `tools/gen_air_labels.py` → `air_labels.h`）；裝置名稱與提示句用 efontTW_12 一般字。`air_mouse::takeMotion()` 只供畫面讀位移。
