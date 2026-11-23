@@ -19,15 +19,15 @@
 - 參考實作：`firmware/src/ui_airmenu.*`（選單＋等待＋按鍵分派＋畫面的完整範例）、`mode_manager.*`、`air_mouse.*`／`ble_mouse.*`（模式進出時資源開關）
 
 【IR 切片（執行計劃）】
-- IR1：腳位實機驗證（Bruce 標示 TX G46／RX G42，**未驗證、不可當定論**）＋接收電視遙控器碼，螢幕顯示協定與數值。驗收：按遙控器，螢幕印出 NEC 等協定與碼。
+- IR1：實機驗證 G42 接收電視遙控器的 NEC 碼，螢幕與序列埠顯示協定與數值。G46 發射留待 IR3 實測。
 - IR2：學習、命名、存 NVS（`Preferences`），重開機不消失。
 - IR3：選單重放（冷氣這類長碼另外處理）。按下去，電視／冷氣真的動。
 
-【動工前先查證、再給計畫】
-1. **StickS3 紅外線腳位與供電**：查 M5Stack 官方 StickS3 文件（docs.m5stack.com 的 StickS3 頁、腳位表、IR 範例）與 M5Unified 原始碼，跟 Bruce 設定交叉比對。官方提到「使用 IR 接收時要關閉 SPK 功放（M5PM1 PYG3）」——確認接收器的供電／致能是否經 M5PM1，跟鐵則六第 4 點怎麼共存。
-2. **函式庫**：IRremoteESP8266 或 Arduino-IRremote 在 `espressif32@6.12.0`（Arduino 2.0.17）對 ESP32-S3 的支援、版本、授權（先登記 `THIRD_PARTY.md`）；RMT 通道會不會跟現有東西衝突；Flash 目前約 74.5%。
-3. **模式歸屬**：IR 放哪（新模式、或併進某模式），跟鐵則二互斥狀態機、Friday 語音（ES8311 播放時功放開著）怎麼共存，提 2～3 個方案讓我選。B 切模式過場要不要加「紅外線」大字（`tools/gen_kanji.py --set mode`）。
-4. 先寫最小測試（獨立 `ir-test/` PlatformIO 專案，設定照抄 `selftest/`），實機驗到腳位與收碼，再併進正式韌體。
+【11-24 查證與決議】
+1. **腳位與供電**：[StickS3 官方腳位表](https://docs.m5stack.com/en/core/StickS3) 與 [Bruce 板卡設定](https://github.com/BruceDevices/firmware/blob/main/boards/m5stack-sticks3/m5stack-sticks3.ini) 一致，RX G42／TX G46。紅外線用 `EXT_5V` 供電，接收時依 [M5Stack 官方範例](https://docs.m5stack.com/en/arduino/m5sticks3/ir_nec) 關閉喇叭功放。沿用 M5Unified 0.3.0 的 `M5.Speaker.end()`，由既有回呼處理 PYG3。
+2. **收碼**：官方要求由 RMT 硬體量脈衝。IR1 用 Arduino 2.0.17 綁定的 [ESP-IDF 4.4.7 RMT 驅動](https://docs.espressif.com/projects/esp-idf/en/v4.4.7/esp32s3/api-reference/peripherals/rmt.html)（`driver/rmt.h`），以非阻塞方式接收並解碼 NEC。`Arduino-IRremote 4.4.1`（MIT）與 `IRremoteESP8266 2.8.6`（LGPL-2.1）各自的標準接收路徑使用計時器或 GPIO 中斷，IR1 使用內建驅動即可。正式合併前再驗證 RMT 通道配置與模式退出時的資源釋放。
+3. **模式歸屬**：Miles 選獨立「紅外線」模式，與 Bruce 的入口安排一致。B 循環加入一站，沿用 B 長按急停。正式整合時使用現有的音訊暫停／恢復接口，進入時關音訊，退出先釋放 RMT。模式畫面依設計總則先出模擬。
+4. **IR1 檔案**：獨立的 `ir-test/platformio.ini`、`ir-test/src/main.cpp`、`ir-test/README.md`；沿用 `selftest/` 的板卡設定，先實機驗 G42 收碼。等 Miles 說「開始實作」再建立測試專案。
 
 【限制】
 - 急停最高優先、IR 發射前查 `killswitch::outputAllowed()`；主迴圈不可阻塞；網路只在網路 task。
