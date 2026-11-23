@@ -141,19 +141,19 @@ void hexShape(int cx, int cy, int a, uint16_t c, bool fill) { ui_kit::hexShape(s
 void seg7(int x, int y, int w, int h, int n, uint16_t on) { ui_kit::seg7(s_canvas, x, y, w, h, n, on); }
 
 // 雷達（同介面規格空中滑鼠）：三圈＋十字＋外圈刻度。progress 0～1000＝外圈亮起比例（順時針、從 12 點）
-constexpr int kRadarX = 67, kRadarY = 61, kRadarR = 44;
+constexpr int kRadarX = 67, kRadarY = 54, kRadarR = 35;
 // locked＝已連線：圈圈綠黃交錯；rx／ry＝準星偏移；dimReticle＝游標暫停中
 void radar(uint16_t line, int progress, uint16_t arc, int sweepDeg, bool reticle,
            bool locked = false, int rx = 0, int ry = 0, bool dimReticle = false) {
   const int cx = kRadarX, cy = kRadarY, r = kRadarR;
   s_canvas.drawCircle(cx, cy, r, locked ? kGreen : line);
   s_canvas.drawCircle(cx, cy, r * 6 / 10, locked ? kYellow : line);
-  s_canvas.drawCircle(cx, cy, r * 25 / 100, locked ? kGreen : line);
-  s_canvas.drawFastHLine(cx - r - 6, cy, 2 * r + 13, line);
+  s_canvas.drawCircle(cx, cy, 10, locked ? kGreen : line);
+  s_canvas.drawFastHLine(cx - r - 4, cy, 2 * r + 9, line);
   s_canvas.drawFastVLine(cx, cy - r - 4, 2 * r + 9, line);
   for (int d = 0; d < 360; d += 30) {
     const float a = d * 0.0174533f;
-    s_canvas.drawLine(cx + int(sinf(a) * (r - 4)), cy - int(cosf(a) * (r - 4)),
+    s_canvas.drawLine(cx + int(sinf(a) * (r - 3)), cy - int(cosf(a) * (r - 3)),
                       cx + int(sinf(a) * r), cy - int(cosf(a) * r), locked ? kYellow : line);
   }
   if (progress > 0) s_canvas.fillArc(cx, cy, r + 3, r + 1, 270, 270 + progress * 360 / 1000, arc);   // 0°＝3 點鐘、順時針
@@ -164,16 +164,16 @@ void radar(uint16_t line, int progress, uint16_t arc, int sweepDeg, bool reticle
                         k == 0 ? kAmber : k == 1 ? kDim : kFrame);
     }
   if (reticle) {   // 準星（介面規格的游標框）
-    const int q = 7;
+    const int q = 6;
     const uint16_t rc = dimReticle ? kDim : kAmber;
     const int ox = cx + rx, oy = cy + ry;
     if (rx || ry) s_canvas.drawLine(cx, cy, ox, oy, kDim);   // 從中心拉一條線＝這一刻往哪動
     for (int sx = -1; sx <= 1; sx += 2)
       for (int sy = -1; sy <= 1; sy += 2) {
-        s_canvas.drawFastHLine(sx < 0 ? ox - q : ox + q - 3, oy + sy * q, 4, rc);
-        s_canvas.drawFastVLine(ox + sx * q, sy < 0 ? oy - q : oy + q - 3, 4, rc);
+        s_canvas.drawFastHLine(sx < 0 ? ox - q : ox + q - 2, oy + sy * q, 3, rc);
+        s_canvas.drawFastVLine(ox + sx * q, sy < 0 ? oy - q : oy + q - 2, 3, rc);
       }
-    s_canvas.fillRect(ox - 2, oy - 2, 5, 5, rc);
+    s_canvas.fillRect(ox - 1, oy - 1, 3, 3, rc);
   }
 }
 
@@ -242,10 +242,10 @@ void drawMenu() {
 
 // 下方共用：左邊 SEC＋兩位七段（tenths＝中間加小數點）
 void secDigits(int value, bool tenths, uint16_t color) {
-  textAt("SEC", 4, 112, kDim, &fonts::Font0);
-  seg7(4, 122, 12, 22, (value / 10) % 10, color);
-  if (tenths) s_canvas.fillRect(18, 142, 2, 2, color);
-  seg7(tenths ? 22 : 18, 122, 12, 22, value % 10, color);
+  textAt("SEC", 4, 105, kDim, &fonts::Font0);
+  seg7(4, 115, 12, 22, (value / 10) % 10, color);
+  if (tenths) s_canvas.fillRect(18, 135, 2, 2, color);
+  seg7(tenths ? 22 : 18, 115, 12, 22, value % 10, color);
 }
 
 // ── 等待連線 ──
@@ -253,42 +253,42 @@ void drawWaiting() {
   const int left = s_seconds < 0 ? kWaitMs / 1000 : s_seconds;
   radar(kFrame, left * 1000 / (kWaitMs / 1000), kAmber, (30 - left) * 36 % 360, false);
   secDigits(left, false, kAmber);
-  bleLine(38, 110, "廣播中", kYellow, false);
+  bleLine(38, 103, "廣播中", kYellow, false);
   const bool saved = s_selected < s_count;
   const bool add = s_selected == s_count && s_count < ble_mouse::kMaxPeers;
-  if (saved) plainName(s_peers[s_selected].name, 38, 129, kBright, kWidth - 41);
-  else lbl(label(s_selected), 38, 127, kBright);
-  lbl(saved ? "已配對" : add ? "存成新配對" : "不存配對", 38, 145, kDim);
-  s_canvas.drawFastHLine(4, 163, kWidth - 8, kFrame);
+  if (saved) plainName(s_peers[s_selected].name, 38, 122, kBright, kWidth - 41);
+  else lbl(label(s_selected), 38, 120, kBright);
+  lbl(saved ? "已配對" : add ? "存成新配對" : "不存配對", 38, 138, kDim);
+  s_canvas.drawFastHLine(4, 157, kWidth - 8, kFrame);
   if (saved) {
-    lbl("等待主機自動回連", 4, 167, kAmber);
-    lbl("或在主機按連線", 4, 184, kDim);
+    lbl("等待主機自動回連", 4, 163, kAmber);
+    lbl("或在主機按連線", 4, 182, kDim);
   } else {
-    const int w = lbl("主機藍牙選", 4, 167, kAmber);
-    textAt(cfg::BLE_DEVICE_NAME, 4 + w + 4, 171, kGreen, &fonts::Font0);
-    textAt(cfg::BLE_DEVICE_NAME, 5 + w + 4, 171, kGreen, &fonts::Font0);
-    lbl("30 秒內沒連上回選單", 4, 184, kDim);
+    const int w = lbl("主機藍牙選", 4, 163, kAmber);
+    textAt(cfg::BLE_DEVICE_NAME, 4 + w + 4, 167, kGreen, &fonts::Font0);
+    textAt(cfg::BLE_DEVICE_NAME, 5 + w + 4, 167, kGreen, &fonts::Font0);
+    lbl("30 秒內沒連上回選單", 4, 182, kDim);
   }
-  lbl("B 切下一模式", 4, 202, kDim);
+  lbl("B 切下一模式", 4, 201, kDim);
   footer("等待連線", kYellow);
 }
 
 // ── 已連線：按鍵說明 ──
 // 六角按鍵（介面規格 左／捲／右）：大字＋下面標按哪顆；沒有的功能畫暗框
-constexpr int kKeyY = 158;
+constexpr int kKeyY = 152;
 // pressed＝正在按：亮白底＋外圈黃框（11-23 Miles：按鍵時六角要有反應）
 void keyHex(int cx, const char* word, const char* key, bool on, bool pressed = false) {
   hexShape(cx, kKeyY, 15, pressed ? kBright : on ? kAmber : kFrame, on || pressed);
   if (pressed) hexShape(cx, kKeyY, 17, kYellow, false);
   lbl(word, cx + 1, kKeyY + 1, on || pressed ? TFT_BLACK : kFrame, 1);
-  lbl(key, cx, kKeyY + 22, on ? kDim : kFrame, 1);
+  lbl(key, cx, kKeyY + 23, on ? kDim : kFrame, 1);
 }
 
 void drawMouse() {
   radar(kFrame, 0, 0, -1, true, true, s_rpx, s_rpy, s_keys & 8);
-  bleLine(4, 110, "已連線", kGreen, true);
-  if (s_selected < s_count) plainName(label(s_selected), 4, 130, kBright, kWidth - 8);
-  else lbl(label(s_selected), 4, 128, kBright);
+  bleLine(4, 99, "已連線", kGreen, true);
+  if (s_selected < s_count) plainName(label(s_selected), 4, 121, kBright, kWidth - 8);
+  else lbl(label(s_selected), 4, 119, kBright);
   const bool hasScroll = input_hal::device() == GroveDevice::Scroll;
   // 下標要放在六角下方：lbl 置中模式以 y 為中心 → 傳中心 y
   if (hasScroll) {
@@ -296,15 +296,15 @@ void drawMouse() {
     keyHex(51, "捲", "轉輪", true, s_keys & 2);
     keyHex(84, "右", "B", true, s_keys & 4);
     keyHex(117, "停", "A長", true, s_keys & 8);
-    lbl("按住滾輪移動＝拖曳", 4, 188, kDim);
+    lbl("按住滾輪移動＝拖曳", 4, 186, kDim);
   } else {
     keyHex(18, "左", "A短", true, s_keys & 1);
     keyHex(51, "捲", "無", false);
     keyHex(84, "右", "B", true, s_keys & 4);
     keyHex(117, "停", "A長", true, s_keys & 8);
-    lbl("A 短按左鍵 按住暫停", 4, 188, kDim);
+    lbl("A 短按左鍵 按住暫停", 4, 186, kDim);
   }
-  lbl("放開 A 重設方向", 4, 204, kDim);
+  lbl("放開 A 重設方向", 4, 203, kDim);
   footer("B 按住 3 秒 回選單", kYellow);
 }
 
@@ -313,11 +313,11 @@ void drawExit() {
   constexpr int total = cfg::BTN_B_KILL_MS / 100;
   radar(kFrame, s_exit_tenths * 1000 / total, kRed, -1, true);
   secDigits(total - s_exit_tenths, true, kRed);
-  lbl("按住 B", 42, 110, kBright);
-  lbl("中斷連線", 42, 127, kAmber);
-  textAt(label(s_selected), 42, 146, kDim, &fonts::efontTW_10, kWidth - 45);
-  s_canvas.drawFastHLine(4, 163, kWidth - 8, kFrame);
-  lbl("放開取消 不送右鍵", 4, 168, kDim);
+  lbl("按住 B", 42, 103, kBright);
+  lbl("中斷連線", 42, 121, kAmber);
+  textAt(label(s_selected), 42, 140, kDim, &fonts::efontTW_10, kWidth - 45);
+  s_canvas.drawFastHLine(4, 157, kWidth - 8, kFrame);
+  lbl("放開取消 不送右鍵", 4, 165, kDim);
   lbl("斷線後回選單", 4, 185, kDim);
   footer("放開 取消", kRed);
 }

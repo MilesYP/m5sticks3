@@ -19,7 +19,7 @@
 ## 目前狀態（每次更新時順手改這一段）
 - **階段**：**M4 空中體感滑鼠 ✅ 完成（11-23，畫面定稿）**。介面設計總則定稿於 `docs/design/`（所有新畫面照它做）。下一步 M1.5 紅外線（交接 `docs/KICKOFF_M15.md`），之後 M2 HID。
 - **進行中**：`codex/m4-2` 已合併回 main（11-24）；共用元件 `ui_kit.*`；下一棒 Codex（`docs/HANDOFF_CODEX.md`）。RF R1 在 `codex/rf-lab` 已編譯，仍待 Miles 實機驗收（Codex）。
-- **待實機**：共用 StickS3 執行 M1.5 IR1 新版 RMT 診斷版。USB 與電池各 10 秒的基準取樣都無 G42 跳變。USB 接入時已收到風扇遙控器的脈衝和 NEC 重複碼，完整碼待驗。B 版 `31-status-b` 可由正式韌體專案燒回。
+- **待實機**：正式韌體 `31-air-radar` 體感雷達正圓與行距微調已實機確認通過 ✅。下一步續推 M1.5 IR1 新版 RMT 診斷版（`ir-test/`）擷取風扇遙控器完整原始脈衝。
 - **硬體狀態（給所有 Session）**：RF Pack S3 **可用但 SPI 不乾淨**（2026-11-17 `rssi-test/` v6.4 共 6 輪實測定案）。接收正常（315.00 MHz −16 dBm、333.00 MHz −18 dBm）。CC1101 **單筆 SPI 讀取穩定約 0.5% 錯**，且錯誤會成叢出現，「連讀兩次相同」被騙過 2 次（最嚴重 14/200）→ 必須用**多數決＋`VERSION`=`0x14` 語意檢查**，寫入一律驗證重寫。高強度連續存取後會卡約 2 秒自行恢復；兩輪零間隔連跑會永久鎖死需重置。規則見 `CLAUDE.md` 鐵則五第 7 點與 `docs/cc1101-spi-reliability.md`。0.5% 錯誤率與 2 秒鎖死都不算正常，但單片無法判定是本片瑕疵或此型通病 → **換貨未定，已請 PINGEQUA 用樣品對照並保留期限**。nRF24、StickS3 本體正常。M3 可照常開發與燒錄（照上述規則寫）。
 - **待辦**：
   - **設定後台＋LINE 入口（11-23 Miles 提出，未排期）**：中控 Worker 網域下架網頁後台調裝置參數（先做 M4 的 `@g/@n/@d/@x/@y`），LINE 官方機器人當入口（參考「Netflix 驗證碼」專案，位置待指定）。細節與待釐清事項見執行計劃「設定後台與 LINE 入口待辦」
@@ -33,6 +33,11 @@
   - Grove 功能測試 `grove-test/`（CardKB 按鍵碼表、Scroll 每圈格數／方向／按鍵／LED），計畫見 `docs/hardware-acceptance-test.md` 階段 5
 
 ---
+
+### 2026-11-24｜M4-2 體感雷達圈圈縮小與正圓對稱排版（31-air-radar）｜Codex
+- 做了什麼：依 Miles 回饋調整 `firmware/src/ui_airmenu.cpp` 的雷達（C7）與等待／已連線／B 長按斷線倒數三頁垂直排版。雷達半徑由 44 縮為 35（三圈 `35 / 21 / 10`、圓心 `y = 54`），水平與垂直十字統一外推 `+4px`（`79×79` 對稱正圓），內圈準星收為 `q = 6`（3×3 中心點）；雷達底上移 16px 後，拉開已連線頁（`BLE ● 已連線`、裝置名、四顆六角鍵與下標、兩行操作提示）及等待／B 斷線倒數頁的垂直間距。同步更新 `docs/design/COMPONENTS.md`、`docs/design/img/m42_wait.png`、`docs/design/img/m42_link.png` 與 `docs/StickS3 介面規格.html`。
+- 驗收結果：M5GFX 模擬器（`bash tools/sim/build.sh air`）輸出確認；PlatformIO 編譯並燒錄 `31-air-radar`（Flash 74.5%、RAM 40.4%），Miles 實機確認等待、已連線與 B 長按斷線倒數畫面通過 ✅。
+- 下一步：已同步回寫介面規格與執行計劃；續推 M1.5 IR1。
 
 ### 2026-11-24｜M1.5 IR1 新版 RMT 實機對照｜Codex
 - 做了什麼：獨立 `ir-test/` 新增 `m5sticks3-rmt5`，使用 Arduino 3.2.1／ESP-IDF 5.4，依 [M5Stack 接收範例](https://docs.m5stack.com/en/arduino/m5sticks3/ir_nec) 設 1 MHz、128 個硬體符號、64 個接收緩衝符號、1 µs 最短脈衝與 20 ms 結束門檻。保留原 NEC 解碼器、畫面、PYG3 與供電診斷。新版預設關閉 G42 跳變中斷，可用 `g` 開關。舊版環境仍為預設。
