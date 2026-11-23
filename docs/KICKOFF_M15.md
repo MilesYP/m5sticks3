@@ -27,7 +27,7 @@
 1. **腳位與供電**：[StickS3 官方腳位表](https://docs.m5stack.com/en/core/StickS3) 與 [Bruce 板卡設定](https://github.com/BruceDevices/firmware/blob/main/boards/m5stack-sticks3/m5stack-sticks3.ini) 一致，RX G42／TX G46。紅外線用 `EXT_5V` 供電，接收時依 [M5Stack 官方範例](https://docs.m5stack.com/en/arduino/m5sticks3/ir_nec) 關閉喇叭功放。沿用 M5Unified 0.3.0 的 `M5.Speaker.end()`，由既有回呼處理 PYG3。
 2. **收碼**：官方要求由 RMT 硬體量脈衝。IR1 用 Arduino 2.0.17 綁定的 [ESP-IDF 4.4.7 RMT 驅動](https://docs.espressif.com/projects/esp-idf/en/v4.4.7/esp32s3/api-reference/peripherals/rmt.html)（`driver/rmt.h`），以非阻塞方式接收並解碼 NEC。`Arduino-IRremote 4.4.1`（MIT）與 `IRremoteESP8266 2.8.6`（LGPL-2.1）各自的標準接收路徑使用計時器或 GPIO 中斷，IR1 使用內建驅動即可。正式合併前再驗證 RMT 通道配置與模式退出時的資源釋放。
 3. **模式歸屬**：Miles 選獨立「紅外線」模式，與 Bruce 的入口安排一致。B 循環加入一站，沿用 B 長按急停。正式整合時使用現有的音訊暫停／恢復接口，進入時關音訊，退出先釋放 RMT。模式畫面依設計總則先出模擬。
-4. **IR1 檔案**：獨立的 `ir-test/platformio.ini`、`ir-test/src/main.cpp`、`ir-test/README.md`；沿用 `selftest/` 的板卡設定，先實機驗 G42 收碼。等 Miles 說「開始實作」再建立測試專案。
+4. **IR1 測試專案**：`ir-test/` 已建立並通過編譯。沿用 `selftest/` 的板卡設定，依 [驗收步驟](../ir-test/README.md) 先實機驗 G42 收碼，再安排正式模式整合。
 
 【限制】
 - 急停最高優先、IR 發射前查 `killswitch::outputAllowed()`；主迴圈不可阻塞；網路只在網路 task。

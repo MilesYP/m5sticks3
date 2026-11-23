@@ -1,0 +1,39 @@
+# StickS3 IR1 收碼驗證
+
+獨立 PlatformIO 專案。用本體頂端的紅外線接收器驗證 G42、RMT 硬體與 NEC 解碼。螢幕和序列埠顯示標準 NEC 或延伸 NEC 的位址、指令與原始碼值。
+
+## 建置
+
+📋 ：cd ~/Developer/m5sticks3/ir-test && pio run
+
+板卡與函式庫版本沿用 `selftest/`。畫面連結正式韌體的 `ui_kit` 與 `ui_fx`，收碼使用 Arduino 2.0.17 隨附的 ESP-IDF 4.4 RMT 驅動。
+
+## 切換共用測試板
+
+目前若執行正式韌體，先在序列埠送以下指令，看到 `[pwrkey] → root` 且有「看門狗關」後再關閉序列埠監看。可用長按電源鍵 5 秒後放開代替，看到紅底「ROOT 模式」。
+
+📋 ：q0
+
+確認可覆寫板上的正式韌體後燒錄，燒完開啟序列埠。若燒錄後畫面仍停在下載模式，短按電源鍵重置。
+
+📋 ：cd ~/Developer/m5sticks3/ir-test && pio run -t upload -t monitor
+
+## 驗收
+
+1. 開機應顯示「紅外線」與「等待訊號」。按正面 A 或在序列埠送 `?` 可重印狀態，看到 `[ir1] READY RX=G42 RMT=4 EXT_5V=ON` 代表供電與驅動已初始化。
+2. 用自家電視遙控器對準 StickS3 頂端，保持大於 30 公分，短按兩顆不同的鍵。螢幕應顯示 `NEC` 或 `NEC EXT`，序列埠應印出 `[ir1] NEC ADDR=… CMD=… RAW=…` 或延伸版。再按相同鍵，核對碼值一致。
+3. 長按支援 NEC 重複碼的遙控器按鍵，再按 A 重印。可從 `count=`、`repeat=`、`unknown=` 分別看完整碼、重複碼和未辨識訊號。收到未知訊號表示 RMT 有捕捉到脈衝，需再核對遙控器協定。
+4. 長按 B 滿 3 秒停止接收，螢幕顯示「已停止接收」，序列埠印出 `[ir1] STOPPED`。短按電源鍵重新開始。
+
+IR1 的驗收以實際遙控器送出的穩定碼值為準。G46 發射驗證排在 IR3。
+
+## 回到正式韌體
+
+關閉序列埠監看，燒回正式韌體。開機會自動恢復正式韌體電源鍵與看門狗設定。
+
+📋 ：cd ~/Developer/m5sticks3/firmware && pio run -t upload -t monitor
+
+## 硬體依據
+
+- G42 接收，開 `EXT_5V`。初始化用 M5Unified 的 `M5.Speaker.end()` 關閉喇叭功放。[M5Stack 腳位與供電](https://docs.m5stack.com/en/core/StickS3) · [M5Stack 紅外線接收範例](https://docs.m5stack.com/en/arduino/m5sticks3/ir_nec)
+- ESP32-S3 選 RMT 接收通道 4，環形緩衝區交給主迴圈以零等待讀取。[ESP-IDF 4.4.7 RMT 文件](https://docs.espressif.com/projects/esp-idf/en/v4.4.7/esp32s3/api-reference/peripherals/rmt.html)

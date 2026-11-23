@@ -51,6 +51,11 @@ WORDS_UI = [
     ("pk_root",   "ROOT",     16, 70),   # 5 秒以上（放開＝進 root）
 ]
 
+WORDS_IR_TEST = [
+    ("title", "紅外線", 36, 125),
+    ("reprint", "A 重印", 13, 121),
+]
+
 FONT_INDEX = 0
 
 def tc_index(font_path):
@@ -93,10 +98,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--font", required=True, help="Noto Serif CJK TC Black 的路徑（.ttc／.otf）")
     ap.add_argument("--out", default="firmware/src/kanji_bitmaps.h")
-    ap.add_argument("--set", choices=["mode", "ui"], default="mode", help="mode＝切模式過場大字；ui＝表情狀態大字與台北時間")
+    label_sets = {
+        "mode": (WORDS, "kanji"),
+        "ui": (WORDS_UI, "ui_labels"),
+        "ir-test": (WORDS_IR_TEST, "ir_test_labels"),
+    }
+    ap.add_argument("--set", choices=label_sets, default="mode")
     a = ap.parse_args()
     global FONT_INDEX
-    words, ns = (WORDS, "kanji") if a.set == "mode" else (WORDS_UI, "ui_labels")
+    words, ns = label_sets[a.set]
     if a.set == "ui":
         FONT_INDEX = tc_index(a.font)
     fname = ImageFont.truetype(a.font, 12, index=FONT_INDEX).getname()
