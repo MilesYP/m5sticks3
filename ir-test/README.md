@@ -6,7 +6,11 @@
 
 📋 ：cd ~/Developer/m5sticks3/ir-test && pio run
 
-板卡與函式庫版本沿用 `selftest/`。畫面連結正式韌體的 `ui_kit` 與 `ui_fx`，收碼使用 Arduino 2.0.17 隨附的 ESP-IDF 4.4 RMT 驅動。
+預設建置 `m5sticks3`，沿用 `selftest/` 的板卡與函式庫版本，使用 Arduino 2.0.17 隨附的 ESP-IDF 4.4 RMT 驅動。畫面連結正式韌體的 `ui_kit` 與 `ui_fx`。
+
+新版 RMT 對照用 `m5sticks3-rmt5`。建置使用 pioarduino 54.03.21-2／Arduino 3.2.1／ESP-IDF 5.4。接收依 M5Stack 範例使用 1 MHz、128 個硬體脈衝記錄、64 個接收緩衝記錄、1 µs 最短脈衝和 20 ms 結束門檻。每筆收到後由主迴圈取走資料，再啟動下一筆接收。保留相同的 NEC 解碼、畫面與供電診斷。
+
+📋 ：cd ~/Developer/m5sticks3/ir-test && pio run -e m5sticks3-rmt5
 
 ## 切換共用測試板
 
@@ -18,9 +22,13 @@
 
 📋 ：cd ~/Developer/m5sticks3/ir-test && pio run -t upload -t monitor
 
+燒錄新版 RMT 對照環境時指定目標環境，重印狀態應看到 `RMT=IDF5`。
+
+📋 ：cd ~/Developer/m5sticks3/ir-test && pio run -e m5sticks3-rmt5 -t upload -t monitor
+
 ## 驗收
 
-1. 開機應顯示「紅外線」與「等待訊號」。按正面 A 或在序列埠送 `?` 可重印狀態，看到 `[ir1] READY RX=G42 RMT=4 EXT_5V=ON` 代表供電與驅動已初始化。
+1. 開機應顯示「紅外線」與「等待訊號」。按正面 A 或在序列埠送 `?` 可重印狀態，看到 `[ir1] READY RX=G42`、`EXT_5V=ON` 代表供電與驅動已初始化。舊版顯示 `RMT=4`，新版顯示 `RMT=IDF5`。
 2. 用自家電視或電風扇的紅外線遙控器對準 StickS3 頂端，保持大於 30 公分，短按兩顆不同的鍵。遙控器使用 NEC 時，螢幕顯示 `NEC` 或 `NEC EXT`，序列埠印出 `[ir1] NEC ADDR=… CMD=… RAW=…` 或延伸版。再按相同鍵，核對碼值一致。
 3. 長按支援 NEC 重複碼的遙控器按鍵，再按 A 重印。可從 `count=`、`repeat=`、`unknown=` 分別看完整碼、重複碼和未辨識訊號。收到未知訊號表示 RMT 有捕捉到脈衝，需再核對遙控器協定。
 4. 長按 B 滿 3 秒停止接收，螢幕顯示「已停止接收」，序列埠印出 `[ir1] STOPPED`。短按電源鍵重新開始。
@@ -34,6 +42,8 @@ IR1 的驗收以實際遙控器送出的穩定碼值為準。G46 發射驗證排
 - `ext_mv`：M5PM1 的 5V 輸出電壓讀值，單位為毫伏。
 - `amp_latch`：喇叭功放控制的輸出設定，`0` 為低電位，`?` 為讀取失敗。
 - `gpio42` 與 `edges`：G42 當下電位及開機後偵測到的總跳變次數。兩次取樣的差值可用來對照按鍵或遮光前後。`probe=ESP_OK` 代表跳變計數已掛上。
+
+新版起始為 `probe=OFF`，讓 RMT 單獨接收。沒有進行背光或供電測試時，可送 `g` 切換額外的 G42 跳變計數。只有 `probe=ESP_OK` 時才可解讀 `edges` 的值。
 
 同次查詢的 `[ir1] PYG3` 以唯讀方式印出 M5PM1（`0x6E`）暫存器原值。依 M5PM1 資料表，`FUNC0`（`0x16`）的 bits 7:6 為功能欄位，`MODE`（`0x10`）、`DRV`（`0x13`）、`OUT`（`0x11`）則各看 bit 3。`amp_off_config=1` 表示讀回一般 GPIO、推挽輸出、低電位，符合官方關閉功放設定。這是暫存器讀值，功放腳位電位需以儀器驗證。
 

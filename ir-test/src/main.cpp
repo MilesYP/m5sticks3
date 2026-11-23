@@ -1,9 +1,13 @@
 #include <M5Unified.h>
 #include <atomic>
 #include <driver/gpio.h>
-#include <driver/rmt.h>
 #include <esp_system.h>
+#ifdef IR_TEST_RMT5
+#include <driver/rmt_rx.h>
+#else
+#include <driver/rmt.h>
 #include <freertos/ringbuf.h>
+#endif
 
 #include "config.h"
 #include "screen.h"
@@ -12,11 +16,23 @@
 namespace {
 
 constexpr gpio_num_t kRxPin = GPIO_NUM_42;
-constexpr rmt_channel_t kRxChannel = RMT_CHANNEL_4;
-constexpr uint8_t kClockDivider = 80;  // APB 80 MHz → 每 tick 1 µs
 constexpr uint32_t kCounterHz = 1000000;
 constexpr uint16_t kIdleUs = 20000;
+#ifdef IR_TEST_RMT5
+constexpr size_t kRmtMemorySymbols = 128;
+constexpr size_t kRxSymbols = 64;
+constexpr uint32_t kMinPulseNs = 1000;
+using RxItem = rmt_symbol_word_t;
+rmt_channel_handle_t rxChannel = nullptr;
+RxItem rxItems[kRxSymbols];
+std::atomic<size_t> rxDone{0};
+#else
+constexpr rmt_channel_t kRxChannel = RMT_CHANNEL_4;
+constexpr uint8_t kClockDivider = 80;  // APB 80 MHz → 每 tick 1 µs
 constexpr size_t kRxBufferBytes = 1024;
+using RxItem = rmt_item32_t;
+RingbufHandle_t rxBuffer = nullptr;
+#endif
 constexpr uint32_t kUnknownLogMs = 500;
 constexpr uint32_t kBacklightSampleMs = 10000;
 constexpr uint8_t kPmGpioFunc0 = 0x16;
@@ -36,7 +52,7 @@ M5Canvas canvas(&M5.Display);
 bool canvasReady = false;
 bool previousExtPower = false;
 bool powerChanged = false;
-RingbufHandle_t rxBuffer = nullptr;
+bool receiverActive = false;
 ir_test::State state = ir_test::State::Waiting;
 nec::Frame lastFrame;
 const char* errorText = "";
@@ -48,6 +64,12 @@ uint32_t lastUnknownLog = 0;
 bool redraw = true;
 std::atomic<uint32_t> rxEdges{0};
 esp_err_t edgeProbe = ESP_ERR_INVALID_STATE;
+const char* edgeProbeStatus() {
+#ifdef IR_TEST_RMT5
+  if (edgeProbe == ESP_ERR_INVALID_STATE) return "OFF";
+#endif
+  return esp_err_to_name(edgeProbe);
+}
 uint32_t bootId = 0;
 
 struct RxCounts {
@@ -86,6 +108,7 @@ struct PowerTest {
   uint32_t lastPoll = 0;
   bool active = false;
   const char* status = "NONE";
+  const char* probeStatus = "NONE";
 } powerTest;
 
 RxCounts readCounts() {
@@ -115,8 +138,9 @@ void printPyg3() {
 
 void printPowerTest() {
   if (!Serial) return;
-  Serial.printf("[ir1] PWR boot=%08lX status=%s brightness=%u completed=%u\n",
-                static_cast<unsigned long>(bootId), powerTest.status, powerTest.brightness, powerTest.step);
+  Serial.printf("[ir1] PWR boot=%08lX status=%s brightness=%u completed=%u probe=%s\n",
+                static_cast<unsigned long>(bootId), powerTest.status, powerTest.brightness, powerTest.step,
+                powerTest.probeStatus);
   for (unsigned i = 0; i < powerTest.step; ++i) {
     const auto& s = powerTest.samples[i];
     Serial.printf("[ir1] PWR step=%u source=%s ms=%lu edges=%lu count=%lu repeat=%lu unknown=%lu "
@@ -140,13 +164,14 @@ void startPowerTest() {
     return;
   }
   uint8_t source;
-  if (!rxBuffer || edgeProbe != ESP_OK || backlightTest.step ||
+  if (!receiverActive || backlightTest.step ||
       !readPm(kPmPowerSource, &source) || !(source & kVinPresent)) {
     Serial.println("[ir1] PWR ERROR need active RX, VIN and fixed backlight");
     return;
   }
   powerTest = {};
   powerTest.brightness = M5.Display.getBrightness();
+  powerTest.probeStatus = edgeProbeStatus();
   powerTest.stageAt = millis();
   powerTest.active = true;
   powerTest.status = "RUNNING";
@@ -211,13 +236,13 @@ void pollPowerTest() {
 void startBacklightTest() {
   if (backlightTest.step || powerTest.active) return;
   const uint8_t brightness = M5.Display.getBrightness();
-  if (!rxBuffer || edgeProbe != ESP_OK || !brightness) {
+  if (!receiverActive || !brightness) {
     Serial.println("[ir1] BL ERROR 要先開始接收並打開背光");
     return;
   }
   backlightTest.step = 1;
   backlightTest.originalBrightness = brightness;
-  Serial.printf("[ir1] BL START brightness=%u\n", static_cast<unsigned>(brightness));
+  Serial.printf("[ir1] BL START brightness=%u probe=%s\n", static_cast<unsigned>(brightness), edgeProbeStatus());
   backlightTest.baseline = readCounts();
   backlightTest.startedAt = millis();
 }
@@ -260,6 +285,49 @@ esp_err_t startEdgeProbe() {
   return gpio_isr_handler_add(kRxPin, countEdge, nullptr);
 }
 
+#ifdef IR_TEST_RMT5
+bool IRAM_ATTR receiveDone(rmt_channel_handle_t, const rmt_rx_done_event_data_t* event, void*) {
+  rxDone.store(event->num_symbols + 1, std::memory_order_release);
+  return false;
+}
+
+esp_err_t armReceiver() {
+  rmt_receive_config_t config{};
+  config.signal_range_min_ns = kMinPulseNs;
+  config.signal_range_max_ns = kIdleUs * 1000;
+  return rmt_receive(rxChannel, rxItems, sizeof(rxItems), &config);
+}
+
+esp_err_t startReceiver() {
+  rmt_rx_channel_config_t config{};
+  config.gpio_num = kRxPin;
+  config.clk_src = RMT_CLK_SRC_DEFAULT;
+  config.resolution_hz = kCounterHz;
+  config.mem_block_symbols = kRmtMemorySymbols;
+  esp_err_t err = rmt_new_rx_channel(&config, &rxChannel);
+  if (err != ESP_OK) return err;
+  rmt_rx_event_callbacks_t callbacks{};
+  callbacks.on_recv_done = receiveDone;
+  err = rmt_rx_register_event_callbacks(rxChannel, &callbacks, nullptr);
+  if (err == ESP_OK) err = rmt_enable(rxChannel);
+  if (err == ESP_OK) {
+    err = armReceiver();
+    if (err != ESP_OK) rmt_disable(rxChannel);
+  }
+  if (err != ESP_OK) {
+    rmt_del_channel(rxChannel);
+    rxChannel = nullptr;
+  }
+  return err;
+}
+
+void releaseReceiver() {
+  rmt_disable(rxChannel);
+  rmt_del_channel(rxChannel);
+  rxChannel = nullptr;
+  rxDone.store(0, std::memory_order_relaxed);
+}
+#else
 esp_err_t startReceiver() {
   rmt_config_t config = RMT_DEFAULT_CONFIG_RX(kRxPin, kRxChannel);
   config.clk_div = kClockDivider;
@@ -282,6 +350,13 @@ esp_err_t startReceiver() {
   return err;
 }
 
+void releaseReceiver() {
+  rmt_rx_stop(kRxChannel);
+  rmt_driver_uninstall(kRxChannel);
+  rxBuffer = nullptr;
+}
+#endif
+
 void restorePower() {
   if (!powerChanged) return;
   M5.Power.setExtOutput(previousExtPower);
@@ -289,11 +364,10 @@ void restorePower() {
 }
 
 void stopReceiver() {
-  if (powerTest.active) finishPowerTest("INVALID_STOPPED");
   if (edgeProbe == ESP_OK) gpio_isr_handler_remove(kRxPin);
-  rmt_rx_stop(kRxChannel);
-  rmt_driver_uninstall(kRxChannel);
-  rxBuffer = nullptr;
+  releaseReceiver();
+  receiverActive = false;
+  if (powerTest.active) finishPowerTest("INVALID_STOPPED");
   restorePower();
   if (backlightTest.step) {
     M5.Display.setBrightness(backlightTest.originalBrightness);
@@ -314,14 +388,20 @@ void printStatus() {
   if (!Serial) return;
   if (state == ir_test::State::Error) Serial.printf("[ir1] ERROR %s\n", errorText);
   else if (state == ir_test::State::Stopped) Serial.println("[ir1] STOPPED");
-  else Serial.printf("[ir1] READY RX=G%d RMT=%d EXT_5V=ON\n", kRxPin, kRxChannel);
+  else {
+#ifdef IR_TEST_RMT5
+    Serial.printf("[ir1] READY RX=G%d RMT=IDF5 EXT_5V=ON\n", kRxPin);
+#else
+    Serial.printf("[ir1] READY RX=G%d RMT=%d EXT_5V=ON\n", kRxPin, kRxChannel);
+#endif
+  }
   bool ampLatch = false;
   const bool ampRead = M5.Power.M5pm1.getGPIOOutputLatch(m5::M5PM1_Class::gpio3, &ampLatch);
   const uint16_t outMv = M5.Power.M5pm1.get5VoutVoltage();
   Serial.printf("[ir1] DIAG ext_mv=%u amp_latch=%s gpio42=%d edges=%lu probe=%s\n",
                 static_cast<unsigned>(outMv), ampRead ? (ampLatch ? "1" : "0") : "?",
                 gpio_get_level(kRxPin), static_cast<unsigned long>(rxEdges.load(std::memory_order_relaxed)),
-                esp_err_to_name(edgeProbe));
+                edgeProbeStatus());
   if (decoded) printFrame();
   Serial.printf("[ir1] count=%lu repeat=%lu unknown=%lu\n",
                 static_cast<unsigned long>(decoded), static_cast<unsigned long>(repeats),
@@ -332,14 +412,25 @@ void printStatus() {
 }
 
 void pollReceiver() {
-  if (!rxBuffer) return;
+  if (!receiverActive) return;
+#ifdef IR_TEST_RMT5
+  const size_t result = rxDone.exchange(0, std::memory_order_acquire);
+  if (!result) return;
+  const size_t count = result - 1;
+  const RxItem* items = rxItems;
+#else
   size_t bytes = 0;
-  auto* items = static_cast<rmt_item32_t*>(xRingbufferReceive(rxBuffer, &bytes, 0));
+  auto* items = static_cast<RxItem*>(xRingbufferReceive(rxBuffer, &bytes, 0));
   if (!items) return;
-
+  if (bytes % sizeof(*items) != 0) {
+    vRingbufferReturnItem(rxBuffer, items);
+    return;
+  }
   const size_t count = bytes / sizeof(*items);
+#endif
+
   nec::Frame frame;
-  if (count <= nec::kFullFrameSymbols && bytes % sizeof(*items) == 0) {
+  if (count <= nec::kFullFrameSymbols) {
     nec::Symbol symbols[nec::kFullFrameSymbols];
     for (size_t i = 0; i < count; ++i) {
       symbols[i] = {static_cast<uint16_t>(items[i].duration0), static_cast<uint16_t>(items[i].duration1),
@@ -347,8 +438,19 @@ void pollReceiver() {
     }
     frame = nec::decode(symbols, count);
   }
-  const rmt_item32_t lead = count ? items[0] : rmt_item32_t{};
+  const RxItem lead = count ? items[0] : RxItem{};
+#ifdef IR_TEST_RMT5
+  const esp_err_t err = armReceiver();
+  if (err != ESP_OK) {
+    stopReceiver();
+    state = ir_test::State::Error;
+    errorText = esp_err_to_name(err);
+    printStatus();
+    return;
+  }
+#else
   vRingbufferReturnItem(rxBuffer, items);
+#endif
 
   switch (frame.kind) {
     case nec::Kind::Standard:
@@ -412,7 +514,10 @@ void setup() {
       state = ir_test::State::Error;
       restorePower();
     } else {
+      receiverActive = true;
+#ifndef IR_TEST_RMT5
       edgeProbe = startEdgeProbe();
+#endif
     }
   }
   printStatus();
@@ -420,7 +525,7 @@ void setup() {
 
 void loop() {
   M5.update();
-  if (rxBuffer && M5.BtnB.pressedFor(cfg::BTN_B_KILL_MS)) stopReceiver();
+  if (receiverActive && M5.BtnB.pressedFor(cfg::BTN_B_KILL_MS)) stopReceiver();
   if (M5.BtnA.wasPressed()) {
     battery = M5.Power.getBatteryLevel();
     redraw = true;
@@ -432,6 +537,17 @@ void loop() {
     else if (command == 'b') startBacklightTest();
     else if (command == 'p') startPowerTest();
     else if (command == 'r') printPowerTest();
+#ifdef IR_TEST_RMT5
+    else if (command == 'g' && receiverActive && !powerTest.active && !backlightTest.step) {
+      if (edgeProbe == ESP_OK) {
+        gpio_isr_handler_remove(kRxPin);
+        edgeProbe = ESP_ERR_INVALID_STATE;
+      } else {
+        edgeProbe = startEdgeProbe();
+      }
+      printStatus();
+    }
+#endif
   }
   pollReceiver();
   pollBacklightTest();
