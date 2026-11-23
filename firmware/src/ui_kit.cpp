@@ -1,4 +1,5 @@
 #include "ui_kit.h"
+#include "status_labels.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -200,7 +201,14 @@ void statusBar(Gfx& g, int x0, int w, const char* name, const char* status, uint
   g.fillRect(x, 6, 2, 2, accent);
   x += 5;
   g.setFont(&fonts::efontTW_10);
-  if (status && x + g.textWidth(status) <= rx) g.drawString(status, x, 1);   // 放不下就省略狀態字
+  if (status) {
+    const auto* label = status_labels::find(status);
+    if (label && x + label->w <= rx) {
+      g.drawBitmap(x, (12 - label->h) / 2, label->bits, label->w, label->h, accent);
+    } else if (x + g.textWidth(status) <= rx) {
+      g.drawString(status, x, 1);
+    }
+  }
   g.drawFastHLine(x0, 12, w, accent);
 }
 

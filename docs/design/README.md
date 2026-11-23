@@ -41,7 +41,8 @@
 | :-- | :-- | :-- |
 | 模式大字（語音／外部操作／射頻／體感／緊急停止） | Noto Serif CJK TC **Black**，約 36px，**紅色** | `kanji_bitmaps.h`（`tools/gen_kanji.py --set mode`） |
 | 狀態大字（待機、聆聽…）、台北時間、受信、電源／停止／ROOT | Noto Serif CJK TC Bold | `ui_labels.h`（`--set ui`） |
-| 體感：標題、狀態字、六角鍵字、底部帶 | Noto Serif CJK TC Black，固定字級 18／15／14／13／12px、同級基線對齊 | `air_labels.h`（`tools/gen_air_labels.py`，用文字本身查表） |
+| 表情頁／體感共用狀態列中文 | Noto Serif CJK TC Black，11px | `status_labels.h`（`tools/gen_air_labels.py --set status`），沒有點陣字或空間不足時可退回 `efontTW_10` |
+| 體感：標題、畫面內狀態字、六角鍵字、底部帶 | Noto Serif CJK TC Black，固定字級 18／15／14／13／12px、同級基線對齊 | `air_labels.h`（`tools/gen_air_labels.py`，用文字本身查表） |
 | **閱讀用的字**：對話、裝置名稱、提示句、說明、錯誤訊息 | `efontTW_12` **一般字** | 直接畫。**不要疊兩次加粗、不要用明朝點陣**（Miles 11-23：表情頁對話字已是閱讀極限，加粗反而糊） |
 | 小字混排（資訊頁） | 英文 `Font0`、數字 `efontTW_10_b`、中文 `efontTW_10` 逐段換 | `ui_info.cpp` 的 `txt()`／`mixedWidth()` |
 | 英文標籤（MODE 04、AIR MOUSE、PAIRED、SEC、BLE） | `Font0`，全大寫 | — |
@@ -57,7 +58,7 @@
 ## 3. 版面
 
 - 主要是直式 **135×240**；表情頁、資訊頁、切模式過場另有橫式 240×135（A 鍵在右／左鏡像，畫布轉向）。體感目前只有直式。
-- **狀態列**（表情頁、體感）：y 0～12，左「名稱・狀態」（Font0 英文＋2×2 點＋efontTW_10 中文），右電量 %（綠黃紅），y=12 一條琥珀細線。
+- **狀態列**（表情頁、體感）：高 12px，左「名稱・狀態」（Font0 英文＋2×2 點＋11px 明朝點陣字），右電量 %（綠黃紅），y=12 一條細線。
 - 邊距 2～4px；不要把每段文字都框起來。分區用一條「框線色」細線或留白。
 - 底部動作帶（體感）：最下 18px 黃黑斜紋，中間黑底放主要動作字；上面 2px 琥珀線。破壞性頁面改紅黑。
 - 資訊頁用磚塊（細框＋四角亮 4px＋六角標籤），磚塊只給資訊頁那種「儀表板」用。
@@ -126,4 +127,4 @@
 
 - ✅ 11-23 共用元件已抽成 `firmware/src/ui_kit.*`（表情、資訊、切模式、體感改用它；模擬 1441 張逐像素相同）。未搬：表情頁的浮點六角（液體、碎片用）、電源鍵長按頁自己的 `seg7`／`stripeBand`（沒有模擬器，要先補模擬再搬）。
 - 改 `ui_kit` 前後一定要跑全部模擬比對（見 COMPONENTS.md「回歸比對」）。
-- 狀態列中文：現行 `efontTW_10`。11-23 出了三版預覽（A 現行／B 明朝 11px 不加高／C 明朝 14px 狀態列加高 16px），Miles 尚未決定；改的話只動 `ui_kit::statusBar`，表情頁與體感一起變。
+- ✅ 狀態列中文選 B（11-24）：表情頁與體感共用 `ui_kit::statusBar()` 的 11px 明朝點陣字。見 [B 版模擬截圖](img/statusbar_b.png)。
