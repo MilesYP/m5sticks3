@@ -2,6 +2,7 @@
 #include <atomic>
 #include <driver/gpio.h>
 #include <driver/rmt.h>
+#include <esp_system.h>
 #include <freertos/ringbuf.h>
 
 #include "config.h"
@@ -18,6 +19,18 @@ constexpr uint16_t kIdleUs = 20000;
 constexpr size_t kRxBufferBytes = 1024;
 constexpr uint32_t kUnknownLogMs = 500;
 constexpr uint32_t kBacklightSampleMs = 10000;
+constexpr uint8_t kPmGpioFunc0 = 0x16;
+constexpr uint8_t kPmGpioMode = 0x10;
+constexpr uint8_t kPmGpioDrive = 0x13;
+constexpr uint8_t kPmGpioOut = 0x11;
+constexpr uint8_t kPmPowerSource = 0x04;
+constexpr uint8_t kPm5vOut = 0x26;
+constexpr uint8_t kPyg3Bit = 1 << 3;
+constexpr uint8_t kVinPresent = 1 << 0;
+constexpr uint32_t kPowerPollMs = 250;
+constexpr uint32_t kPowerSettleMs = 1000;
+constexpr uint32_t kPowerSampleMs = 10000;
+constexpr uint32_t kPowerStageTimeoutMs = 180000;
 
 M5Canvas canvas(&M5.Display);
 bool canvasReady = false;
@@ -35,6 +48,7 @@ uint32_t lastUnknownLog = 0;
 bool redraw = true;
 std::atomic<uint32_t> rxEdges{0};
 esp_err_t edgeProbe = ESP_ERR_INVALID_STATE;
+uint32_t bootId = 0;
 
 struct RxCounts {
   uint32_t edges;
@@ -50,12 +64,152 @@ struct BacklightTest {
   RxCounts baseline{};
 } backlightTest;
 
+struct PowerSample {
+  RxCounts baseline{};
+  RxCounts delta{};
+  uint32_t startedAt = 0;
+  uint32_t elapsed = 0;
+  uint32_t mvSum = 0;
+  unsigned mvCount = 0;
+  unsigned mvMin = 0;
+  unsigned mvMax = 0;
+};
+
+struct PowerTest {
+  PowerSample samples[3]{};
+  unsigned step = 0;
+  uint8_t brightness = 0;
+  bool settling = false;
+  bool sampling = false;
+  uint32_t stageAt = 0;
+  uint32_t stableSince = 0;
+  uint32_t lastPoll = 0;
+  bool active = false;
+  const char* status = "NONE";
+} powerTest;
+
 RxCounts readCounts() {
   return {rxEdges.load(std::memory_order_relaxed), decoded, repeats, unknown};
 }
 
+bool readPm(uint8_t reg, uint8_t* data, size_t size = 1) {
+  return M5.In_I2C.readRegister(cfg::PM1_ADDR, reg, data, size, cfg::PM1_I2C_HZ);
+}
+
+void printPyg3() {
+  uint8_t func, mode, drive, out;
+  if (!readPm(kPmGpioFunc0, &func) || !readPm(kPmGpioMode, &mode) ||
+      !readPm(kPmGpioDrive, &drive) || !readPm(kPmGpioOut, &out)) {
+    Serial.println("[ir1] PYG3 ERROR I2C");
+    return;
+  }
+  const unsigned function = func >> 6;
+  const bool output = mode & kPyg3Bit;
+  const bool openDrain = drive & kPyg3Bit;
+  const bool high = out & kPyg3Bit;
+  Serial.printf("[ir1] PYG3 FUNC0=0x%02X MODE=0x%02X DRV=0x%02X OUT=0x%02X "
+                "func=%u output=%u open_drain=%u high=%u amp_off_config=%u\n",
+                func, mode, drive, out, function, output, openDrain, high,
+                function == 0 && output && !openDrain && !high);
+}
+
+void printPowerTest() {
+  if (!Serial) return;
+  Serial.printf("[ir1] PWR boot=%08lX status=%s brightness=%u completed=%u\n",
+                static_cast<unsigned long>(bootId), powerTest.status, powerTest.brightness, powerTest.step);
+  for (unsigned i = 0; i < powerTest.step; ++i) {
+    const auto& s = powerTest.samples[i];
+    Serial.printf("[ir1] PWR step=%u source=%s ms=%lu edges=%lu count=%lu repeat=%lu unknown=%lu "
+                  "ext_mv_avg=%lu ext_mv_min=%u ext_mv_max=%u n=%u\n",
+                  i + 1, i == 1 ? "BAT" : "USB", static_cast<unsigned long>(s.elapsed),
+                  static_cast<unsigned long>(s.delta.edges), static_cast<unsigned long>(s.delta.decoded),
+                  static_cast<unsigned long>(s.delta.repeats), static_cast<unsigned long>(s.delta.unknown),
+                  static_cast<unsigned long>(s.mvSum / s.mvCount), s.mvMin, s.mvMax, s.mvCount);
+  }
+}
+
+void finishPowerTest(const char* status) {
+  powerTest.active = false;
+  powerTest.status = status;
+  printPowerTest();
+}
+
+void startPowerTest() {
+  if (powerTest.active) {
+    printPowerTest();
+    return;
+  }
+  uint8_t source;
+  if (!rxBuffer || edgeProbe != ESP_OK || backlightTest.step ||
+      !readPm(kPmPowerSource, &source) || !(source & kVinPresent)) {
+    Serial.println("[ir1] PWR ERROR need active RX, VIN and fixed backlight");
+    return;
+  }
+  powerTest = {};
+  powerTest.brightness = M5.Display.getBrightness();
+  powerTest.stageAt = millis();
+  powerTest.active = true;
+  powerTest.status = "RUNNING";
+  printPowerTest();
+}
+
+void pollPowerTest() {
+  if (!powerTest.active) return;
+  const uint32_t now = millis();
+  if (now - powerTest.stageAt >= kPowerStageTimeoutMs ||
+      M5.Display.getBrightness() != powerTest.brightness) {
+    finishPowerTest("INVALID_TIMEOUT_OR_BRIGHTNESS");
+    return;
+  }
+  if (now - powerTest.lastPoll < kPowerPollMs) return;
+  powerTest.lastPoll = now;
+  uint8_t source;
+  const bool wantVin = powerTest.step != 1;
+  if (!readPm(kPmPowerSource, &source) || bool(source & kVinPresent) != wantVin) {
+    powerTest.settling = powerTest.sampling = false;
+    return;
+  }
+  if (!powerTest.settling) {
+    powerTest.settling = true;
+    powerTest.stableSince = now;
+    return;
+  }
+  if (now - powerTest.stableSince < kPowerSettleMs) return;
+
+  auto& s = powerTest.samples[powerTest.step];
+  if (!powerTest.sampling) {
+    powerTest.sampling = true;
+    s = {};
+    s.baseline = readCounts();
+    s.startedAt = now;
+  }
+  uint8_t raw[2];
+  if (readPm(kPm5vOut, raw, sizeof(raw))) {
+    const unsigned mv = (raw[1] << 8) | raw[0];
+    if (!s.mvCount || mv < s.mvMin) s.mvMin = mv;
+    if (!s.mvCount || mv > s.mvMax) s.mvMax = mv;
+    s.mvSum += mv;
+    ++s.mvCount;
+  }
+  if (now - s.startedAt < kPowerSampleMs) return;
+  if (!s.mvCount) {
+    finishPowerTest("INVALID_5V_READ");
+    return;
+  }
+
+  const auto current = readCounts();
+  s.elapsed = now - s.startedAt;
+  s.delta = {current.edges - s.baseline.edges, current.decoded - s.baseline.decoded,
+             current.repeats - s.baseline.repeats, current.unknown - s.baseline.unknown};
+  ++powerTest.step;
+  powerTest.stageAt = now;
+  powerTest.settling = powerTest.sampling = false;
+  if (powerTest.step == 3) finishPowerTest("DONE");
+  else printPowerTest();
+}
+
 void startBacklightTest() {
-  if (backlightTest.step) return;
+  if (backlightTest.step || powerTest.active) return;
   const uint8_t brightness = M5.Display.getBrightness();
   if (!rxBuffer || edgeProbe != ESP_OK || !brightness) {
     Serial.println("[ir1] BL ERROR 要先開始接收並打開背光");
@@ -135,6 +289,7 @@ void restorePower() {
 }
 
 void stopReceiver() {
+  if (powerTest.active) finishPowerTest("INVALID_STOPPED");
   if (edgeProbe == ESP_OK) gpio_isr_handler_remove(kRxPin);
   rmt_rx_stop(kRxChannel);
   rmt_driver_uninstall(kRxChannel);
@@ -171,6 +326,9 @@ void printStatus() {
   Serial.printf("[ir1] count=%lu repeat=%lu unknown=%lu\n",
                 static_cast<unsigned long>(decoded), static_cast<unsigned long>(repeats),
                 static_cast<unsigned long>(unknown));
+  printPyg3();
+  Serial.printf("[ir1] BOOT id=%08lX uptime_ms=%lu reset=%u\n",
+                static_cast<unsigned long>(bootId), millis(), static_cast<unsigned>(esp_reset_reason()));
 }
 
 void pollReceiver() {
@@ -228,6 +386,7 @@ void setup() {
   auto config = M5.config();
   config.internal_mic = false;
   M5.begin(config);
+  bootId = esp_random();
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0);
   M5.Speaker.end();
@@ -271,9 +430,12 @@ void loop() {
     const int command = Serial.read();
     if (command == '?') printStatus();
     else if (command == 'b') startBacklightTest();
+    else if (command == 'p') startPowerTest();
+    else if (command == 'r') printPowerTest();
   }
   pollReceiver();
   pollBacklightTest();
+  pollPowerTest();
   if (redraw && canvasReady) {
     ir_test::drawScreen(canvas, state, lastFrame, errorText, battery);
     ui_fx::present(&canvas);
