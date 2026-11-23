@@ -29,3 +29,21 @@ else:
         print("[patch_nimble] 已修補 NimBLEDevice::deinit（stop 後等 100ms）")
     else:
         raise SystemExit("[patch_nimble] 找不到要修補的程式碼（NimBLE 版本變了？）— 先看 scripts/patch_nimble.py")
+
+# NimBLE 預設收到重新配對請求會先刪舊 bond。禁止儲存配對的連線
+# （非選中主機或新增模式裡已配對的主機）不可走這個分支，避免刪完卻不會重建。
+server_path = os.path.join(os.path.dirname(path), "NimBLEServer.cpp")
+repeat_pairing = "        case BLE_GAP_EVENT_REPEAT_PAIRING: {\n"
+guard = (
+    "            if (!ble_hs_cfg.sm_bonding) { // m5sticks3: preserve existing bond\n"
+    "                return BLE_GAP_REPEAT_PAIRING_IGNORE;\n"
+    "            }\n"
+)
+if os.path.isfile(server_path):
+    with open(server_path, encoding="utf-8") as f:
+        server = f.read()
+    if repeat_pairing + guard not in server:
+        if server.count(repeat_pairing) != 1:
+            raise SystemExit("[patch_nimble] 找不到重新配對事件")
+        with open(server_path, "w", encoding="utf-8") as f:
+            f.write(server.replace(repeat_pairing, repeat_pairing + guard, 1))

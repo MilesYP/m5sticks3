@@ -26,6 +26,9 @@ void rescan();                // 診斷用（序列埠指令 e）：重開供電
 GroveDevice device();
 const char* deviceName();     // "CardKB" / "Scroll" / "None"
 const char* scanLine();       // Grove 掃描到的所有位址（例 "5F" 或 "(none)"），給報告用
+bool readScroll(int16_t& count, bool& pressed);
+uint32_t bHeldMs();
+uint32_t bReleaseDuration();
 InputEvent poll();            // 每圈 loop 呼叫一次；內含 M5.update()
 
 }  // namespace input_hal

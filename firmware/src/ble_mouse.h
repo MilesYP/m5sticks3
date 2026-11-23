@@ -17,7 +17,15 @@ namespace ble_mouse {
 
 enum class State : uint8_t { Off, Advertising, Connected };
 
-bool begin();                    // 開藍牙並開始廣播；失敗回 false（log 會印原因）
+constexpr int kMaxPeers = 3;
+struct Peer {
+  uint8_t address[6];
+  uint8_t type;
+  char name[48];
+};
+int pairedPeers(Peer (&out)[kMaxPeers]);
+enum class ConnectMode : uint8_t { Saved, Add, Temporary };
+bool begin(ConnectMode mode, const Peer* selected = nullptr);                    // 開藍牙並開始廣播；失敗回 false（log 會印原因）
 void end();                      // 斷線、關藍牙、釋放（可重複呼叫）
 void loop();                     // 每圈主迴圈呼叫：代印 log、畫圓測試、急停檢查
 

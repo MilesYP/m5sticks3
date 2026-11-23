@@ -220,9 +220,17 @@ uint8_t  s_loop_hist[cfg::INFO_HIST_SEC];    // 每秒主迴圈最長一圈（ms
 int      s_loop_pos = 0, s_loop_n = 0;
 uint32_t s_loop_sec_max_us = 0, s_loop_last_us = 0, s_loop_sec_t0 = 0;
 uint8_t  s_loop_now_ms = 0;
-uint32_t s_heap_hist[cfg::INFO_HEAP_BARS];
-int      s_heap_pos = 0, s_heap_n = 0;
-uint32_t s_heap_t = 0;
+uint8_t s_drain_hist[cfg::INFO_DRAIN_BARS] = {};
+int s_drain_pos = 0, s_drain_n = 0, s_drain_baseline = -1;
+uint8_t s_drain_sum[cfg::INFO_DRAIN_BARS] = {};
+bool s_drain_start[cfg::INFO_DRAIN_BARS] = {};
+bool s_drain_new_session = true;
+int s_drain_session_total = 0;
+uint32_t s_drain_t = 0;
+
+int cpuPercent() {
+  return getCpuFrequencyMhz() * 100 / cfg::PWR_CPU_AWAKE_MHZ;
+}
 
 bool s_ntp_started = false;
 bool s_synced = false;
@@ -257,12 +265,30 @@ void sampleLoop() {
     s_loop_pos = (s_loop_pos + 1) % cfg::INFO_HIST_SEC;
     if (s_loop_n < cfg::INFO_HIST_SEC) ++s_loop_n;
     s_loop_sec_max_us = 0;
+  } else {
+    return;
   }
-  if (now - s_heap_t >= cfg::INFO_HEAP_EVERY_MS || s_heap_n == 0) {
-    s_heap_t = now;
-    s_heap_hist[s_heap_pos] = ESP.getFreeHeap();
-    s_heap_pos = (s_heap_pos + 1) % cfg::INFO_HEAP_BARS;
-    if (s_heap_n < cfg::INFO_HEAP_BARS) ++s_heap_n;
+  const int level = battery_ui::level();
+  if (battery_ui::externalPower()) {
+    s_drain_baseline = -1;
+    s_drain_new_session = true;
+  } else if (level >= 0) {
+    if (s_drain_baseline < 0) {
+      s_drain_baseline = level;
+      s_drain_session_total = 0;
+      s_drain_t = now;
+    } else if (now - s_drain_t >= cfg::INFO_DRAIN_EVERY_MS) {
+      const int loss = s_drain_baseline > level ? s_drain_baseline - level : 0;
+      s_drain_baseline -= loss;  // 電量短暫回彈時不重複計算同一段下降
+      s_drain_session_total += loss;
+      s_drain_hist[s_drain_pos] = loss;
+      s_drain_sum[s_drain_pos] = s_drain_session_total;
+      s_drain_start[s_drain_pos] = s_drain_new_session;
+      s_drain_new_session = false;
+      s_drain_pos = (s_drain_pos + 1) % cfg::INFO_DRAIN_BARS;
+      if (s_drain_n < cfg::INFO_DRAIN_BARS) ++s_drain_n;
+      s_drain_t = now;
+    }
   }
 }
 
@@ -538,16 +564,8 @@ void drawPwr() {
   }
 }
 
-void kb(char* b, size_t n, uint32_t bytes) {
-  if (bytes >= 1024 * 1024) snprintf(b, n, "%lu.%luM", (unsigned long)(bytes >> 20), (unsigned long)(((bytes & 0xFFFFF) * 10) >> 20));
-  else snprintf(b, n, "%luK", (unsigned long)(bytes >> 10));
-}
-
-// ── 晶片＋記憶體同一塊（第五版：左右各有自己的標籤）──
-//   左半 CHIP：標籤＋溫度＋頻率；波形＝每秒主迴圈最長一圈（ms，頂 40ms、紅虛線 25ms 上限）；底列目前 ms
-//   右半 MEM：標籤；長條＝heap 剩餘（每 2 秒一根、共 60 秒，紅線＝開機以來最低）；底列 heap 剩餘、PSRAM 剩餘
 int hexLabelAt(int x, int y, const char* s) {
-  s_cv.setFont(THIN);
+  s_cv.setFont((uint8_t)s[0] >= 0x80 ? (const lgfx::IFont*)&fonts::efontTW_10 : THIN);
   const int w = s_cv.textWidth(s) + 8, h = 10;
   for (int row = 0; row < h; ++row) {
     const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
@@ -575,15 +593,12 @@ int txtAt(int x, int y, const char* str, const C3& c, bool draw = true) {
   }
   return w;
 }
-// 晶片：標籤＋溫度｜負載波形｜頻率、這一秒最長一圈
+// 時脈相對於全速的比例。下方保留實際 MHz 與主迴圈耗時。
 void chipPart(int x, int y, int w, int h) {
   hexLabelAt(x - 2, y, "CHIP");
-  // 31-m4i：不再讀晶片溫度。temperatureRead() 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）會互卡，
-  // 11-22 實機在資訊頁放了約 30 分鐘後兩個核心卡死 → 中斷看門狗重開（ESP-IDF 4.4 的已知問題）。
-  const float tc = cfg::INFO_CHIP_TEMP ? temperatureRead() : NAN;
-  char tb[10], fb[10], ms[8];
-  if (isnan(tc)) strcpy(tb, "--C"); else snprintf(tb, sizeof tb, "%dC", (int)lroundf(tc));
-  txtAt(x + w - mixedWidth(tb), y, tb, tc >= 60 ? K_RED : K_TXT);
+  char pct[8], fb[10], ms[8];
+  snprintf(pct, sizeof pct, "%d%%", cpuPercent());
+  txtAt(x + w - mixedWidth(pct), y, pct, K_TXT);
   const int gy = y + 12, gh = h - 12 - 11;
   s_cv.drawRect(x, gy, w, gh, col(K_UNLIT));
   const float full = cfg::INFO_LOOP_FULL_MS;
@@ -603,54 +618,58 @@ void chipPart(int x, int y, int w, int h) {
   txtAt(x, y + h - 10, fb, K_DIM);
   txtAt(x + w - mixedWidth(ms), y + h - 10, ms, s_loop_now_ms > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_TXT);
 }
-// 記憶體：標籤＋開機最低｜heap 長條（紅線＝最低）｜目前剩、PSRAM 剩
-void memPart(int x, int y, int w, int h) {
-  hexLabelAt(x - 2, y, "MEM");
-  const uint32_t lo = ESP.getMinFreeHeap();
-  char lob[10], lol[14], hb[10], psb[10], pb[12];
-  kb(lob, sizeof lob, lo);
-  snprintf(lol, sizeof lol, "lo%s", lob);
-  txtAt(x + w - mixedWidth(lol), y, lol, K_DIM);
+// 紫柱是每分鐘掉電百分點，綠線依每次拔線重新累計。
+void drainPart(int x, int y, int w, int h) {
+  hexLabelAt(x - 2, y, "耗電");
   const int gy = y + 12, gh = h - 12 - 11;
   s_cv.drawRect(x, gy, w, gh, col(K_UNLIT));
-  uint32_t top = lo;
-  for (int k = 0; k < s_heap_n; ++k) if (s_heap_hist[k] > top) top = s_heap_hist[k];
-  // 11-22 Miles：原本從 0 畫起，heap 幾乎不變 → 柱子全頂到天、最低線貼在柱頂看不出變化。
-  // 改成只畫「最低值附近」那一段：最低線固定在約 56% 高、這 60 秒的最高在約 88%，柱子高低差看得出來
-  const float r = (float)((top - lo) > 4096 ? (top - lo) : 4096);   // 變化太小時至少當 4KB
-  const float vb = (float)lo - 1.8f * r, vt = (float)top + 0.4f * r;   // 圖的底與頂對應的 heap 值
-  auto ypos = [&](uint32_t v) {
-    float f = ((float)v - vb) / (vt - vb);
-    f = f < 0 ? 0 : f > 1 ? 1 : f;
-    return (int)((gh - 2) * f);
-  };
-  const int maxBars = (w - 2) / 3, nb = s_heap_n < maxBars ? s_heap_n : maxBars;
+  const int nb = s_drain_n;
+  const int start = (s_drain_pos + cfg::INFO_DRAIN_BARS - nb) % cfg::INFO_DRAIN_BARS;
+  int scale = 1;
   for (int k = 0; k < nb; ++k) {
-    const int idx = (s_heap_pos - nb + k + cfg::INFO_HEAP_BARS * 2) % cfg::INFO_HEAP_BARS;
-    const int hh = ypos(s_heap_hist[idx]);
-    s_cv.fillRect(x + w - 1 - (nb - k) * 3, gy + gh - 1 - hh, 2, hh, col(K_PUR));
+    const int sum = s_drain_sum[(start + k) % cfg::INFO_DRAIN_BARS];
+    if (sum > scale) scale = sum;
   }
-  // 最低線（開機以來 heap 最低）：綠色 1px
-  s_cv.drawFastHLine(x + 1, gy + gh - 1 - ypos(lo), w - 2, col(K_GRN));
-  kb(hb, sizeof hb, ESP.getFreeHeap());
-  kb(psb, sizeof psb, ESP.getFreePsram());
-  snprintf(pb, sizeof pb, "P%s", psb);
-  txtAt(x, y + h - 10, hb, K_TXT);
-  txtAt(x + w - mixedWidth(pb), y + h - 10, pb, K_DIM);
+  const int bottom = gy + gh - 2;
+  const int plotW = w - 2;
+  for (int k = 0; k < nb; ++k) {
+    const int left = x + 1 + k * plotW / nb;
+    const int right = x + 1 + (k + 1) * plotW / nb;
+    const int height = s_drain_hist[(start + k) % cfg::INFO_DRAIN_BARS] * (gh - 3) / scale;
+    if (height > 0) s_cv.fillRect(left, bottom - height + 1, right - left > 1 ? right - left - 1 : 1, height, col(K_PUR));
+  }
+  int px = x + 1, py = bottom;
+  if (nb && !s_drain_start[start])
+    py -= (s_drain_sum[start] - s_drain_hist[start]) * (gh - 3) / scale;
+  for (int k = 0; k < nb; ++k) {
+    const int idx = (start + k) % cfg::INFO_DRAIN_BARS;
+    if (s_drain_start[idx]) py = bottom;
+    const int xx = x + 1 + (k + 1) * (plotW - 1) / nb;
+    const int yy = bottom - s_drain_sum[idx] * (gh - 3) / scale;
+    s_cv.drawLine(px, py, xx, yy, col(K_GRN));
+    px = xx;
+    py = yy;
+  }
+  if (!nb) s_cv.drawFastHLine(x + 1, bottom, plotW, col(K_GRN));
+  char span[8], amount[8];
+  snprintf(span, sizeof span, "%dm", nb);
+  snprintf(amount, sizeof amount, "%d%%", s_drain_session_total);
+  txtAt(x, y + h - 10, span, K_DIM);
+  txtAt(x + w - mixedWidth(amount), y + h - 10, amount, K_GRN);
 }
-// 晶片＋記憶體同一塊：直式左右並排；橫式（A 鍵側窄高）上下疊
+
 void drawSys() {
   const Tile& t = s_t[T_SYS];
   const int x = t.x + PAD, w = t.w - 2 * PAD;
   if (!s_land) {
     const int gap = 6, half = (w - gap) / 2;
     chipPart(x, t.y + 1, half, t.h - 2);
-    memPart(x + half + gap, t.y + 1, w - half - gap, t.h - 2);
+    drainPart(x + half + gap, t.y + 1, w - half - gap, t.h - 2);
   } else {
     const int hh = (t.h - 2) / 2;
     chipPart(x, t.y + 1, w, hh);
     s_cv.drawFastHLine(t.x + 2, t.y + 1 + hh, t.w - 4, col(K_FRAME));
-    memPart(x, t.y + 2 + hh, w, t.h - 3 - hh);
+    drainPart(x, t.y + 2 + hh, w, t.h - 3 - hh);
   }
 }
 

@@ -26,7 +26,7 @@
 
 | 字型 | 授權 | 產出檔 |
 | :-- | :-- | :-- |
-| Noto Serif CJK TC（Black／Bold） | SIL Open Font License 1.1 | `firmware/src/kanji_bitmaps.h`、`ui_labels.h`（`tools/gen_kanji.py` 產生） |
+| Noto Serif CJK TC（Black／Bold） | SIL Open Font License 1.1 | `firmware/src/kanji_bitmaps.h`、`ui_labels.h`（`tools/gen_kanji.py` 產生）、`air_labels.h`（`tools/gen_air_labels.py` 產生） |
 
 ## 四、從其他專案複製進 repo 的程式碼
 

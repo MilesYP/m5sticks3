@@ -17,6 +17,7 @@
 | 路徑 | 內容 | 狀態 |
 | :-- | :-- | :-- |
 | `docs/` | PRD、執行計劃、**介面規格**、啟動 prompt、硬體驗收紀錄 | — |
+| `docs/design/` | **介面設計總則**（README）、共用元件目錄（COMPONENTS）、各頁定案截圖（img/）——所有新畫面先讀 | 11-23 定稿 |
 | `selftest/` | StickS3 本體硬體自檢（PlatformIO 專案） | ✅ 已通過 |
 | `acceptance-test/` | RF Pack CC1101/nRF24 SPI 驗收 v5（PlatformIO 專案） | ✅ 已通過 |
 | `tools/sim/` | 畫面模擬器：真 M5GFX 核心在電腦上畫表情頁／資訊頁、輸出圖檔（`bash tools/sim/build.sh face|info|anim|lowbat|bench`，見該資料夾 README） | 11-21 |
@@ -45,6 +46,8 @@
 → Grove 匯流排是 `M5.Ex_I2C`（SDA=G9 / SCL=G10）；內部匯流排 `M5.In_I2C`（G47/G48）上固定有 `0x18` ES8311、`0x68` BMI270、`0x6E` M5PM1。Grove 供電要 `M5.Power.setExtOutput(true)`。
 → **`M5.Ex_I2C` 一律無條件 `begin()`**（2026-11-19 實測定案）：M5Unified 0.3.0 開機只對 Ex_I2C 做 `setPort`（埠 0、G9/G10），不呼叫 `begin()`；而 `isEnabled()` 只檢查「設過埠號沒有」（`_port_num >= 0`），`setPort` 後就回 true → **不可寫 `if (!isEnabled()) begin()`**，那樣會跳過 begin，Grove 永遠掃不到（CardKB 有電、燈會亮，但 I2C 無回應）。`firmware/input_hal` 已改為無條件 begin 並印出結果，實測 CardKB `5F`、Scroll `40`，100k／400kHz 皆可。`selftest/` 的 Grove `(none)` 是同一個原因，無參考價值。
 → **Grove 供電**：`setExtOutput(true)`（M5PM1 5V 升壓）＋把 M5PM1 GPIO2（官方腳位表 `L3B_EN`）設為推挽輸出拉高。L3B 是否必要尚未單獨驗證（真正的問題是上一點），官方標示為電源致能、打開無害，先保留。實測 5V 輸出約 5.07～5.10V。
+
+→ **Scroll Unit 暫存器（M4-2a，實機驗證）**：I2C 位址 `0x40`。從 `0x10` 讀 2 bytes（低位元組在前）得到有正負的 16 位元累計值，相鄰讀值相減得到轉動量。實機雙向可讀到正負差值，連續轉動時一次讀取可跨數個計數。`0x20` 讀 1 byte，`0`＝按下、`1`＝放開，實機兩種狀態皆有讀到。按壓時也可能伴隨一格轉動。量測指令 `@rscroll1`／`@rscroll0`。
 
 ### 鐵則二：互斥狀態機（Mutually Exclusive State Machine）
 8MB PSRAM 與中斷資源有限，**同一時間只有一個模式的重資源在運作**，切換模式時必須關閉前一個模式的資源再開新的。這是整個韌體的骨架。
@@ -177,6 +180,8 @@
 
 13. **A7 資訊頁外觀（2026-11-20 Miles 逐版定案，模擬 6 版）**：黑底、主色琥珀橘 `#FF9B00`，靠亮度分層（亮橘白／橘／暗橘／更暗的未亮段），狀態色只留綠（正常）、黃（注意）、紅（錯誤）；上下紅黑警示線（跟 B 切模式過場呼應）；功能 icon 黑紅（啟用＝紅底黑圖）。七段數字：段兩端削尖、段間留 1px 縫；時鐘斜體**用整數斜率（每 6 列偏 1px）**，用小數四捨五入階梯高低不一、看起來糊。小字：電壓用 `TomThumb`（3×5），額度用 `efontTW_12`。**11-22 Miles**：MEM 記憶體長條改紫色 `#B04DFF`；開機以來最低線改綠色 `#39FF14`（1px）；長條不再從 0 畫起，只畫最低值附近（最低線約 56% 高、60 秒內最高約 88%，變化太小時至少當 4KB），原本柱子頂到天、最低線貼在柱頂看不出變化。CHIP 波形維持琥珀細線。磚塊高度、字寬都在模擬裡驗過不超出（`INFO_SIM`），改版面先跑模擬。
 
+   - **M4-2 更新**：資訊頁原 MEM 格改成「耗電」。紫柱是每分鐘的電量下降百分點，最多顯示最近 30 分鐘。綠線顯示每段拔線期間的累積耗電。USB 供電期間凍結圖表，拔線後新一段從零開始，舊紀錄隨圖表滾動淘汰。
+
 14. **A7 表情頁像素臉（2026-11-20 Miles 參考圖定案，待實機驗收）**：`ui_expression.cpp` 的 `PIXEL=true`（原合成波畫法留在 false 分支對照）。黑底＋六角格（每格只畫 3 條邊）、狀態列「FRIDAY・狀態」＋電量 %（`battery_ui::level()`，綠黃紅）、取景角、左上狀態大字（`ui_labels.h` 點陣圖，Noto Serif CJK TC Bold）、掃描線眼睛（八角形，每 3 列空 1 列，生氣／想睡斜切、開心挖橢圓——**算每列左右界，不用底色遮**，否則六角格會被塗掉）、嘴巴照原嘴型畫完再「只挖嘴巴顏色的像素」做掃描線縫、五官與符號淡琥珀不加光暈、警報（生氣）時框格紅色、右側強度方格（聆聽／說話跟音量）。**左上大字與狀態列最後畫、先塗黑底**，符號限在狀態列以下、直式右半／橫式最右 1/4，表情不會蓋字。對話框兩版都用 EVA「受信」版。11-21 Miles：EVA 角色臉（ui_persona、q0／q1 切換）刪除，只剩一個表情頁、一個資訊頁；左上狀態大字改成實心底黑字的標籤（同內部／外部框），蓋到表情也不突兀。電量不再改眼睛顏色（顯示在狀態列）；<10% 仍紅灰閃。六角格每幀約 400 條線 → 27-a7f 實機 `j` 迴圈 37～38ms（超過 25ms）→ **27-a7g 背景快取**：六角格＋浮水印畫在另一張畫布 `s_bg`（PSRAM 再 64KB），只有方向、臉區域、主題色變了才重畫，平常整塊 `memcpy`；嘴巴掃描線縫改成一列一次 `readRect`（原本逐點 `readPixel` 約佔一幀 20%）。模擬量測每幀繪圖時間降到原本約 35%。11-21（27-a7e）：臉區左下加淡浮水印（`pxWatermark`：小字「M5S3PACK-01」＋點陣大字「初號機」（Miles：第一台機器，致敬）＋三條斜槓，主題色 16%，畫在六角格之後、五官之前；**不用 EVA 的商標字樣**）；對話框標題改成左上凸出的實心頁籤（點陣圖「受信」黑字，`EVA_CONV_TAB_H`＝14），直式旁邊加 Font0「// FRIDAY」、橫式省略（貼著狀態列）。27-a7i：頁籤右邊一段＋外框底邊加資訊頁同款紅色警示斜紋（`convHazard`），直式對話區高度 +4px 保持 4 行字不被斜紋壓到。27-a7j：「受信」改 efontTW_12 黑字疊兩次（原生點陣、銳利，不用縮小的明體點陣圖）；Friday 回答文字改資訊頁電池綠 `#39FF14`；資訊頁天氣圖示全彩（黃太陽、白雲、陰雨雲灰白、雨藍）。資訊頁語音額度的「餘」改紅字。11-21（27-a7f）：**表情符號改六角徽章**——正六角形、方向與比例同背景格（左右尖）、邊長＝背景格 2 倍（36×31px）、中心一律吸附在背景格子中心（上飄時一格一格跳）；事件類（驚嚇＝水滴、說話強拍音符、睡著 Z、大聲／驚醒的「!」）實心底黑圖，狀態類（停頓「?」、愛心、星芒、哈欠）黑底 2px 框亮圖；只有生氣是紅色「! WARNING」（跟節奏閃、微脹縮）。出場：前 0.18 秒閃三下＋彈簧放大（衝過頭約 20%）＋兩圈外框往外擴散的疊影，換格時舊格留淡框殘影。思考＝三個背景格輪流亮。眼角汗滴拿掉、鼻涕泡改六角框。圖示是 2～3 倍放大的點陣小圖（不用字型）。Miles 否決：七格花（太醜）、五官改六角像素（135px 寬上看不出六角、嘴巴會碎）。橫式對話區打開時符號區比徽章窄，徽章會壓到眼睛邊（寧可不出畫面）。
 
 15. **不要在韌體裡用大的中文字型（2026-11-20 27-a7b 實測）**：`efontTW_24`、`efontTW_16_b` 只要被參照一次，整套中文字庫就會編進韌體——27-a7b 因此 4.08MB，超過 app 分割區 3.34MB（`default_8MB.csv`）而編譯失敗。目前允許的中文字型只有 `efontTW_10`、`efontTW_10_b`、`efontTW_12`；固定的大字（狀態大字、台北時間、切模式過場、內部／外部）一律用 `tools/gen_kanji.py` 產生點陣圖（`--set mode` → `kanji_bitmaps.h`、`--set ui` → `ui_labels.h`）。加新字型前先看 Build 最後的 Flash 用量（27-a7d：2.23MB／3.34MB＝66.6%，RAM 35.5%）。
@@ -211,42 +216,48 @@
 9. **ROOT、斷線標示**（11-22 Miles）：表情頁狀態列電量左邊的實心小標籤（ROOT 紅底 Font0、斷線灰底 efontTW_10），放不下時省略「待機中」等狀態字；原本右上角的 Wi-Fi 斜線圖示拿掉、表情頁不再蓋 ROOT 角標（資訊頁與其他模式畫面仍蓋右上角 ROOT 小標）。斷線時表情定格變灰維持不變。
 10. 序列埠 `q`：PM1 設定與按鍵狀態；`q0` 進 root、`q1` 回新機制、`q9` 主迴圈卡死（測看門狗）。（`p` 已被發射功率用掉。）
 
-### 鐵則十二：空中滑鼠（M4，2026-11-22 起；M4-0 BLE 滑鼠 11-23 Mac／iPhone 實機通過，iPad 待測）
-1. **Miles 定案（11-22）**：連線對象優先順序 Mac → iPad → iPhone（iOS／iPadOS 要開 AssistiveTouch 才有游標）；沒插 Scroll Unit 時 A 短按＝左鍵、按住＝拖曳（右鍵、捲動只在有 Scroll 時）；游標拿起來就動、放下靜止就停（不用按住才動）。
+### 鐵則十二：空中滑鼠（M4，2026-11-22 起；✅ 2026-11-23 完成，畫面定稿）
+1. **M4-2 使用方式**：B 切進「體感」顯示裝置選單，由使用者指定要連線的主機。按鍵見第 2 節，完整流程見 `docs/HANDOFF_M4-2.md`。
 2. **游標跟陀螺儀「轉速」走，不跟角度走**（技術決定）：轉速 → 位移＋靜止自動校正零點＋死區＋加速曲線；不會因偏航角積分越來越歪。PRD 原寫 Pitch／Yaw 角度映射，已改。
 3. **函式庫**：NimBLE-Arduino 2.5.0（Apache-2.0；原始碼對 IDF < 5 有專門的 deinit 路徑，預期 Arduino 2.0.17 可用，以 Mac 編譯為準；不行改 1.4.3）。HID 描述自己寫（`ble_mouse.cpp`，3 鍵＋X／Y／滾輪，Report ID 1）；HijelHID 等包裝函式庫要 Arduino 3.x，不用。
-4. **鐵則二落實**：`airMouseEnter` → `net_hub::setRadioOff(true)`（斷 Wi-Fi）＋`audio_io::suspend()`（關麥克風／喇叭，期間 `micOn()` 不動作）＋`ble_mouse::begin()`；`airMouseExit` 反過來。`power_save` 只在非 AirMouse 才會把 Wi-Fi 連回來（原本「沒睡著就重連」會跟 AirMouse 打架）。其他模式（HidAgent／RfTool）目前仍連著 Wi-Fi，各自里程碑再處理。
+4. **鐵則二落實**：`airMouseEnter` → `net_hub::setRadioOff(true)`（斷 Wi-Fi）＋`audio_io::suspend()`（關麥克風／喇叭，期間 `micOn()` 不動作）＋顯示體感選單。鎖定裝置後才呼叫 `ble_mouse::begin()`；`airMouseExit` 先完整關藍牙再恢復音訊與 Wi-Fi。`power_save` 只在非 AirMouse 才會把 Wi-Fi 連回來（原本「沒睡著就重連」會跟 AirMouse 打架）。其他模式（HidAgent／RfTool）目前仍連著 Wi-Fi，各自里程碑再處理。
 5. **藍牙回呼在 NimBLE task**：只改原子旗標，log 由 `ble_mouse::loop()` 在主迴圈代印。每筆報告前查 `killswitch::outputAllowed()`；閘門關了停送並斷線。
-6. **配對**：bonding＋LE Secure Connections、不需密碼（IO 能力＝無）；只有加密完成後才送報告（HID 特徵值要加密才能讀）。藍牙同一時間只連一台；換主機要在原主機按「中斷連線」或 `@f` 清配對（一鍵切主機留到 M4-2）。
+6. **配對**：bonding＋LE Secure Connections、不需密碼（IO 能力＝無）；只有加密完成後才送報告（HID 特徵值要加密才能讀）。藍牙同一時間只連一台，換主機時 B 按滿 3 秒回選單，已保存的配對可重用。
 7. **離開 AirMouse 一定要真的關藍牙（31-m4d 定案）**：(a) NimBLE 2.5.0 的 `deinit()` 有競態——`nimble_port_stop()` 後 host task 還在收尾就 `nimble_port_deinit()` → `InstrFetchProhibited, PC=0`（`host_task`）。修法：`firmware/scripts/patch_nimble.py`（PlatformIO 建置前腳本）在 `.pio/libdeps` 的 `NimBLEDevice.cpp` stop 成功後插入等 100ms；找不到要改的那段會讓建置失敗。(b) 31-m4c 試過保留藍牙（不 deinit）→ **不行**：藍牙控制器開著時 Wi-Fi 不能設 `WIFI_PS_NONE`，ESP-IDF 直接 abort（"Should enable WiFi modem sleep when both WiFi and Bluetooth are enabled"），按 A 錄音或 Wi-Fi 重連時重開。保險：`net_hub::setPsNone()` 先查 `esp_bt_controller_get_status()`，藍牙開著就退回 MIN_MODEM。
 8. **廣播內容自己組（31-m4e）**：flags 要有「不支援傳統藍牙」（`BLE_HS_ADV_F_BREDR_UNSUP`）——NimBLE 預設只有「一般可發現」，Mac 在「附近裝置」看得到卻沒有連線按鈕（iPhone 可以連）。內容：flags＋外觀（滑鼠 0x03C2）＋HID 服務 0x1812＋偏好連線間隔＋名稱，共 27／31 bytes。
 9. **離開 AirMouse 後 Wi-Fi 先試關之前連著的那一組**（31-m4e，`net_hub` WifiOn）：原本會輪到下一組（家裡 → 先試熱點、白等 10 秒），回 Desktop 要約 12 秒才連上，這段時間按 A 說話會先錄著、連上後重送；重送前又按 A 會蓋掉上一輪。
-10. **切模式過場等資源好了才進新畫面**（31-m4f，Miles 11-22 提議）：`main` 照舊 `start()` → `next()` → `ready()`，但 `ui_modeswitch::render()` 之後再問 `mode_manager::currentReady()`：Desktop 等中控 WebSocket 連上（`net_hub::linkUp()`）、AirMouse 等藍牙開始廣播；狀態字顯示「連線中…／開藍牙…」，進度條 25% 起慢慢爬到最多 80%，好了才在 450ms 內跑完。最多等 `UI_MODESWITCH_WAIT_MAX_MS`（15 秒），逾時照樣進去（斷線臉）。**過場中按 A 不理**（避免還沒連上就錄音、重送時又被新的一輪蓋掉）；按 B 照樣切下一個模式、B 3 秒急停照樣最高優先（過場 cancel）。
-11. **連著主機時離開 AirMouse 也會當機（31-m4g）**：`disconnect()` 是非同步的，馬上 `deinit()` → host task 還在處理斷線 → 一樣 `PC=0`。`end()` 改成：先關「斷線自動重新廣播」、停廣播 → 斷線 → 等斷線回呼（最多 600ms）→ 再等 50ms → deinit。
+10. **切模式過場等資源好了才進新畫面**（31-m4f，Miles 11-22 提議）：`main` 照舊 `start()` → `next()` → `ready()`，但 `ui_modeswitch::render()` 之後再問 `mode_manager::currentReady()`：Desktop 等中控 WebSocket 連上（`net_hub::linkUp()`）、AirMouse 的選單就緒即可；狀態字顯示「連線中…／開藍牙…」，進度條 25% 起慢慢爬到最多 80%，好了才在 450ms 內跑完。最多等 `UI_MODESWITCH_WAIT_MAX_MS`（15 秒），逾時照樣進去（斷線臉）。**過場中按 A 不理**（避免還沒連上就錄音、重送時又被新的一輪蓋掉）；按 B 照樣切下一個模式、B 3 秒急停照樣最高優先（過場 cancel）。
+11. **連著主機時離開 AirMouse 也會當機（31-m4g）**：`disconnect()` 是非同步的，馬上 `deinit()` → host task 還在處理斷線 → 一樣 `PC=0`。`end()` 改成：先關「斷線自動重新廣播」、停廣播 → 斷線 → 等斷線回呼（最多 600ms）→ 等斷線回呼完成後滿 100ms → deinit。
 12. **Mac「連上秒斷」（31-m4f 實機：原因 0x213＝Mac 主動斷）**：31-m4g 配對改成雙方都交換「加密金鑰＋身分金鑰（IRK）」（預設只交換加密金鑰），並記錄主機有沒有訂閱滑鼠報告（`[ble] 主機訂閱滑鼠報告＝HID 接上了`）。另：已配對的 iPhone 會在廣播時自動搶連，測 Mac 時要先關 iPhone 藍牙。
 13. **`@f` 用 `ble_store_clear()`**：`NimBLEDevice::deleteAllBonds()` 實機回失敗（逐筆刪除失敗就中止）。
-14. **資訊頁不讀晶片溫度（31-m4i，`cfg::INFO_CHIP_TEMP`＝false）**：`temperatureRead()` 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）互卡，11-22 資訊頁放約 30 分鐘後兩核卡死 → 中斷看門狗重開（core1 卡在 `temperature_sensor_get_raw_value`、core0 卡在 `temperature_sensor_power_release`）。顯示「--C」。
+14. **資訊頁不讀晶片溫度（31-m4i）**：`temperatureRead()` 跟 Wi-Fi 省電（PHY 收 beacon 時開關溫度感測器）互卡，11-22 資訊頁放約 30 分鐘後兩核卡死 → 中斷看門狗重開（core1 卡在 `temperature_sensor_get_raw_value`、core0 卡在 `temperature_sensor_power_release`）。M4-2 起，CHIP 右上角顯示時脈相對 240 MHz 的比例，波形保留每秒主迴圈最長耗時與 25ms 警戒線。
 15. **連線間隔照 Apple 規範（31-m4k）**：Apple 配件設計指南——最短間隔 ≥15ms 且最長 ≥ 最短＋15ms（HID 例外可 11.25～15ms）、監督逾時 2～6 秒。31-m4j 前廣播偏好 7.5～15ms，Mac 選 7.5ms、配對完主動斷（0x213，待證實是否為此原因）。預設改 15～30ms（`BLE_ITVL_PRESET`＝2），配對完成 1.5 秒後若主機選的間隔不在範圍內就 `updateConnParams` 要求一次（逾時 4 秒）。序列埠 `@i0/@i1/@i2` 切預設組、`@u0/@u1` 開關主動要求；連上時印主機選的間隔／延遲／逾時。
 16. **Mac 斷線不是連線間隔（31-m4k 實機＋Mac bluetoothd log 定案）**：Mac 對第三方 LE 滑鼠會自己強制 7.5ms（系統設定「LE Mouse at 7.5ms」），跟我們偏好的間隔無關。真正的現象：配對兩邊都成功，但 Mac 的滑鼠驅動始終沒接手（沒訂閱報告），系統設定頁放手後 bluetoothd 以 `ledisconnectionreason: Unused` 斷線；之後 Mac 看得到廣播（Matched UUID 0x1812）也不會自動重連。31-m4l 改成對照 HijelHID_BLEMouse（Apache-2.0，NimBLE 2.x，README 標 macOS Ventura 實測可用）的 HID 設定：不帶 Report ID、PnP 用 Apple VID 0x05AC／PID 0、HID Information 旗標 0x01、不主動要求加密；每項可用 `@r/@v/@h/@s` 切回舊值，`@p1`／`@p0` 一次切全套（改了自動清配對並重建藍牙）。**31-m4n：不要用 Apple VID**——Mac 快取到 0x05AC 後把它當 Apple 配件，「附近裝置」不給連線按鈕、也不嘗試連（要 `sudo pkill bluetoothd` 清快取）；預設回 Espressif。31-m4m 起 HID 服務特徵值一律要加密（`@e`，HID over GATT 規範），並記錄主機讀寫了哪些特徵值。**31-m4o：Mac 對同一個藍牙位址的快取清不掉時（裝置端改什麼都沒按鈕、沒連線），換位址**：`@a1` 換成另一個由晶片 MAC 衍生的隨機靜態位址（存 NVS），Mac 會當新裝置；`@a0` 回原廠位址。
 17. **Mac「配對完就 Unused 斷線」的真正原因：Mac 上其他 app 的藍牙權限（2026-11-23 定案）**：Mac 的 HID 驅動不接手、系統設定一放手 bluetoothd 就以 Unused 斷線，跟韌體無關——Bluedroid 最小對照韌體（`ble-mouse-ref/`，不同堆疊、位址、VID）在同一台 Mac 也一模一樣；把「隱私權與安全性 → 藍牙」裡的 app（Brave、ChatGPT、Chrome、Teams）全部移除並重開機後，對照版與主韌體（31-m4o 設定）都立刻正常（訂閱報告、`@1` 畫圈、B 3 秒急停、解除後自動重連）。Brave 的連線階段還會攔截配對確認視窗。同款案例：OpenSnek #147（另一個 app 用 CoreBluetooth 連著，刪掉＋重開機才好）。**Mac 上測藍牙滑鼠前：確認沒有其他 app 有藍牙權限（或至少重開機後不允許），Teams 開機會要求藍牙，按不允許。** 查問題時用 `log show --predicate`（含 `process == "Bluetooth"` 與裝置 UUID）看 bluetoothd 時間線，不要盲改韌體；大量「does not have _HID_SERVICE_」是周圍其他裝置，「Incompatible LE HID／HIDBadBehavior」是 Mac 對第三方滑鼠切 7.5ms 時一起標的，不是原因。**31-m4p：`@u` 預設改關**——Mac 一律把第三方滑鼠拉回 7.5ms，我們要求 15～30ms 只會來回切一次；iPhone 本來就選 15ms。
 18. **M4-1 游標（31-m4q，2026-11-23，待實機驗收）**：`air_mouse.*`。IMU 只在 `imu_pet::loop()` 讀，每筆新資料轉給 `air_mouse::onImu()`（不重複呼叫 `M5.Imu.update()`），`air_mouse::loop()` 必須排在它後面。管線：轉速 − 零點偏差 → 死區（扣掉死區再算，起步不跳）→ 每秒點數＝增益×轉速^指數 → 乘時間累積小數 → 每 10ms 最多送一筆（夾 ±127、餘數留下次）。靜止＝扣偏差後轉速 <3 度/秒且加速度偏離 1g <0.05，滿 0.3 秒不送移動並開始跟零點（第一次靜止 0.5 秒取平均，之後權重 0.01）。送不出去（斷線／急停）就丟掉累積量，不累成一次大跳。A 在 AirMouse＝左鍵按下／放開，前後凍結 80ms。拿法預設「像遙控器、螢幕朝上、頂端指向電腦」：X＝−gz、Y＝−gx（推導值，`@m` 實測確認；`@x`／`@y` 翻方向、`@g` 靈敏度、`@d` 死區，定案後寫回 `config.h` 的 `AIR_*`）。**31-m4r（11-23 實測）**：方向預設正確；零點校正在 Desktop 開機就完成（偏差約 −0.4／+0.1／+0.1 度/秒），進 AirMouse 時印一次狀態；IMU 約 200 筆/秒、報告約 100 筆/秒。預設 4 太鈍 → 改**線性**（指數 1.0，轉幾度移多遠＝指哪跑哪）、增益 25、死區 1.0（`@n` 調指數）。快甩時每筆都頂到 127，累積量會欠著越積越多 → 累積量上限 2 筆（`AIR_ACC_CAP_REPORTS`），超過丟掉，手停游標就停。
 
+19. **M4-2 配對**：選單最多列三筆已存配對，空位時可新增配對；臨時連線全程不儲存配對與主機名稱。禁止 NimBLE 在儲存滿時淘汰既有配對，以及在不允許配對時刪舊紀錄後重新配對。先加密、再核對身分才送報告。名稱讀得到就按身分位址存入 NVS，否則顯示裝置編號。
+20. **M4-2 游標和急停**：預設增益 35、曲線指數 1.2、死區 2.0 度／秒。連線先沿用 M4-1 機身座標，A 離合器放開重校後切到重力座標。游標回看 30ms、按鍵邊緣後凍結 80ms，滾輪左鍵按住 200ms 才允許拖曳。已連線時 B 約 0.8 秒顯示倒數，放開取消；按滿 3 秒由既有急停先關輸出閘門，再完整關藍牙回體感選單。
+21. **M4-2 畫面（2026-11-23 Miles 定稿，`ui_airmenu.cpp`）**：照 `docs/design/README.md`。狀態列「MODE 04・體感」＋電量；選單頁左上紅色「體感」大字（`kanji::find("air")`，同 B 切模式）；選單最多 4 列六角徽章；等待頁雷達倒數；已連線雷達圈綠黃交錯、準星跟 `air_mouse::takeMotion()`（只供畫面讀取、不影響送報告）的位移移動並彈回、六角鍵按下亮橘白＋黃框；底部 18px 黃黑斜紋帶（破壞性倒數改紅）。已連線頁約 15 張／秒、只在準星或按鍵狀態變化時重畫。固定字（標題、狀態字、六角鍵、底部帶）用 `air_labels.h`（`tools/gen_air_labels.py`，Noto Serif CJK TC Black，字型不進 repo）；**裝置名稱與提示句用 `efontTW_12` 一般字、不加粗**（Miles：加粗反而看不清）。模擬：`bash tools/sim/build.sh air`。
+
 ## 2. 四大模式（細節見 PRD 第 2 節）
 1. **桌面 AI 語音伴侶**：M5GFX 向量繪製 Grok 風極簡幾何表情（Idle 呼吸眨眼 / Listening 漣漪 / Thinking 旋轉 / Speaking 連動 ES8311 音量）＋ 底部跑馬燈文字。語音優先（麥克風→Wi-Fi→後端 STT/LLM/TTS→喇叭），CardKB 為靜音輸入備援。
 2. **跨裝置 HID 外掛**：參考 `esp32-iphone-agent`。S3 當免越獄 USB 複合鍵鼠，iOS（配 AssistiveTouch）或 PC/macOS 自適應；視覺大模型截圖定座標→回傳 HID 指令。含實體急停。
 3. **掌上射頻工具**：CC1101 做固定碼（PT2262/SC2260/EV1527）學習、存 NVS、一鍵複製發射；RSSI 掃描以柱狀/瀑布圖顯示，近訊號源時喇叭發蓋革式嗶聲。Scroll Unit 切頻率/選單。台灣遙控器常見 315MHz 與 433.92MHz，兩者都要支援。
-4. **空中體感滑鼠**：BMI270 姿態解算（Pitch/Yaw→游標），BLE HID 當藍牙滑鼠。正面鍵＝左鍵，Scroll 滾動＝捲動，Scroll 按壓＝右鍵。
+4. **空中體感滑鼠**：BMI270 陀螺儀轉速控制游標，BLE HID 當藍牙滑鼠。先在體感選單選裝置，再依下表操作。
 
 ### 按鍵配置決議（2026-11-13，Miles 選定「方案 1」）
 原問題：正面鍵 A 同時被分配到切換模式、急停、模式 4 左鍵，互相衝突。決議為「**A＝做事／停，B＝系統鍵**」：
 
 | 操作 | 功能 |
 | :-- | :-- |
-| B 短按（< 1 秒） | 切到下一模式（Desktop → HidAgent → RfTool → AirMouse 循環）；在 `Safe` 中＝解除急停、回原模式 |
-| B 按住 1～3 秒後放開 | 序列埠重印狀態報告 |
-| B 按住滿 3 秒 | 全域急停備援（立即觸發，放開不再產生事件） |
+| B 短按 | 一般畫面切下一模式，`Safe` 解除急停。體感已連線時，短於約 0.8 秒放開＝右鍵 |
+| B 長按途中放開 | 體感已連線時取消倒數；其他畫面按住 1～3 秒放開重印狀態報告 |
+| B 按住滿 3 秒 | 立即急停。體感連線或等待時完整關藍牙回選單，其餘情況進 `Safe` |
 | A（模式 2） | 按下即急停（硬體中斷） |
-| A（模式 4） | 滑鼠左鍵（模式 4 急停走 B 長按 3 秒） |
+| A（體感選單） | 有 Scroll 時按一下鎖定；無 Scroll 時短按選下一項、按住 1 秒鎖定 |
+| A（體感已連線） | 按住暫停游標、放開校正方向；無 Scroll 時短按是左鍵 |
+| Scroll（體感） | 選單旋轉選裝置；已連線時旋轉捲動、按一下左鍵、按住約 200ms 再拖曳 |
 | A（模式 1／3） | 模式內主動作（各里程碑再定義） |
 | 電源鍵 | **韌體不使用**：單擊＝硬體重置、雙擊＝關機，且 M5Unified 需經 I2C 輪詢 M5PM1 才讀得到，不夠即時 |
 
@@ -297,7 +308,9 @@ firmware/src/
   ui_grok.*           // 模式1：M5GFX 幾何表情 + 音量連動 + 跑馬燈
   hid_injector.*      // 模式2：TinyUSB 跨平台鍵鼠 + 急停整合
   rf_transceiver.*    // 模式3：CC1101 學習/存/發 + RSSI 掃描
-  air_mouse.*         // 模式4：陀螺儀轉速 → 零點校正／死區／加速曲線 → BLE 滑鼠報告；A＝左鍵（M4-1）
+  air_mouse.*         // 模式4：陀螺儀轉速 → 零點校正／死區／加速曲線 → BLE 滑鼠報告；takeMotion() 給畫面（M4-1／M4-2）
+  ui_airmenu.*        // 模式4：體感選單／等待／已連線／B 倒數畫面與按鍵分派（M4-2，畫面 11-23 定稿）
+  air_labels.h        // tools/gen_air_labels.py 產生的體感固定字點陣圖（Noto Serif CJK TC Black）
 ```
 
 ## 5. 參考專案 esp32-iphone-agent（只對應模式 2）
@@ -333,6 +346,7 @@ Repo: https://github.com/onehumanbeing/esp32-iphone-agent
 - **`wrangler tail` 的輸出含完整網址（含 token）**：Miles 貼 tail 輸出給你或別人前要遮掉 `?t=` 後面；你若看到未遮的 token，提醒他重跑指令換一組。
 
 ## 9. 和 Miles 協作的方式
+- **畫面設計一律照 `docs/design/README.md`（介面設計總則，2026-11-23 定稿）與 `docs/design/COMPONENTS.md`（共用元件與程式位置）**：先用現成元件、先在 `tools/sim/` 出所有狀態的模擬圖給 Miles 看、他同意才改 `firmware/`；定稿後截圖進 `docs/design/img/` 與介面規格 HTML 第 D／對應節。不要自創新風格（11-23 一版自創磚塊版面被退件）。
 - 動工前先給簡短計畫與要改的檔案，取得同意再寫（Miles 說「開始實作」才動手；說「先討論」就停在需求與計畫）。
 - 不確定的腳位、板子設定、函式庫版本，**先問或先查，不要臆測**。
 - 解釋專有名詞；提供可直接編譯/燒錄的完整片段與步驟。

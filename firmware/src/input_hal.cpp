@@ -11,6 +11,7 @@ char s_scan_line[64] = "(none)";
 
 // B 鍵長按狀態：按下時刻、是否已在按住期間觸發過 3 秒急停
 uint32_t s_b_press_ms = 0;
+uint32_t s_b_release_duration = 0;
 bool s_b_hold3_fired = false;
 
 // Grove 供電（2026-11-19 實測：只開 5V 時 CardKB 有電但 I2C 掃不到）
@@ -116,6 +117,24 @@ const char* deviceName() {
 
 const char* scanLine() { return s_scan_line; }
 
+bool readScroll(int16_t& count, bool& pressed) {
+  if (s_device != GroveDevice::Scroll) return false;
+  uint8_t encoder[2], button;
+  auto& bus = M5.Ex_I2C;
+  if (!bus.readRegister(cfg::I2C_ADDR_SCROLL, cfg::SCROLL_ENCODER_REG, encoder, sizeof encoder, cfg::SCROLL_I2C_HZ) ||
+      !bus.readRegister(cfg::I2C_ADDR_SCROLL, cfg::SCROLL_BUTTON_REG, &button, 1, cfg::SCROLL_I2C_HZ) ||
+      button > 1) return false;
+  count = static_cast<int16_t>(encoder[0] | (uint16_t(encoder[1]) << 8));
+  pressed = button == 0;
+  return true;
+}
+
+uint32_t bHeldMs() {
+  return M5.BtnB.isPressed() ? millis() - s_b_press_ms : 0;
+}
+
+uint32_t bReleaseDuration() { return s_b_release_duration; }
+
 InputEvent poll() {
   M5.update();
   const uint32_t now = millis();
@@ -131,6 +150,7 @@ InputEvent poll() {
     return InputEvent::BtnB_Hold3s;
   }
   if (M5.BtnB.wasReleased()) {
+    s_b_release_duration = now - s_b_press_ms;
     if (s_b_hold3_fired) return InputEvent::None;
     return (now - s_b_press_ms >= cfg::BTN_B_REPORT_MS) ? InputEvent::BtnB_Hold1s
                                                          : InputEvent::BtnB_Click;

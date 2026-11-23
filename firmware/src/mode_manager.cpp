@@ -4,9 +4,9 @@
 
 #include "air_mouse.h"
 #include "audio_io.h"
-#include "ble_mouse.h"
 #include "killswitch.h"
 #include "net_hub.h"
+#include "ui_airmenu.h"
 
 namespace {
 
@@ -24,12 +24,12 @@ void airMouseEnter() {
   audio_io::suspend();                       // 關麥克風／喇叭
   air_mouse::reset();
   air_mouse::printStatus();                  // 零點校正多半在 Desktop 就做完了，進來時印一次讓人知道
-  ble_mouse::begin();
+  ui_airmenu::enter();
 }
 void airMouseExit() {
   Serial.println("  exit(AirMouse)");
   air_mouse::reset();
-  ble_mouse::end();
+  ui_airmenu::exit();
   audio_io::resume();                        // 回麥克風待機
   net_hub::setRadioOff(false, "離開 AirMouse");
 }
@@ -111,7 +111,6 @@ bool currentReady(const char** step) {
       if (!net_hub::linkUp()) { *step = "連線中…"; return false; }
       return true;
     case Mode::AirMouse:
-      if (ble_mouse::starting() || ble_mouse::state() == ble_mouse::State::Off) { *step = "開藍牙…"; return false; }
       return true;
     default:
       return true;

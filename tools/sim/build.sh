@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 畫面模擬器：用真的 M5GFX 核心（-DLGFX_LINUX_FB）在電腦上畫表情頁／資訊頁，輸出 PPM 圖檔。
 # 需求：Linux 或 macOS 的 g++/gcc（有 AddressSanitizer）、先在 firmware/ 跑過一次 pio（才有 .pio/libdeps/M5GFX）。
-# 用法：tools/sim/build.sh [face|info|anim|lowbat|motion|bench|all]   產物在 tools/sim/.out/，圖在 tools/sim/.out/ex|an|lb|out
+# 用法：tools/sim/build.sh [face|info|anim|lowbat|motion|bench|air|all]   產物在 tools/sim/.out/，圖在 tools/sim/.out/ex|an|lb|out
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -10,6 +10,8 @@ LIB="$ROOT/firmware/.pio/libdeps/m5sticks3/M5GFX/src"
 [ -d "$LIB" ] || { echo "找不到 $LIB：先在 firmware/ 跑一次 pio run"; exit 1; }
 OUT="$HERE/.out"; OBJ="$OUT/obj"; mkdir -p "$OBJ"
 F="-O1 -g -fsanitize=address -DLGFX_LINUX_FB -I$LIB"
+# macOS 沒有 Linux framebuffer：改走 SDL 標頭分支（只需標頭，不連結 SDL）
+[ "$(uname)" = Darwin ] && F="-O1 -g -fsanitize=address -I$LIB -I/opt/homebrew/include"; LDX="-L/opt/homebrew/lib -lSDL2"
 # 1) M5GFX 核心（只編一次）
 for c in "$LIB"/lgfx/utility/*.c "$LIB"/lgfx/Fonts/efont/*.c "$LIB"/lgfx/Fonts/IPA/*.c; do
   o="$OBJ/$(basename "$c" .c).o"; [ -f "$o" ] || gcc $F -c "$c" -o "$o" &
@@ -26,6 +28,7 @@ case "${1:-all}" in
   lowbat) build sim_lowbat.cpp "$SRC/ui_expression.cpp" && mkdir -p ex && ./sim_lowbat ;;
   motion) build sim_motion.cpp "$SRC/ui_expression.cpp" && mkdir -p mo && ./sim_motion 0 && ./sim_motion 2 ;;
   bench)  g++ -std=gnu++17 -O2 -fsanitize=address -DLGFX_LINUX_FB -I$LIB -I$HERE/mock -I$SRC -w "$HERE/bench_face.cpp" "$SRC/ui_expression.cpp" "$OBJ"/*.o -o bench_face -lpthread && ./bench_face ;;
-  info)   g++ $CF -DINFO_SIM "$HERE/sim_info.cpp" "$SRC/ui_info.cpp" "$SRC/info_data.cpp" "$OBJ"/*.o -o sim_info -lpthread && mkdir -p out && ./sim_info ;;
+  info)   g++ $CF -DINFO_SIM "$HERE/sim_info.cpp" "$SRC/ui_info.cpp" "$SRC/info_data.cpp" "$OBJ"/*.o -o sim_info -lpthread $LDX && mkdir -p out && ./sim_info ;;
+  air)    g++ -std=gnu++17 $F -I$HERE/mock_air -I$HERE/mock -I$SRC -w ${AIRMENU_SRC:+-DAIRMENU_SRC=\"$AIRMENU_SRC\"} "$HERE/sim_airmenu.cpp" "$OBJ"/*.o -o sim_airmenu -lpthread $LDX && mkdir -p air && ./sim_airmenu ;;
   all)    "$0" face; "$0" info ;;
 esac

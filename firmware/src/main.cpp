@@ -24,6 +24,7 @@
 #include "power_key.h"
 #include "power_save.h"
 #include "ui_expression.h"
+#include "ui_airmenu.h"
 #include "ui_fx.h"
 #include "ui_info.h"
 #include "ui_modeswitch.h"
@@ -56,7 +57,7 @@ static void renderActive(bool force) {
   if (mode_manager::current() == Mode::Desktop) {
     if (ui_info::shown()) ui_info::render();
     else if (force || power_save::frameDue()) { ui_expression::render(); power_save::frameDrawn(); }   // P1：待機／想睡／睡著降畫面張數
-  } else {
+  } else if (mode_manager::current() != Mode::AirMouse || !ui_airmenu::render()) {
     ui_status::render(force);
   }
 }
@@ -111,6 +112,17 @@ void setup() {
   ui_status::printReport();
 }
 
+static void completeEmergencyStop() {
+  power_save::setScreenOn(true, "急停");
+  ui_modeswitch::cancel();
+  if (mode_manager::current() == Mode::AirMouse && ui_airmenu::returnFromStop()) {
+    killswitch::clear();   // 藍牙已關，下一次必須重新由選單鎖定
+  } else {
+    mode_manager::emergencyStop();
+  }
+  renderActive(true);
+}
+
 void loop() {
   net_hub::loop();   // B3b-5：代印網路 task 的 log、依序處理收到的訊息（WebSocket 本身在網路 task 跑）
   diag_cmd::loop();  // 序列埠診斷指令（B3.6，非阻塞）
@@ -118,15 +130,13 @@ void loop() {
 
   // (1) 急停第二段
   if (killswitch::isTriggered() && mode_manager::current() != Mode::Safe) {
-    power_save::setScreenOn(true, "急停");   // P2：急停一律亮螢幕
-    ui_modeswitch::cancel();   // 急停不走過場
-    mode_manager::emergencyStop();
-    renderActive(true);
+    completeEmergencyStop();
   }
 
   // (2) 輸入事件
   switch (input_hal::poll()) {
     case InputEvent::BtnB_Click:
+      if (ui_airmenu::onBRelease()) break;
       if (!power_save::screenOn()) break;   // P2（11-22 Miles）：關螢幕時 B 短按不理（只有長按 A、單按電源鍵會亮；B 按住 3 秒急停照樣亮）
       if (mode_manager::current() == Mode::Safe) {
         mode_manager::resumeFromSafe();
@@ -139,15 +149,12 @@ void loop() {
       break;
 
     case InputEvent::BtnB_Hold1s:
-      ui_status::printReport();
+      if (!ui_airmenu::onBRelease()) ui_status::printReport();
       break;
 
     case InputEvent::BtnB_Hold3s:
-      power_save::setScreenOn(true, "急停");
       killswitch::triggerSoftware();
-      ui_modeswitch::cancel();
-      mode_manager::emergencyStop();
-      renderActive(true);
+      completeEmergencyStop();
       break;
 
     case InputEvent::BtnA_Press:
@@ -163,8 +170,8 @@ void loop() {
         voice_turn::onPress();
         break;
       }
-      if (mode_manager::current() == Mode::AirMouse) {   // M4-1：A＝左鍵（按下）
-        air_mouse::onButton(true);
+      if (mode_manager::current() == Mode::AirMouse) {
+        ui_airmenu::onA(true);
         break;
       }
       // 模式 2 的 A 急停已由硬體中斷處理；其他模式的主動作留給後續里程碑
@@ -180,8 +187,8 @@ void loop() {
         s_a_skip_release = false;
         break;
       }
-      if (mode_manager::current() == Mode::AirMouse) {   // M4-1：左鍵放開（短按＝點擊、按住移動＝拖曳）
-        air_mouse::onButton(false);
+      if (mode_manager::current() == Mode::AirMouse) {
+        ui_airmenu::onA(false);
         break;
       }
       if (mode_manager::current() == Mode::Desktop) {
@@ -216,6 +223,7 @@ void loop() {
   voice_turn::loop();
   ble_mouse::loop();    // M4：藍牙滑鼠（代印連線 log、@1 畫圓測試、急停檢查）
 
+  ui_airmenu::loop();
   imu_pet::loop();      // A3：讀 IMU（M4-1：每筆也交給 air_mouse）—— 必須在 air_mouse::loop 之前
   air_mouse::loop();    // M4-1：空中滑鼠送游標／按鍵報告、搖／拍／靜置／睡著聽聲音 → 表情（非阻塞）
   battery_ui::loop();   // A3：每 5 秒讀電量 → 休息臉顏色

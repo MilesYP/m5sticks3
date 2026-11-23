@@ -24,6 +24,8 @@
 
 ## 目前進度（更新於 2026-11-23）
 
+> **11-23 深夜**：M4 空中體感滑鼠 ✅ 完成（畫面定稿）。介面設計總則定稿於 `docs/design/`（所有新畫面照它做）。下一步 M1.5 紅外線，交接 `docs/KICKOFF_M15.md`；RF 軌照舊由 Codex 進行。
+
 > **11-23 起暫時由 Claude Code 與 Codex 共同維護**（Claude 的 token 恢復前）：正式韌體 M4 交接見 `docs/KICKOFF_M4-1.md`，分工規則見 `AGENTS.md` 第 0.1 節；Codex 原本的 RF 軌（`rf-lab/`、分支 `codex/rf-lab`）照舊。
 
 正式韌體 `firmware/` 的里程碑依 `CLAUDE.md` 第 6 節排序。RF Pack 接收已驗證正常，SPI 需依規則防錯，**不卡任何里程碑**。每個里程碑的切片清單見下一節。
@@ -35,7 +37,7 @@ flowchart TD
     M1A["M1-A 表情<br>完成 11-21"]
     M1B["M1-B 語音對話<br>完成 11-20"]
     M15["M1.5 紅外線遙控<br>3 片"]
-    M4["M4 空中滑鼠<br>BLE 滑鼠 ✅・M4-1 調手感"]
+    M4["M4 空中滑鼠<br>完成 11-23"]
     M2["M2 HID 外掛<br>4 片・最後做"]
     M3S["M3 S3 軌<br>3 片・可並行"]
     M3R["M3 RF 軌（Codex）<br>R0 待貼文・R1 待開工"]
@@ -52,8 +54,7 @@ flowchart TD
     classDef next fill:#b26a00,color:#ffffff,stroke:#7a4900
     classDef todo fill:#5a6672,color:#ffffff,stroke:#3a434c
     classDef gate fill:#8a4fbf,color:#ffffff,stroke:#5e2f8a
-    class H,M0,M1A,M1B done
-    class M4 doing
+    class H,M0,M1A,M1B,M4 done
     class M15 next
     class G doing
     class M2,M3S,M3R todo
@@ -67,8 +68,8 @@ flowchart TD
 | G | Grove 配件驗收 | 🔵 1／2 片 | CardKB、Scroll 11-19 到貨；G1 偵測通過，G2 功能驗收（`grove-test/`）待確認後寫 |
 | M1-A | 表情 | ✅ 11／11 片 | **11-21：A7 外觀統一 ✅**（NERV 橘黑：單一資訊頁＋單一像素表情頁、六角格背景與六角符號徽章、「初號機」浮水印、受信對話框、螢幕部分更新；EVA 角色與 q0／q1 退休）、**A5-2 雲端資料 ✅**、**P1 省電 ✅**。**A8 甩碎＋A4b 充電液體 ✅（29-a4g）**；B5 簡化版待實機驗收 |
 | M1-B | 語音對話（常駐） | ✅ 13／13 片（11-20） | 中控（Cloudflare）＋ token、錄放音、Wi-Fi 滋滋聲、邊錄邊傳／邊收邊播、斷線重送；**B3c＋B4（合併一片）接 GPT-Live**：助理 **Friday**（聲音 meridian）、會上網查天氣新聞、記得最近 10 輪與使用者記憶、字幕對齊聲音、簡轉繁、每日額度。待辦：滾輪音量、MCP＋skill、Hey Friday 喚醒詞、自訂聲音、新聞快報 |
-| M4 | 空中體感滑鼠 | 🟠 進行中：**BLE 滑鼠 ✅ Mac／iPhone／iPad（11-23）**；**M4-1 陀螺儀游標實作完成（31-m4r），手感調整中**；下一片 M4-3 Scroll 捲動／右鍵＋畫面 | 陀螺儀轉速 → 零點校正／死區／線性增益 → BLE HID；A＝左鍵（點擊／拖曳）。Mac 測試前先關其他 app 的藍牙權限（鐵則十二第 17 點）。交接：`docs/KICKOFF_M4-1.md` |
-| M1.5 | 紅外線萬能遙控器 | ⏳ M4 之後 | S3 本體內建紅外線，腳位待實機驗證 |
+| M4 | 空中體感滑鼠 | ✅ 完成 11-23 | BLE 滑鼠（Mac／iPhone／iPad）、陀螺儀游標、裝置選單與多主機配對、Scroll 按鍵、B 倒數返回、畫面定稿。設計總則見 `docs/design/README.md`；待辦：網頁設定後台調 `@g/@n/@d`（未排期） |
+| M1.5 | 紅外線萬能遙控器 | 🟠 下一步（交接 `docs/KICKOFF_M15.md`） | S3 本體內建紅外線，腳位待實機驗證 |
 | M2 | 跨裝置 HID 外掛 | ⏳ 4 片・最後 | 先做 PC／macOS 版；急停為安全關鍵 |
 | M3（RF 軌） | 無線電工具箱 | 🟣 Codex 平行開發（11-22） | `rf-lab/`＋分支 `codex/rf-lab`，規則與交件介面見 `AGENTS.md`；repo 改 AGPL-3.0-or-later，可複製 Bruce 協定層。詳細計畫與實測進度見下方「M3 無線電工具箱」的 RF 軌協作 |
 | R0 | Bruce issue 草稿 | 🟡 草稿完成，待 Miles 貼文（`codex/rf-lab` 最新 `e5bb573`，11-22） | Codex 整理的英文 issue 草稿（PINGEQUA 回覆、重現步驟、SPI 錯誤率） |
@@ -202,14 +203,13 @@ G2 測試項目（螢幕＋序列埠同時顯示；換配件先關機）：
 | IR2 | 學習、命名、存 NVS（`Preferences`），重開機不消失 | 存三組碼，重開機還在 | ⏳ |
 | IR3 | 選單重放：選已存的鍵發射。冷氣這類長碼（整組狀態一次送）另外處理 | 按下去，電視／冷氣真的動 | ⏳ |
 
-### M4 空中體感滑鼠（3 片）
+### M4 空中體感滑鼠（3 片・✅ 完成 11-23）
 
 | 片 | 內容 | 驗收方式 | 狀態 |
 | :-- | :-- | :-- | :-- |
-| M4-0 | NimBLE-Arduino 2.5.0 BLE HID 滑鼠最小版（`ble_mouse.*`）：AirMouse 進入時關 Wi-Fi／ES8311、開藍牙廣播「M5S3Pack」，離開時關藍牙釋放記憶體；序列埠 `@1` 游標畫圓 | Mac 配對、`@1` 畫圓、來回切模式 5 次 heap 不掉、B 3 秒急停停游標、iPad／iPhone（AssistiveTouch）各配一次 | 🟡 31-m4a 寫完待編譯＋實機 |
-| M4-1 | BMI270 姿態解算（Pitch／Yaw→游標）＋低通濾波，先在螢幕上畫游標，不碰藍牙 | 手腕轉動，螢幕游標跟著走且不抖 | ⏳ |
-| M4-2 | NimBLE-Arduino 實作 BLE HID 滑鼠（比 Bluedroid 省記憶體），電腦認到裝置 | 電腦藍牙清單看到它，游標能動 | ⏳ |
-| M4-3 | 按鍵整合：A＝左鍵、Scroll 滾動＝捲動、Scroll 按壓＝右鍵；進入本模式時語音暫停（鐵則二） | 能真的用它點擊與捲動 | ⏳ |
+| M4-0 | NimBLE-Arduino 2.5.0 BLE HID 滑鼠最小版（`ble_mouse.*`）：進入時關 Wi-Fi／ES8311、開藍牙廣播「M5S3Pack」，離開時關藍牙釋放記憶體 | Mac／iPhone／iPad 配對、`@1` 畫圓、來回切模式、B 3 秒急停 | ✅ 11-23 |
+| M4-1 | 陀螺儀轉速 → 零點校正／死區／加速曲線 → 游標（`air_mouse.*`）；預設增益 35、曲線 1.2、死區 2.0 度／秒 | 指哪跑哪、放下就停 | ✅ 11-23 |
+| M4-2 | 裝置選單（最多 3 台配對＋臨時連線、名稱存 NVS）、按鍵（Scroll 左鍵／拖曳／捲動、B 右鍵、A 離合器重校）、B 長按 3 秒回選單；**畫面定稿**（狀態列、紅色體感大字、雷達、六角鍵按下回饋、黃黑底部帶，見 `docs/design/`） | 實機選單、配對、點擊拖曳捲動、倒數返回；畫面 Miles 11-23 定稿 | ✅ 11-23（Codex 功能＋Claude 畫面） |
 
 ### M2 跨裝置 HID 外掛（4 片・最後做）
 

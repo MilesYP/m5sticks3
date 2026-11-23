@@ -7,6 +7,9 @@
 #include <math.h>
 #include <WiFi.h>
 #include <Preferences.h>
+#include <nvs.h>
+#include <freertos/queue.h>
+#include <nimble/nimble/host/include/host/ble_store.h>
 
 #include "config.h"
 
@@ -99,8 +102,68 @@ float    s_acc_x = 0, s_acc_y = 0;
 uint8_t  s_buttons = 0;
 uint32_t s_tx_ok = 0, s_tx_fail = 0;
 
+ble_mouse::ConnectMode s_mode = ble_mouse::ConnectMode::Saved;
+NimBLEAddress s_existing_peers[ble_mouse::kMaxPeers];
+int s_existing_count = 0;
+std::atomic<uint32_t> s_last_disconnect{0};
+constexpr uint32_t kDisconnectSettleMs = 100;
+bool s_accepted = false;
+bool s_rejecting = false;
+bool s_name_requested = false;
+uint32_t s_accepted_at = 0;
+uint16_t s_checked_handle = 0xFFFF;
+NimBLEAddress s_target;
+struct PeerName {
+  uint16_t handle;
+  char text[48];
+};
+QueueHandle_t s_name_queue = nullptr;
+
+bool temporary() { return s_mode == ble_mouse::ConnectMode::Temporary; }
+bool saved() { return s_mode == ble_mouse::ConnectMode::Saved; }
+
+bool samePeer(const NimBLEAddress& a, const NimBLEAddress& b) {
+  return (a.getType() & 1) == (b.getType() & 1) && memcmp(a.getVal(), b.getVal(), 6) == 0;
+}
+
+bool existingPeer(const NimBLEAddress& address) {
+  for (int i = 0; i < s_existing_count; ++i)
+    if (samePeer(address, s_existing_peers[i])) return true;
+  return false;
+}
+
+class PreserveBonds : public NimBLEDeviceCallbacks {
+  int onStoreStatus(ble_store_status_event* event, void*) override {
+    // 預設 round-robin 在空間不足時會刪除最舊裝置。只允許嘗試寫入，滿了就回報失敗。
+    return event->event_code == BLE_STORE_EVENT_FULL ? 0 : BLE_HS_ESTORE_CAP;
+  }
+};
+PreserveBonds s_preserve_bonds;
+
+void nameKey(const NimBLEAddress& address, char (&key)[14]) {
+  const auto* a = address.getVal();
+  snprintf(key, sizeof key, "%u%02x%02x%02x%02x%02x%02x", address.getType() & 1,
+           a[0], a[1], a[2], a[3], a[4], a[5]);
+}
+
+int readPeerName(uint16_t handle, const ble_gatt_error* error, ble_gatt_attr* attr, void*) {
+  if (error->status || !attr || !attr->om || !s_name_queue) return 0;
+  PeerName name{};
+  name.handle = handle;
+  const auto size = OS_MBUF_PKTLEN(attr->om);
+  if (!size || size >= sizeof name.text) return 0;
+  if (os_mbuf_copydata(attr->om, 0, size, name.text) != 0) return 0;
+  for (unsigned i = 0; i < size; ++i)
+    if ((uint8_t)name.text[i] < 0x20 || name.text[i] == 0x7f) return 0;
+  xQueueOverwrite(s_name_queue, &name);
+  return 0;
+}
+
 class ServerCb : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer*, NimBLEConnInfo& ci) override {
+    const auto identity = ci.getIdAddress();
+    const bool allowBond = !temporary() && (saved() ? samePeer(identity, s_target) : !existingPeer(identity));
+    NimBLEDevice::setSecurityAuth(allowBond, false, s_opt_sc);
     s_conn.store(ci.getConnHandle());
     s_connected.store(true);
     s_secured.store(ci.isEncrypted());
@@ -122,6 +185,7 @@ class ServerCb : public NimBLEServerCallbacks {
     s_ev_param.fetch_add(1);
   }
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
+    s_last_disconnect.store(millis() | 1);
     s_connected.store(false);
     s_secured.store(false);
     s_conn.store(0xFFFF);
@@ -129,7 +193,7 @@ class ServerCb : public NimBLEServerCallbacks {
     s_auth_t.store(0);
     s_disc_reason.store(reason);
     s_ev_disc.fetch_add(1);
-    // advertiseOnDisconnect(true) 讓函式庫自己重新廣播
+    // 由主迴圈在回呼收尾後重新廣播，關閉時也走同一個等待條件。
   }
   void onAuthenticationComplete(NimBLEConnInfo& ci) override {
     s_conn_bonded.store(ci.isBonded());
@@ -192,10 +256,10 @@ const char* discReason(int r) {
 int8_t clamp127(int v) { return (int8_t)(v > 127 ? 127 : v < -127 ? -127 : v); }
 
 bool sendRaw(int dx, int dy, int wheel, uint8_t buttons) {
-  if (!s_on.load() || !s_connected.load() || !s_input) return false;
+  if (!s_on.load() || !s_accepted || s_ev_conn.load() || s_conn.load() != s_checked_handle || !s_connected.load() || !s_secured.load() || !s_input) return false;
   if (!killswitch::outputAllowed()) return false;   // 鐵則三：閘門關了一個封包都不送
   uint8_t r[4] = {(uint8_t)(buttons & 0x07), (uint8_t)clamp127(dx), (uint8_t)clamp127(dy), (uint8_t)clamp127(wheel)};
-  const bool ok = s_input->notify((const uint8_t*)r, sizeof(r));
+  const bool ok = s_input->notify((const uint8_t*)r, sizeof(r), s_checked_handle);
   if (ok) ++s_tx_ok; else ++s_tx_fail;
   return ok;
 }
@@ -233,7 +297,7 @@ void setIntervalPreset(uint8_t p) {
 
 // 31-m4g：配對時交換「加密金鑰＋身分金鑰（IRK）」（Mac 用身分金鑰認出重連的裝置）；31-m4h 可用 @k 關掉對照
 void applySecurity() {
-  NimBLEDevice::setSecurityAuth(true, false, s_opt_sc);   // 綁定、不需密碼比對、SC 依選項
+  NimBLEDevice::setSecurityAuth(!temporary(), false, s_opt_sc);   // 臨時模式全程禁止儲存配對
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
   const uint8_t keys = BLE_SM_PAIR_KEY_DIST_ENC | (s_opt_irk ? BLE_SM_PAIR_KEY_DIST_ID : 0);
   NimBLEDevice::setSecurityInitKey(keys);
@@ -250,8 +314,8 @@ void setOption(char opt, bool on) {
     s_addr_loaded = true;
     Preferences pr;
     if (pr.begin("ble", false)) { pr.putUChar("salt", s_addr_salt); pr.end(); }
-    Serial.printf("[ble] 換藍牙位址 #%u（0＝原廠）→ 重建藍牙；電腦會當成一台新裝置\n", (unsigned)s_addr_salt);
-    if (s_on.load() || s_pending) { end(); begin(); }
+    Serial.printf("[ble] 換藍牙位址 #%u（0＝原廠），下次開藍牙生效；電腦會當成一台新裝置\n", (unsigned)s_addr_salt);
+
     return;
   }
   else if (opt == 'r' || opt == 'v' || opt == 'h' || opt == 'p' || opt == 'e') {   // 31-m4l：GATT 內容變了 → 重建藍牙
@@ -260,14 +324,9 @@ void setOption(char opt, bool on) {
     else if (opt == 'v') s_opt_vid = on;
     else if (opt == 'h') s_opt_wake = on;
     else { s_opt_rid = !on; s_opt_vid = false; s_opt_wake = on; s_opt_reqsec = !on; s_opt_enc = on; }   // @p1 對照組全套、@p0 舊設定全套
-    Serial.printf("[ble] HID 設定：HID 特徵值加密 %s｜Report ID %s｜VID %s｜HID 旗標 %s｜主動要求加密 %s（電腦端先「忘記此裝置」，這邊會清配對並重建藍牙）\n",
+    Serial.printf("[ble] HID 設定：HID 特徵值加密 %s｜Report ID %s｜VID %s｜HID 旗標 %s｜主動要求加密 %s（電腦端先「忘記此裝置」，這邊下次開藍牙生效）\n",
                   s_opt_enc ? "要" : "不要", s_opt_rid ? "帶 1" : "不帶", s_opt_vid ? "Apple 0x05AC" : "Espressif 0x303A",
                   s_opt_wake ? "0x01" : "0x02", s_opt_reqsec ? "開" : "關");
-    if (s_on.load() || s_pending) {
-      if (NimBLEDevice::isInitialized()) ble_store_clear();   // 報告格式變了，舊配對的 GATT 快取不能用
-      end();
-      begin();
-    }
     return;
   }
   else return;
@@ -276,8 +335,57 @@ void setOption(char opt, bool on) {
                 s_opt_reqsec ? "開" : "關", s_opt_sc ? "開" : "關", s_opt_irk ? "開" : "關");
 }
 
-bool begin() {
+int pairedPeers(Peer (&out)[kMaxPeers]) {
+  // NimBLE 2.5.0 的 bonded_peers 以 OUR_SEC 為準。尚未啟動控制器時，
+  // 直接讀同版本的 NVS 記錄，只取 peer_addr，金鑰不進選單或序列埠。
+  nvs_handle_t bonds;
+  if (nvs_open("nimble_bond", NVS_READONLY, &bonds) != ESP_OK) return 0;
+  nvs_handle_t names;
+  const bool have_names = nvs_open("airnames", NVS_READONLY, &names) == ESP_OK;
+  int count = 0;
+  nvs_iterator_t it = nvs_entry_find("nvs", "nimble_bond", NVS_TYPE_BLOB);
+  while (it && count < kMaxPeers) {
+    nvs_entry_info_t entry;
+    nvs_entry_info(it, &entry);
+    if (strncmp(entry.key, "our_sec_", 8) == 0) {
+      ble_store_value_sec record{};
+      size_t size = sizeof record;
+      if (nvs_get_blob(bonds, entry.key, &record, &size) == ESP_OK && size == sizeof record) {
+        const auto& a = record.peer_addr;
+        bool duplicate = false;
+        for (int i = 0; i < count; ++i)
+          if (out[i].type == a.type && !memcmp(out[i].address, a.val, sizeof a.val)) duplicate = true;
+        if (a.type <= BLE_ADDR_RANDOM && !duplicate) {
+          auto& peer = out[count++];
+          peer = {};
+          memcpy(peer.address, a.val, sizeof peer.address);
+          peer.type = a.type;
+          char key[14];
+          nameKey(NimBLEAddress(a), key);
+          size_t name_size = sizeof peer.name;
+          if (have_names) nvs_get_str(names, key, peer.name, &name_size);
+          if (!peer.name[0]) snprintf(peer.name, sizeof peer.name, "裝置 %d", count);
+        }
+      }
+    }
+    it = nvs_entry_next(it);
+  }
+  nvs_release_iterator(it);
+  if (have_names) nvs_close(names);
+  nvs_close(bonds);
+  return count;
+}
+
+bool begin(ConnectMode mode, const Peer* selected) {
   if (s_on.load() || s_pending) return true;
+  if (mode == ConnectMode::Saved && !selected) return false;
+  s_mode = mode;
+  if (saved()) {
+    ble_addr_t address{};
+    address.type = selected->type;
+    memcpy(address.val, selected->address, sizeof address.val);
+    s_target = NimBLEAddress(address);   // NVS 已採 NimBLE 原生位元組順序
+  }
   s_pending = true;                      // 31-m4b：先等 Wi-Fi 關掉（網路 task 非同步在關），loop() 再開藍牙
   s_pending_t = millis();
   Serial.println("[ble] 等 Wi-Fi 關閉後開藍牙…");
@@ -288,6 +396,7 @@ bool startNow() {
   if (s_on.load()) return true;
   const uint32_t t0 = millis();
   if (!s_built) {   // 第一次（或上次 exit 有 deinit）：初始化藍牙堆疊並建 HID 服務
+    NimBLEDevice::setDeviceCallbacks(&s_preserve_bonds);
     if (!NimBLEDevice::init(cfg::BLE_DEVICE_NAME)) {
       Serial.println("[ble] NimBLE 初始化失敗");
       return false;
@@ -350,10 +459,30 @@ bool startNow() {
     applyAdvData();
     s_built = true;
   }
-  if (s_server) s_server->advertiseOnDisconnect(true);
-  NimBLEDevice::getAdvertising()->start();
-
+  const int bond_count = NimBLEDevice::getNumBonds();
+  if (s_mode == ConnectMode::Add && bond_count >= kMaxPeers) {
+    Serial.println("[ble] 配對清單已滿，保留現有裝置");
+    s_on.store(true);
+    end();
+    return false;
+  }
+  s_existing_count = 0;
+  if (!saved()) {
+    for (int i = 0; i < bond_count && i < kMaxPeers; ++i)
+      s_existing_peers[s_existing_count++] = NimBLEDevice::getBondedAddress(i);
+  }
+  if (!s_name_queue) s_name_queue = xQueueCreate(1, sizeof(PeerName));
+  applySecurity();
+  s_last_disconnect.store(0);
+  if (s_server) s_server->advertiseOnDisconnect(false);
   s_on.store(true);
+  if (!NimBLEDevice::getAdvertising()->start()) {
+    Serial.println("[ble] 啟動廣播失敗");
+    end();
+    return false;
+  }
+  Serial.printf("[ble] 選單連線：%s\n",
+                saved() ? s_target.toString().c_str() : temporary() ? "臨時連線（不儲存）" : "新增配對");
   s_tx_ok = s_tx_fail = 0;
   Serial.printf("[ble] 開始廣播「%s」（%lu ms）｜已配對 %d 台｜heap %u\n", cfg::BLE_DEVICE_NAME,
                 (unsigned long)(millis() - t0), NimBLEDevice::getNumBonds(), (unsigned)ESP.getFreeHeap());
@@ -365,24 +494,31 @@ void end() {
   if (!s_on.load()) return;
   const uint32_t t0 = millis();
   s_circle = false;
+  if (s_accepted && killswitch::outputAllowed()) sendRaw(0, 0, 0, 0);
+  s_accepted = false;
+  s_checked_handle = 0xFFFF;
   s_on.store(false);                     // 先關：之後 report() 一律不送
   if (s_server) s_server->advertiseOnDisconnect(false);   // 31-m4g：斷線後不要自己又開廣播
   NimBLEDevice::getAdvertising()->stop();
   if (s_server && s_connected.load()) {
-    if (killswitch::outputAllowed()) sendRaw(0, 0, 0, 0);   // 放開所有按鍵（急停時不送）
     s_server->disconnect(s_conn.load());
     // 31-m4g：連著的時候直接 deinit 會當機（host task 還在處理斷線事件）→ 等斷線回呼回來（最多 600ms）
     const uint32_t tw = millis();
     while (s_connected.load() && millis() - tw < 600) delay(5);
     Serial.printf("[ble] 等斷線 %lu ms%s\n", (unsigned long)(millis() - tw), s_connected.load() ? "（逾時）" : "");
-    delay(50);                                 // 讓 host task 把斷線後的事情做完
   }
+  // 包含在逾時／切模式前剛斷線的情況，等 host 做完回呼後續工作。
+  const uint32_t disconnected = s_last_disconnect.load();
+  const int32_t elapsed = (int32_t)(millis() - disconnected);
+  if (disconnected && elapsed < (int32_t)kDisconnectSettleMs)
+    delay(kDisconnectSettleMs - (elapsed > 0 ? elapsed : 0));
   if (cfg::BLE_DEINIT_ON_EXIT) {         // 關藍牙控制器並釋放記憶體（鐵則二）；下次 begin 重建
     delete s_hid;                        // 只是包裝物件；服務本身由 deinit(true) 一起清
     s_hid = nullptr; s_input = nullptr; s_server = nullptr;
     NimBLEDevice::deinit(true);
     s_built = false;
   }                                      // 否則保留堆疊，只停廣播（BLE_DEINIT_ON_EXIT＝false 對照用）
+  if (s_name_queue) xQueueReset(s_name_queue);
   s_connected.store(false); s_secured.store(false); s_conn.store(0xFFFF);
   s_conn_t.store(0); s_auth_t.store(0);
   Serial.printf("[ble] 藍牙關閉（%lu ms）｜heap %u\n", (unsigned long)(millis() - t0), (unsigned)ESP.getFreeHeap());
@@ -392,13 +528,69 @@ void loop() {
   if (s_pending) {
     // 31-m4j：要等「最後一個」關 Wi-Fi 指令做完（快速來回切模式時，舊的開 Wi-Fi 指令可能還排在後面）
     const bool wifi_off = net_hub::radioSettled() && WiFi.getMode() == WIFI_OFF;
-    if (wifi_off || millis() - s_pending_t >= cfg::BLE_START_WAIT_MS) {
+    if (!wifi_off && millis() - s_pending_t >= cfg::BLE_START_WAIT_MS) {
       s_pending = false;
-      Serial.printf("[ble] Wi-Fi %s（等了 %lu ms）→ 開藍牙\n", wifi_off ? "已關" : "還沒關（逾時，照開）",
-                    (unsigned long)(millis() - s_pending_t));
+      Serial.println("[ble] Wi-Fi 關閉逾時");
+    } else if (wifi_off) {
+      s_pending = false;
+      Serial.printf("[ble] Wi-Fi 已關（等了 %lu ms）→ 開藍牙\n", (unsigned long)(millis() - s_pending_t));
       if (!startNow()) Serial.println("[ble] 開藍牙失敗");
     }
     return;
+  }
+  const uint32_t disconnected = s_last_disconnect.load();
+  if (s_on.load() && disconnected && !s_connected.load() &&
+      (int32_t)(millis() - disconnected) >= (int32_t)kDisconnectSettleMs &&
+      killswitch::outputAllowed()) {
+    s_last_disconnect.store(0);
+    if (NimBLEDevice::getAdvertising()->start()) Serial.println("[ble] 已重新廣播");
+    else Serial.println("[ble] 重新廣播失敗");
+  }
+  const uint16_t handle = s_conn.load();
+  if (s_checked_handle != handle || s_ev_conn.load()) {
+    s_checked_handle = handle;
+    s_accepted = s_rejecting = s_name_requested = false;
+  }
+  if (s_connected.load() && s_secured.load() && s_server && !s_rejecting) {
+    const auto info = s_server->getPeerInfoByHandle(handle);
+    const auto identity = info.getIdAddress();
+    const bool permitted = saved() ? info.isBonded() && samePeer(identity, s_target)
+                                    : !existingPeer(identity) && (temporary() ? !info.isBonded() : info.isBonded());
+    if (info.isEncrypted() && permitted) {
+      if (!s_accepted) {
+        s_accepted = true;
+        s_accepted_at = millis();
+        Serial.println("[ble] 已允許選單連線");
+      }
+      // 留時間給主機先接手 HID，再嘗試讀主機名稱。
+      if (!temporary() && s_name_queue && !s_name_requested && millis() - s_accepted_at >= 1200) {
+        s_name_requested = true;
+        if (!saved()) s_target = identity;
+        const ble_uuid16_t uuid = BLE_UUID16_INIT(0x2A00); // GAP Device Name
+        ble_gattc_read_by_uuid(handle, 1, 0xFFFF, &uuid.u, readPeerName, nullptr);
+      }
+    } else if (info.isEncrypted()) {
+      s_rejecting = s_server->disconnect(handle);
+      if (saved()) {
+        Serial.printf("[ble] 拒絕主機：實際 %s type=%u bond=%u｜選定 %s type=%u\n",
+                      identity.toString().c_str(), (unsigned)identity.getType(), (unsigned)info.isBonded(),
+                      s_target.toString().c_str(), (unsigned)s_target.getType());
+      } else {
+        Serial.printf("[ble] 拒絕主機：%s 不符合%s條件\n", identity.toString().c_str(),
+                      temporary() ? "臨時連線" : "新增配對");
+      }
+    }
+  }
+  PeerName name;
+  if (s_name_queue && xQueueReceive(s_name_queue, &name, 0) &&
+      !temporary() && s_accepted && name.handle == handle && s_conn.load() == handle) {
+    char key[14];
+    nameKey(s_target, key);
+    Preferences names;
+    if (names.begin("airnames", false) && (!names.isKey(key) || names.getString(key, "") != name.text) &&
+        names.putString(key, name.text)) {
+      Serial.println("[ble] 已儲存主機裝置名稱");
+    }
   }
   if (s_ev_conn.exchange(0)) {
     Serial.printf("[ble] 已連線：%s%s%s\n", s_peer_ready.load() ? s_peer : "?",
@@ -430,17 +622,17 @@ void loop() {
   if (s_connected.load() && !s_secured.load() && millis() - s_unsec_log_t >= 3000 && s_conn_t.load() &&
       millis() - s_conn_t.load() >= 3000) {
     s_unsec_log_t = millis();
-    Serial.printf("[ble] 連上 %lu 秒仍未加密（電腦端可能要先「忘記此裝置」，這邊打 @f 清配對再重配）\n",
+    Serial.printf("[ble] 連上 %lu 秒仍未加密\n",
                   (unsigned long)((millis() - s_conn_t.load()) / 1000));
   }
   if (s_ev_auth.exchange(0)) {
     const uint8_t f = s_auth_flags.load();
-    Serial.printf("[ble] 配對完成（已加密），可以送滑鼠資料｜綁定 %s｜驗證 %s｜金鑰 %u bytes\n",
+    Serial.printf("[ble] 連線已加密｜綁定 %s｜驗證 %s｜金鑰 %u bytes\n",
                   (f & 2) ? "是" : "否", (f & 4) ? "是" : "否", (unsigned)s_auth_key.load());
   }
   if (s_ev_auth_fail.exchange(0)) Serial.println("[ble] 配對失敗（沒加密）— 對方可能要先「忘記此裝置」再重配");
   if (s_ev_disc.exchange(0))
-    Serial.printf("[ble] 斷線（原因 0x%X %s）→ 重新廣播\n", s_disc_reason.load(), discReason(s_disc_reason.load()));
+    Serial.printf("[ble] 斷線（原因 0x%X %s）\n", s_disc_reason.load(), discReason(s_disc_reason.load()));
   for (uint8_t t = 0; t < T_COUNT; ++t) {   // 31-m4m：主機讀寫了哪些特徵值
     const uint8_t r = s_ev_rd[t].exchange(0), w = s_ev_wr[t].exchange(0);
     if (r) Serial.printf("[ble] 主機讀 %s（%u 次）%s\n", kTagName[t], (unsigned)r, t == T_MAP ? "＝滑鼠驅動開始接手" : "");
@@ -486,7 +678,7 @@ const char* stateName() {
   }
 }
 bool starting() { return s_pending; }
-bool secured() { return s_secured.load(); }
+bool secured() { return s_accepted && s_connected.load() && s_secured.load(); }
 int bondCount() { return NimBLEDevice::isInitialized() ? NimBLEDevice::getNumBonds() : -1; }
 
 bool report(int dx, int dy, int wheel, uint8_t buttons) {

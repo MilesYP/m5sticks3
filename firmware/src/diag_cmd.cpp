@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
 #include "air_mouse.h"
 #include "audio_io.h"
@@ -24,18 +25,59 @@ namespace {
 char s_line[16];
 size_t s_n = 0;
 
+bool s_scroll_measure = false;
+bool s_scroll_valid = false;
+bool s_scroll_down = false;
+bool s_scroll_error = false;
+int16_t s_scroll_count = 0;
+uint32_t s_scroll_poll_ms = 0;
+
+void measureScroll() {
+  constexpr uint32_t kPollMs = 20;
+  const uint32_t now = millis();
+  if (!s_scroll_measure || now - s_scroll_poll_ms < kPollMs) return;
+  s_scroll_poll_ms = now;
+  int16_t count;
+  bool pressed;
+  if (input_hal::device() != GroveDevice::Scroll) {
+    s_scroll_measure = false;
+    Serial.println("[scroll] 未偵測到 Scroll Unit（插上後用 e 重掃）");
+    return;
+  }
+  if (!input_hal::readScroll(count, pressed)) {
+    if (!s_scroll_error) Serial.println("[scroll] I2C 讀取失敗，等下一筆有效資料");
+    s_scroll_error = true;
+    s_scroll_valid = false;
+    return;
+  }
+  const int delta = s_scroll_valid ? static_cast<int16_t>(count - s_scroll_count) : 0;
+  if (!s_scroll_valid || delta || pressed != s_scroll_down)
+    Serial.printf("[scroll] count=%d delta=%+d button=%s\n", count, delta, pressed ? "down" : "up");
+  s_scroll_error = false;
+  s_scroll_valid = true;
+  s_scroll_count = count;
+  s_scroll_down = pressed;
+}
+
 void printConfig() {
   Serial.printf("[diag] 目前：%s pga=0x%02X 對話=%s\n", net_hub::configLabel(), audio_io::pga(),
                 voice_turn::gptMode() ? "gpt" : "echo");
 }
 
 void printHelp() {
-  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜q 電源鍵狀態(q0 進root q1 回新機制 q9 主迴圈卡死測看門狗)｜@ 藍牙滑鼠狀態(@1 畫圓測試 @0 停 @f 清除配對 @s0/1 主動要求加密 @c0/1 SC @k0/1 身分金鑰 @i0/1/2 連線間隔7.5～15/11.25～15/15～30ms @u0/1 配對後主動要求連線參數 @r0/1 Report ID @v0/1 Apple VID @h0/1 HID旗標 @p1/0 對照組/舊設定全套 @e0/1 HID特徵值加密 @a1 換藍牙位址 @a0 回原廠位址 @m 游標量測 @g25 靈敏度 @d1 死區 @n1 曲線指數 @x/@y 翻轉方向)｜#文字 在 log 做記號｜? 目前設定");
+  Serial.println("[diag] 指令：a 中控重送資訊頁資料｜w0/w1 Wi-Fi關/開｜s0/s1 省電關/開(手動)｜sa 省電自動｜p20 p15 p11 p8 p5 p2 發射功率｜g17 PGA(16進位)｜f0/f1/f2/f3 下載PCM/ADPCM/μ-law/ADPCM8k｜u0/u1 上傳PCM/μ-law｜x 斷開中控連線(測重送)｜r0/r1 中控全速/真實速度｜b300 預緩衝ms｜i20 ping間隔秒(i0不ping)｜k 送 ping｜e 重開 Grove 供電並重掃｜m1/m0 對話 GPT/echo｜j IMU 量測開/關｜v 待機聲音量測開/關｜c50 假裝電量%(c 恢復)｜h 充電紀錄(h0 清空)｜d0/d1/d2 假裝沒充電/充電中/充飽(d 恢復)｜o0/o1/o2 假裝直式/橫式A左/橫式A右(o 恢復自動)｜y0～y8 預覽表情(y 結束)｜n 切換表情頁/資訊頁(n0 表情 n1 資訊)｜t 換頁交叉淡化開/關(t2/t3 部分更新關/開)｜z 省電狀態(z0 關 z1 開)｜l110 正常背光0～255｜q 電源鍵狀態(q0 進root q1 回新機制 q9 主迴圈卡死測看門狗)｜@ 藍牙滑鼠狀態(@1 畫圓測試 @0 停 @f 清除配對 @s0/1 主動要求加密 @c0/1 SC @k0/1 身分金鑰 @i0/1/2 連線間隔7.5～15/11.25～15/15～30ms @u0/1 配對後主動要求連線參數 @r0/1 Report ID @v0/1 Apple VID @h0/1 HID旗標 @p1/0 對照組/舊設定全套 @e0/1 HID特徵值加密 @a1 換藍牙位址 @a0 回原廠位址 @m 游標量測 @g25 靈敏度 @d1 死區 @n1 曲線指數 @x/@y 翻轉方向)｜@rscroll1/0 滾輪量測開/關｜#文字 在 log 做記號｜? 目前設定");
 }
 
 void run(char* cmd) {
   if (cmd[0] == '#') {   // A4 量測：在 log 裡做記號（例：#1 直拿），方便事後分段
     Serial.printf("[mark] %s ===== 開機後 %lu ms\n", cmd + 1, (unsigned long)millis());
+    return;
+  }
+  if (!strcmp(cmd, "@rscroll1") || !strcmp(cmd, "@rscroll0")) {
+    s_scroll_measure = !strcmp(cmd, "@rscroll1");
+    s_scroll_valid = false;
+    s_scroll_error = false;
+    Serial.printf("[scroll] 量測%s\n", s_scroll_measure ? "開" : "關");
     return;
   }
   if (cmd[0] == '@') {   // M4：藍牙滑鼠（26 個字母都用掉了，改用 @ 開頭）
@@ -206,6 +248,7 @@ void loop() {
       s_line[s_n++] = (char)ch;
     }
   }
+  measureScroll();
 }
 
 }  // namespace diag_cmd
