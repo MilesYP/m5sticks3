@@ -10,6 +10,7 @@
 #include "air_labels.h"
 #include "kanji_bitmaps.h"
 #include "ui_fx.h"
+#include "ui_expression.h"
 #include "ui_kit.h"
 
 namespace {
@@ -106,7 +107,7 @@ int mixed(const char* s, int x, int y, uint16_t color) { return ui_kit::drawMixe
 // 狀態列（ui_kit，同表情頁）：MODE 04・體感＋右邊電量 %
 void statusBar() {
   const int lv = battery_ui::level();
-  ui_kit::statusBar(s_canvas, 0, kWidth, "MODE 04", "體感", kAmber, lv, ui_kit::batteryColor(lv));
+  ui_kit::statusBar(s_canvas, 0, s_canvas.width(), "MODE 04", "體感", kAmber, lv, ui_kit::batteryColor(lv));
 }
 
 // 固定字：Noto Serif CJK TC Black 點陣圖（air_labels.h，同 B 切模式過場的字型）。查不到就退回 efontTW_12。
@@ -129,11 +130,11 @@ void plainName(const char* s, int x, int y, uint16_t color, int maxWidth) {
 }
 
 // 底部斜紋帶（同介面規格「A 發射」）：斜紋＋中間黑底字
-constexpr int kFootH = 18, kFootY = kHeight - kFootH;
+constexpr int kFootH = 18;
 // 斜紋同切模式（ui_kit::actionBand）；破壞性頁面紅色
-void footer(const char* label, uint16_t color) {
+void footer(const char* label, uint16_t color, int width = 0) {
   const air_labels::Bmp* g = air_labels::find(label);
-  ui_kit::actionBand(s_canvas, kFootY, kWidth, kFootH, color, color == kRed ? kRed : kAmber,
+  ui_kit::actionBand(s_canvas, s_canvas.height() - kFootH, width ? width : s_canvas.width(), kFootH, color, color == kRed ? kRed : kAmber,
                      g ? g->bits : nullptr, g ? g->w : 0, g ? g->h : 0);
 }
 
@@ -144,8 +145,9 @@ void seg7(int x, int y, int w, int h, int n, uint16_t on) { ui_kit::seg7(s_canva
 constexpr int kRadarX = 67, kRadarY = 54, kRadarR = 35;
 // locked＝已連線：圈圈綠黃交錯；rx／ry＝準星偏移；dimReticle＝游標暫停中
 void radar(uint16_t line, int progress, uint16_t arc, int sweepDeg, bool reticle,
-           bool locked = false, int rx = 0, int ry = 0, bool dimReticle = false) {
-  const int cx = kRadarX, cy = kRadarY, r = kRadarR;
+           bool locked = false, int rx = 0, int ry = 0, bool dimReticle = false,
+           int cx = kRadarX, int cy = kRadarY) {
+  const int r = kRadarR;
   s_canvas.drawCircle(cx, cy, r, locked ? kGreen : line);
   s_canvas.drawCircle(cx, cy, r * 6 / 10, locked ? kYellow : line);
   s_canvas.drawCircle(cx, cy, 10, locked ? kGreen : line);
@@ -194,6 +196,30 @@ void bleLine(int x, int y, const char* state, uint16_t color, bool solid) {
 
 // ── 選單 ──
 constexpr int kRowY = 60, kRowPitch = 31;
+void drawRow(int i, int x, int y, int width) {
+  const bool on = i == s_selected;
+  char num[4], sub[24];
+  const char* mark;
+  const char* tag;
+  if (i < s_count) {
+    snprintf(num, sizeof num, "%02d", i + 1);
+    mark = num; tag = "PAIRED";
+    snprintf(sub, sizeof sub, "已配對");
+  } else if (i == s_count && s_count < ble_mouse::kMaxPeers) {
+    mark = "+"; tag = "NEW";
+    snprintf(sub, sizeof sub, "存成第 %d 台", s_count + 1);
+  } else {
+    mark = "~"; tag = "TEMP";
+    snprintf(sub, sizeof sub, s_count >= ble_mouse::kMaxPeers ? "已滿 不存" : "不存配對");
+  }
+  if (on) s_canvas.fillRect(x + 1, y - 1, width - 2, kRowPitch - 2, kUnlit);
+  hexShape(x + 14, y + 14, 11, on ? kAmber : kDim, on);
+  textAt(mark, x + 15, y + 15, on ? TFT_BLACK : kDim, &fonts::Font0, 0, middle_center);
+  if (i < s_count) plainName(label(i), x + 30, y + 1, on ? kBright : kAmber, width - 33);
+  else lbl(label(i), x + 30, y, on ? kBright : kAmber);
+  const int tw = mixed(tag, x + 30, y + 16, on ? kDim : kFrame);
+  lbl(sub, x + 30 + tw + 4, y + 14, on ? kDim : kFrame);
+}
 void drawMenu() {
   if (const kanji::Bmp* g = kanji::find("air")) s_canvas.drawBitmap(3, 17, g->bits, g->w, g->h, kRed);   // 同 B 切模式過場：紅色明朝大字
   textAt("AIR MOUSE", 78, 17, kDim, &fonts::Font0);
@@ -203,31 +229,7 @@ void drawMenu() {
   lbl("選擇裝置", 78, 39, kBright);
   s_canvas.drawFastHLine(4, 57, kWidth - 8, kFrame);
 
-  for (int i = 0; i < optionCount(); ++i) {
-    const int y = kRowY + kRowPitch * i;
-    const bool on = i == s_selected;
-    char num[4], sub[24];
-    const char* mark;
-    const char* tag;
-    if (i < s_count) {
-      snprintf(num, sizeof num, "%02d", i + 1);
-      mark = num; tag = "PAIRED";
-      snprintf(sub, sizeof sub, "已配對");
-    } else if (i == s_count && s_count < ble_mouse::kMaxPeers) {
-      mark = "+"; tag = "NEW";
-      snprintf(sub, sizeof sub, "存成第 %d 台", s_count + 1);
-    } else {
-      mark = "~"; tag = "TEMP";
-      snprintf(sub, sizeof sub, s_count >= ble_mouse::kMaxPeers ? "已滿 不存" : "不存配對");
-    }
-    if (on) s_canvas.fillRect(1, y - 1, kWidth - 2, kRowPitch - 2, kUnlit);
-    hexShape(14, y + 14, 11, on ? kAmber : kDim, on);
-    textAt(mark, 15, y + 15, on ? TFT_BLACK : kDim, &fonts::Font0, 0, middle_center);
-    if (i < s_count) plainName(label(i), 30, y + 1, on ? kBright : kAmber, kWidth - 33);
-    else lbl(label(i), 30, y, on ? kBright : kAmber);
-    const int tw = mixed(tag, 30, y + 16, on ? kDim : kFrame);
-    lbl(sub, 30 + tw + 4, y + 14, on ? kDim : kFrame);
-  }
+  for (int i = 0; i < optionCount(); ++i) drawRow(i, 0, kRowY + kRowPitch * i, kWidth);
   const bool hasScroll = input_hal::device() == GroveDevice::Scroll;
   lbl(hasScroll ? "滾輪 選擇" : "A 短按 下一項", 4, 186, kDim);
   if (s_hint) {   // 錯誤暫時蓋掉「B 切下一模式」，換項後就消失
@@ -241,11 +243,11 @@ void drawMenu() {
 }
 
 // 下方共用：左邊 SEC＋兩位七段（tenths＝中間加小數點）
-void secDigits(int value, bool tenths, uint16_t color) {
-  textAt("SEC", 4, 105, kDim, &fonts::Font0);
-  seg7(4, 115, 12, 22, (value / 10) % 10, color);
-  if (tenths) s_canvas.fillRect(18, 135, 2, 2, color);
-  seg7(tenths ? 22 : 18, 115, 12, 22, value % 10, color);
+void secDigits(int value, bool tenths, uint16_t color, int x = 4, int y = 105) {
+  textAt("SEC", x, y, kDim, &fonts::Font0);
+  seg7(x, y + 10, 12, 22, (value / 10) % 10, color);
+  if (tenths) s_canvas.fillRect(x + 14, y + 30, 2, 2, color);
+  seg7(x + (tenths ? 18 : 14), y + 10, 12, 22, value % 10, color);
 }
 
 // ── 等待連線 ──
@@ -277,11 +279,11 @@ void drawWaiting() {
 // 六角按鍵（介面規格 左／捲／右）：大字＋下面標按哪顆；沒有的功能畫暗框
 constexpr int kKeyY = 152;
 // pressed＝正在按：亮白底＋外圈黃框（11-23 Miles：按鍵時六角要有反應）
-void keyHex(int cx, const char* word, const char* key, bool on, bool pressed = false) {
-  hexShape(cx, kKeyY, 15, pressed ? kBright : on ? kAmber : kFrame, on || pressed);
-  if (pressed) hexShape(cx, kKeyY, 17, kYellow, false);
-  lbl(word, cx + 1, kKeyY + 1, on || pressed ? TFT_BLACK : kFrame, 1);
-  lbl(key, cx, kKeyY + 23, on ? kDim : kFrame, 1);
+void keyHex(int cx, const char* word, const char* key, bool on, bool pressed = false, int keyY = kKeyY) {
+  hexShape(cx, keyY, 15, pressed ? kBright : on ? kAmber : kFrame, on || pressed);
+  if (pressed) hexShape(cx, keyY, 17, kYellow, false);
+  lbl(word, cx + 1, keyY + 1, on || pressed ? TFT_BLACK : kFrame, 1);
+  lbl(key, cx, keyY + 23, on ? kDim : kFrame, 1);
 }
 
 void drawMouse() {
@@ -320,6 +322,79 @@ void drawExit() {
   lbl("放開取消 不送右鍵", 4, 165, kDim);
   lbl("斷線後回選單", 4, 185, kDim);
   footer("放開 取消", kRed);
+}
+
+void drawLandscapeMenu() {
+  constexpr int leftWidth = 90;
+  constexpr int listX = leftWidth + 2;
+  const int listWidth = s_canvas.width() - listX - 2;
+  if (const kanji::Bmp* g = kanji::find("air")) s_canvas.drawBitmap(4, 15, g->bits, g->w, g->h, kRed);
+  textAt("AIR MOUSE", 4, 52, kDim, &fonts::Font0);
+  bleLine(4, 59, "關閉", kDim, false);
+  const bool hasScroll = input_hal::device() == GroveDevice::Scroll;
+  lbl(hasScroll ? "滾輪 選擇" : "A 短按 下一項", 4, 76, kDim);
+  if (s_hint) {
+    hexShape(9, 95, 6, kRed, true);
+    textAt("!", 10, 96, TFT_BLACK, &fonts::Font0, 0, middle_center);
+    textAt(s_hint, 18, 89, kRed, &fonts::efontTW_12, 70);
+  } else {
+    lbl("B 切下一模式", 4, 89, kDim);
+  }
+  if (!hasScroll) lbl("A 按住 1 秒", 4, 102, kDim);
+  footer("A 連線", kYellow, leftWidth);
+  s_canvas.drawFastVLine(leftWidth, 13, s_canvas.height() - 13, kFrame);
+  for (int i = 0; i < optionCount(); ++i) {
+    drawRow(i, listX, 14 + i * kRowPitch, listWidth);
+  }
+}
+
+void drawLandscapeLink() {
+  constexpr int radarX = 48, radarY = 54, right = 98;
+  const char* name = label(s_selected);
+  if (s_exit_tenths >= 0) {
+    constexpr int total = cfg::BTN_B_KILL_MS / 100;
+    radar(kFrame, s_exit_tenths * 1000 / total, kRed, -1, true, false, 0, 0, false, radarX, radarY);
+    secDigits(total - s_exit_tenths, true, kRed, right, 20);
+    lbl("按住 B", 142, 21, kBright);
+    lbl("中斷連線", 142, 39, kAmber);
+    plainName(name, right, 60, kDim, 137);
+    lbl("放開取消 不送右鍵", right, 79, kDim);
+    lbl("斷線後回選單", right, 98, kDim);
+    footer("放開 取消", kRed);
+  } else if (s_page == Page::Waiting) {
+    const int left = s_seconds < 0 ? kWaitMs / 1000 : s_seconds;
+    radar(kFrame, left * 1000 / (kWaitMs / 1000), kAmber, (30 - left) * 36 % 360,
+          false, false, 0, 0, false, radarX, radarY);
+    secDigits(left, false, kAmber, right, 18);
+    bleLine(135, 21, "廣播中", kYellow, false);
+    const bool saved = s_selected < s_count;
+    const bool add = s_selected == s_count && s_count < ble_mouse::kMaxPeers;
+    lbl(saved ? "已配對" : add ? "存成新配對" : "不存配對", 135, 40, kDim);
+    plainName(name, right, 55, kBright, 137);
+    if (saved) {
+      lbl("等待主機自動回連", right, 73, kAmber);
+      lbl("或在主機按連線", right, 89, kDim);
+    } else {
+      const int w = lbl("主機藍牙選", right, 73, kAmber);
+      textAt(cfg::BLE_DEVICE_NAME, right + w + 4, 77, kGreen, &fonts::Font0);
+      lbl("30 秒內沒連上回選單", right, 89, kDim);
+    }
+    lbl("B 切下一模式", 7, 100, kDim);
+    footer("等待連線", kYellow);
+  } else {
+    radar(kFrame, 0, 0, -1, true, true, s_rpx, s_rpy, s_keys & 8, radarX, radarY);
+    bleLine(right, 16, "已連線", kGreen, true);
+    plainName(name, right, 34, kBright, 137);
+    const bool scroll = input_hal::device() == GroveDevice::Scroll;
+    keyHex(113, "左", scroll ? "按輪" : "A短", true, s_keys & 1, 63);
+    keyHex(149, "捲", scroll ? "轉輪" : "無", scroll, scroll && (s_keys & 2), 63);
+    keyHex(185, "右", "B", true, s_keys & 4, 63);
+    keyHex(221, "停", "A長", true, s_keys & 8, 63);
+    lbl(scroll ? "按住滾輪移動＝拖曳" : "A 短按左鍵 按住暫停", right + 3, 99, kDim);
+    lbl("放開 A 重設方向", 4, 99, kDim);
+    s_canvas.drawFastVLine(95, 17, 94, kFrame);
+    footer("B 按住 3 秒 回選單", kYellow);
+  }
 }
 
 void drawLink() {
@@ -492,10 +567,20 @@ void loop() {
 
 bool render() {
   if (!s_active) return false;
-  if (!s_canvas.getBuffer()) {
+  const bool hadCanvas = s_canvas.getBuffer() != nullptr;
+  if (!hadCanvas) {
     s_canvas.setPsram(true);
     s_canvas.setColorDepth(16);
     if (!s_canvas.createSprite(kWidth, kHeight)) return false;
+  }
+  const Orient orient = ui_expression::orientation();
+  const uint8_t rot = orient == Orient::LandALeft ? cfg::ORIENT_ROT_A_LEFT
+                    : orient == Orient::LandARight ? cfg::ORIENT_ROT_A_RIGHT : 0;
+  if (s_canvas.getRotation() != rot) {
+    if (hadCanvas) ui_fx::start(&s_canvas);
+    s_canvas.setRotation(rot);
+    s_dirty = true;
+    ui_fx::invalidate();
   }
   const uint32_t now = millis();
   // 靜態畫面不必每圈比對整張 PSRAM 畫布。定期重送以恢復電源鍵蓋過的畫面。
@@ -504,7 +589,10 @@ bool render() {
     s_dirty = false;
     s_canvas.fillScreen(TFT_BLACK);
     statusBar();
-    if (s_exit_tenths >= 0) drawExit();
+    if (s_canvas.width() > s_canvas.height()) {
+      if (s_page == Page::Menu) drawLandscapeMenu();
+      else drawLandscapeLink();
+    } else if (s_exit_tenths >= 0) drawExit();
     else if (s_page == Page::Menu) drawMenu();
     else drawLink();
   }

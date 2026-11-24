@@ -237,7 +237,10 @@ void loop() {
     const Orient o = ui_expression::orientation();
     if (o != s_last) {
       s_last = o;
-      if (mode_manager::current() == Mode::Desktop) ui_fx::start(showingCanvas());   // 畫布內容還是轉向前的
+      // 切模式過場有自己的轉向，結束時直接畫新頁。
+      if (mode_manager::current() == Mode::Desktop && !ui_modeswitch::active()) {
+        ui_fx::start(showingCanvas());   // 畫布內容還是轉向前的
+      }
     }
   }
   if (mode_manager::current() != Mode::Desktop && !ui_modeswitch::active()) ui_fx::cancel();

@@ -5,6 +5,7 @@
 #include "ble_mouse.h"
 #include "input_hal.h"
 #include "ui_fx.h"
+#include "ui_expression.h"
 SimSerial Serial; SimEsp ESP; SimM5 M5;
 static uint32_t g_ms = 100000;
 uint32_t millis() { return g_ms; }
@@ -13,6 +14,9 @@ static GroveDevice g_dev = GroveDevice::None;
 static int g_npeer = 0;
 static const char* g_names[3] = {"Miles 的 MacBook Pro", "iPad", "iPhone 15 Pro Max（工作用）"};
 static std::string g_name;
+static std::string g_suffix;
+static Orient g_orientation = Orient::Portrait;
+namespace ui_expression { Orient orientation() { return g_orientation; } }
 namespace air_mouse { void reset(){} void setButton(uint8_t,bool){} void click(uint8_t){} void scroll(int){} void freezeMovement(){} void setClutch(bool,bool){} void takeMotion(int& x,int& y){x=y=0;} }
 namespace ble_mouse {
 int pairedPeers(Peer (&o)[kMaxPeers]) { for (int i=0;i<g_npeer;++i){ memset(&o[i],0,sizeof o[i]); snprintf(o[i].name,sizeof o[i].name,"%s",g_names[i]); } return g_npeer; }
@@ -23,6 +27,7 @@ namespace battery_ui { int level() { return 87; } }
 namespace input_hal { GroveDevice device() { return g_dev; } bool readScroll(int16_t&, bool&) { return false; } uint32_t bHeldMs() { return 0; } uint32_t bReleaseDuration() { return 0; } }
 namespace ui_fx {
 void invalidate() {}
+void start(m5gfx::M5Canvas*) {}
 void present(m5gfx::M5Canvas* cv) {
   const int W = cv->width(), H = cv->height();
   FILE* f = fopen(("air/" + g_name + ".ppm").c_str(), "wb");
@@ -41,12 +46,12 @@ void present(m5gfx::M5Canvas* cv) {
 #include AIRMENU_SRC
 
 static void shot(const char* name, Page pg, int npeer, int sel, GroveDevice dev, const char* hint = nullptr, int sec = -1, int exitT = -1) {
-  g_name = name; g_npeer = npeer; g_dev = dev;
+  g_name = name + g_suffix; g_npeer = npeer; g_dev = dev;
   s_active = true; s_count = ble_mouse::pairedPeers(s_peers); s_page = pg; s_selected = sel;
   s_hint = hint; s_seconds = sec; s_exit_tenths = exitT; s_dirty = true; s_last_present = 0;
   g_ms += 1000; ui_airmenu::render();
 }
-int main() {
+static void shots() {
   const auto S = GroveDevice::Scroll, N = GroveDevice::None;
   shot("menu_empty_noscroll", Page::Menu, 0, 0, N);
   shot("menu_2_scroll", Page::Menu, 2, 1, S);
@@ -58,9 +63,21 @@ int main() {
   shot("mouse_scroll", Page::Mouse, 3, 0, S);
   shot("mouse_noscroll", Page::Mouse, 3, 2, N);
   s_rpx = 18; s_rpy = -12; s_keys = 1 | 8;
-  { g_name = "mouse_press_scroll"; g_dev = S; s_page = Page::Mouse; s_selected = 0; s_dirty = true; s_last_present = 0; g_ms += 1000; ui_airmenu::render(); }
+  { g_name = "mouse_press_scroll" + g_suffix; g_dev = S; s_page = Page::Mouse; s_selected = 0; s_dirty = true; s_last_present = 0; g_ms += 1000; ui_airmenu::render(); }
   s_rpx = 0; s_rpy = 0; s_keys = 0;
   shot("exit_1s", Page::Mouse, 3, 0, S, nullptr, -1, 12);
   shot("exit_27", Page::Mouse, 3, 0, S, nullptr, -1, 27);
+  shot("menu_disconnected", Page::Menu, 2, 0, S, "連線已中斷");
+  shot("menu_stopped", Page::Menu, 1, 0, N, "已斷線");
+}
+
+int main() {
+  shots();
+  g_orientation = Orient::LandALeft;
+  g_suffix = "_left";
+  shots();
+  g_orientation = Orient::LandARight;
+  g_suffix = "_right";
+  shots();
   puts("done");
 }

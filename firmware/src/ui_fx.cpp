@@ -108,6 +108,7 @@ void start(M5Canvas* showing) {
   // 已經在淡化：螢幕上是混合結果 → 從那裡接著淡
   const void* src = s_active ? s_mix.getBuffer() : showing->getBuffer();
   memcpy(s_prev.getBuffer(), src, s_px * 2);
+  s_target = nullptr;  // 等本次的新畫面 present()，上一頁的畫布可能已釋放。
   s_active = true;
   s_t0 = millis();
 }
@@ -119,6 +120,11 @@ void present(M5Canvas* cv) {
 
 void loop() {
   if (!s_active || !s_target) return;
+  if (!s_target->getBuffer()) {
+    s_active = false;
+    s_target = nullptr;
+    return;
+  }
   const uint32_t dt = millis() - s_t0;
   if (dt >= cfg::UI_XFADE_MS) {
     s_active = false;
