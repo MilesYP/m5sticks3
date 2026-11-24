@@ -145,13 +145,25 @@ uint8_t  s_loop_hist[cfg::INFO_HIST_SEC];    // 每秒主迴圈最長一圈（ms
 int      s_loop_pos = 0, s_loop_n = 0;
 uint32_t s_loop_sec_max_us = 0, s_loop_last_us = 0, s_loop_sec_t0 = 0;
 uint8_t  s_loop_now_ms = 0;
-uint8_t s_drain_hist[cfg::INFO_DRAIN_BARS] = {};
-int s_drain_pos = 0, s_drain_n = 0, s_drain_baseline = -1;
-uint8_t s_drain_sum[cfg::INFO_DRAIN_BARS] = {};
+uint8_t s_drain_hist[cfg::INFO_DRAIN_BARS] = {};   // 每分鐘掉電速率（單位 0.1%，255 封頂）
+int s_drain_pos = 0, s_drain_n = 0;
+float s_drain_baseline = -1.0f;                    // 本段拔線基準電量（浮點 %，只降不升避免回彈重複計）
+float s_drain_session_total = 0.0f;                // 本段拔線累計掉電（浮點 %）
+float s_drain_min_loss = 0.0f;                     // 目前這一分鐘實測累計掉電（浮點 %）
+float s_drain_ema = 0.0f;                          // 平滑後的每分鐘掉電率（0.1% 單位，填補整數 % 階梯間距）
+float s_drain_load_sum = 0.0f;                     // 這一分鐘每秒系統負載估算總和
+int s_drain_load_sec = 0;                          // 這一分鐘已累計秒數
+uint8_t s_drain_sum[cfg::INFO_DRAIN_BARS] = {};    // 累計掉電（單位 0.1%，綠線用）
 bool s_drain_start[cfg::INFO_DRAIN_BARS] = {};
 bool s_drain_new_session = true;
-int s_drain_session_total = 0;
 uint32_t s_drain_t = 0;
+
+// 估算當下每秒對應的基礎耗電率（0.1%／分）：全速 240MHz＋Wi-Fi 約 0.45%/min，省電 80MHz 約 0.2%/min
+float estimateDrainTenthsPerMin() {
+  float r = (getCpuFrequencyMhz() >= 200) ? 3.5f : 1.8f;
+  if (net_hub::wifiUp()) r += 1.2f;
+  return r;
+}
 
 int cpuPercent() {
   return getCpuFrequencyMhz() * 100 / cfg::PWR_CPU_AWAKE_MHZ;
@@ -193,26 +205,54 @@ void sampleLoop() {
   } else {
     return;
   }
-  const int level = battery_ui::level();
+  const float levelF = battery_ui::levelFloat();
   if (battery_ui::externalPower()) {
-    s_drain_baseline = -1;
+    s_drain_baseline = -1.0f;
     s_drain_new_session = true;
-  } else if (level >= 0) {
-    if (s_drain_baseline < 0) {
-      s_drain_baseline = level;
-      s_drain_session_total = 0;
+    s_drain_load_sum = 0.0f;
+    s_drain_load_sec = 0;
+    s_drain_min_loss = 0.0f;
+  } else if (levelF >= 0.0f) {
+    if (s_drain_baseline < 0.0f) {
+      s_drain_baseline = levelF;
+      s_drain_session_total = 0.0f;
+      s_drain_min_loss = 0.0f;
+      s_drain_ema = estimateDrainTenthsPerMin();
+      s_drain_load_sum = 0.0f;
+      s_drain_load_sec = 0;
       s_drain_t = now;
-    } else if (now - s_drain_t >= cfg::INFO_DRAIN_EVERY_MS) {
-      const int loss = s_drain_baseline > level ? s_drain_baseline - level : 0;
-      s_drain_baseline -= loss;  // 電量短暫回彈時不重複計算同一段下降
-      s_drain_session_total += loss;
-      s_drain_hist[s_drain_pos] = loss;
-      s_drain_sum[s_drain_pos] = s_drain_session_total;
-      s_drain_start[s_drain_pos] = s_drain_new_session;
-      s_drain_new_session = false;
-      s_drain_pos = (s_drain_pos + 1) % cfg::INFO_DRAIN_BARS;
-      if (s_drain_n < cfg::INFO_DRAIN_BARS) ++s_drain_n;
-      s_drain_t = now;
+    } else {
+      if (levelF < s_drain_baseline) {
+        const float d = s_drain_baseline - levelF;
+        s_drain_baseline = levelF;
+        s_drain_session_total += d;
+        s_drain_min_loss += d;
+      }
+      s_drain_load_sum += estimateDrainTenthsPerMin();
+      ++s_drain_load_sec;
+      if (now - s_drain_t >= cfg::INFO_DRAIN_EVERY_MS) {
+        const float realTenths = s_drain_min_loss * 10.0f;
+        const float estTenths = s_drain_load_sec > 0 ? (s_drain_load_sum / s_drain_load_sec) : estimateDrainTenthsPerMin();
+        // 實測有掉電時以實測為主並更新平滑率；未跨整數階梯的分鐘以平滑率＋當下負載比例顯示，避免紫柱出現 0 斷層
+        if (realTenths > 0.1f) {
+          s_drain_ema = s_drain_ema * 0.55f + realTenths * 0.45f;
+        } else {
+          s_drain_ema = s_drain_ema * 0.85f + estTenths * 0.15f;
+        }
+        const float barVal = realTenths > s_drain_ema ? (realTenths * 0.65f + s_drain_ema * 0.35f) : s_drain_ema;
+        const int barInt = barVal < 1.0f ? 1 : barVal > 255.0f ? 255 : (int)(barVal + 0.5f);
+        const int sumTenths = (int)(s_drain_session_total * 10.0f + 0.5f);
+        s_drain_hist[s_drain_pos] = (uint8_t)barInt;
+        s_drain_sum[s_drain_pos] = sumTenths > 255 ? 255 : (uint8_t)sumTenths;
+        s_drain_start[s_drain_pos] = s_drain_new_session;
+        s_drain_new_session = false;
+        s_drain_pos = (s_drain_pos + 1) % cfg::INFO_DRAIN_BARS;
+        if (s_drain_n < cfg::INFO_DRAIN_BARS) ++s_drain_n;
+        s_drain_min_loss = 0.0f;
+        s_drain_load_sum = 0.0f;
+        s_drain_load_sec = 0;
+        s_drain_t = now;
+      }
     }
   }
 }
@@ -336,12 +376,31 @@ void colonI(int x, int y, int h, const C3& on) {   // 斜體冒號：兩個小�
   }
 }
 // NERV 樣式狀態框（跟內部／外部一樣）：亮＝實心底黑字，暗＝細框暗字
+// 11-24（31-info-pwr）：保留原版 Font2 加粗輪廓（金字塔 A、圓弧 P、深 V 的 M），依框高選 9px（直式）或 7px（橫式），四邊留 1px 內距不壓框
 void nervBox(int x, int y, int w, int h, const char* s, bool active, const C3& on) {
   if (active) s_cv.fillRect(x, y, w, h, col(on));
   else s_cv.drawRect(x, y, w, h, col(K_FRAME));
-  s_cv.setFont(&fonts::Font2);
-  s_cv.setTextColor(active ? col(K_BG) : col(K_DIM));
-  s_cv.drawString(s, x + (w - s_cv.textWidth(s)) / 2, y + (h - 14) / 2);
+  static constexpr uint8_t kA9[9] = {0x18, 0x18, 0x3C, 0x3C, 0x66, 0x66, 0x7E, 0xC3, 0xC3};
+  static constexpr uint8_t kP9[9] = {0xFC, 0xC6, 0xC3, 0xC3, 0xC3, 0xC6, 0xFC, 0xC0, 0xC0};
+  static constexpr uint8_t kM9[9] = {0xC3, 0xC3, 0xE7, 0xE7, 0xFF, 0xDB, 0xDB, 0xC3, 0xC3};
+  static constexpr uint8_t kA7[7] = {0x18, 0x3C, 0x66, 0x66, 0x7E, 0xC3, 0xC3};
+  static constexpr uint8_t kP7[7] = {0xFC, 0xC6, 0xC3, 0xC6, 0xFC, 0xC0, 0xC0};
+  static constexpr uint8_t kM7[7] = {0xC3, 0xE7, 0xFF, 0xDB, 0xDB, 0xC3, 0xC3};
+  const int gh = h >= 13 ? 9 : 7;
+  auto glyph = [&](char c) -> const uint8_t* {
+    if (gh == 9) return c == 'A' ? kA9 : c == 'P' ? kP9 : kM9;
+    return c == 'A' ? kA7 : c == 'P' ? kP7 : kM7;
+  };
+  const uint16_t ink = active ? col(K_BG) : col(K_DIM);
+  const int cy = y + (h - gh) / 2;
+  const int cx0 = x + (w - 17) / 2;   // 8px + 1px gap + 8px = 17px
+  for (int i = 0; i < 2 && s[i]; ++i) {
+    const uint8_t* g = glyph(s[i]);
+    const int cx = cx0 + i * 9;
+    for (int r = 0; r < gh; ++r)
+      for (int b = 0; b < 8; ++b)
+        if (g[r] & (0x80 >> b)) s_cv.drawPixel(cx + b, cy + r, ink);
+  }
 }
 // 時鐘（第六版，Miles 11-20：參考 EVA「活動限界まで」）
 //   左上：「台北時間」粗體大字＋小字 TAIPEI LOCAL TIME；右上：日期
@@ -525,34 +584,50 @@ void chipPart(int x, int y, int w, int h) {
   txtAt(x, y + h - 10, fb, K_DIM);
   txtAt(x + w - mixedWidth(ms), y + h - 10, ms, s_loop_now_ms > cfg::INFO_LOOP_LIMIT_MS ? K_RED : K_TXT);
 }
-// 紫柱是每分鐘掉電百分點，綠線依每次拔線重新累計。
+// 紫柱是每分鐘耗電速率（單位 0.1%，獨立比例尺不因累計變大而消失），綠線依每次拔線重新累計。
 void drainPart(int x, int y, int w, int h) {
-  hexLabelAt(x - 2, y, "耗電");
+  hexLabelAt(x - 2, y, "PWR");
   const int gy = y + 12, gh = h - 12 - 11;
   s_cv.drawRect(x, gy, w, gh, col(K_UNLIT));
   const int nb = s_drain_n;
+  const bool liveBar = !battery_ui::externalPower() && s_drain_baseline >= 0.0f && nb == 0;
+  const int totalBars = liveBar ? 1 : nb;
   const int start = (s_drain_pos + cfg::INFO_DRAIN_BARS - nb) % cfg::INFO_DRAIN_BARS;
-  int scale = 1;
+  int sumScale = 10, barScale = 6;   // sumScale 單位 0.1%（至少 1.0%）；barScale 單位 0.1%（至少 0.6%/min）
   for (int k = 0; k < nb; ++k) {
-    const int sum = s_drain_sum[(start + k) % cfg::INFO_DRAIN_BARS];
-    if (sum > scale) scale = sum;
+    const int idx = (start + k) % cfg::INFO_DRAIN_BARS;
+    if (s_drain_sum[idx] > sumScale) sumScale = s_drain_sum[idx];
+    if (s_drain_hist[idx] > barScale) barScale = s_drain_hist[idx];
   }
   const int bottom = gy + gh - 2;
   const int plotW = w - 2;
+  if (liveBar) {
+    const float curVal = s_drain_min_loss * 10.0f > s_drain_ema ? s_drain_min_loss * 10.0f : s_drain_ema;
+    int height = (int)((curVal * (gh - 3) + barScale * 0.5f) / barScale);
+    if (height < 2) height = 2;
+    if (height > gh - 3) height = gh - 3;
+    const int bw = plotW / 12 > 3 ? plotW / 12 : 3;
+    s_cv.fillRect(x + 1, bottom - height + 1, bw, height, col(K_PUR));
+  }
   for (int k = 0; k < nb; ++k) {
-    const int left = x + 1 + k * plotW / nb;
-    const int right = x + 1 + (k + 1) * plotW / nb;
-    const int height = s_drain_hist[(start + k) % cfg::INFO_DRAIN_BARS] * (gh - 3) / scale;
+    const int left = x + 1 + k * plotW / totalBars;
+    const int right = x + 1 + (k + 1) * plotW / totalBars;
+    const int v = s_drain_hist[(start + k) % cfg::INFO_DRAIN_BARS];
+    int height = (v * (gh - 3) + barScale / 2) / barScale;
+    if (v > 0 && height < 2) height = 2;
+    if (height > gh - 3) height = gh - 3;
     if (height > 0) s_cv.fillRect(left, bottom - height + 1, right - left > 1 ? right - left - 1 : 1, height, col(K_PUR));
   }
   int px = x + 1, py = bottom;
-  if (nb && !s_drain_start[start])
-    py -= (s_drain_sum[start] - s_drain_hist[start]) * (gh - 3) / scale;
+  if (nb && !s_drain_start[start]) {
+    const int prevSum = s_drain_sum[start] > s_drain_hist[start] ? s_drain_sum[start] - s_drain_hist[start] : 0;
+    py -= prevSum * (gh - 3) / sumScale;
+  }
   for (int k = 0; k < nb; ++k) {
     const int idx = (start + k) % cfg::INFO_DRAIN_BARS;
     if (s_drain_start[idx]) py = bottom;
     const int xx = x + 1 + (k + 1) * (plotW - 1) / nb;
-    const int yy = bottom - s_drain_sum[idx] * (gh - 3) / scale;
+    const int yy = bottom - s_drain_sum[idx] * (gh - 3) / sumScale;
     s_cv.drawLine(px, py, xx, yy, col(K_GRN));
     px = xx;
     py = yy;
@@ -560,7 +635,7 @@ void drainPart(int x, int y, int w, int h) {
   if (!nb) s_cv.drawFastHLine(x + 1, bottom, plotW, col(K_GRN));
   char span[8], amount[8];
   snprintf(span, sizeof span, "%dm", nb);
-  snprintf(amount, sizeof amount, "%d%%", s_drain_session_total);
+  snprintf(amount, sizeof amount, "%d%%", (int)(s_drain_session_total + 0.5f));
   txtAt(x, y + h - 10, span, K_DIM);
   txtAt(x + w - mixedWidth(amount), y + h - 10, amount, K_GRN);
 }

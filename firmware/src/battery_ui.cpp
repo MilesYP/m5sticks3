@@ -308,6 +308,7 @@ void setOverride(int pct) {
 }
 
 int level() { return s_disp < 0 ? -1 : (int)(s_disp + 0.5f); }   // P2：畫面電量
+float levelFloat() { return s_disp; }                            // 平滑後浮點電量（−1＝讀不到）
 const char* tierName() { return s_tier < 0 ? "-" : kTiers[s_tier].name; }
 int voltageMv() { return s_vbat_mv; }
 bool charging() { return s_charging; }

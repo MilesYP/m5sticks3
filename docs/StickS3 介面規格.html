@@ -62,7 +62,7 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
 <table><thead><tr><th>資訊頁磚塊</th><th>規格</th></tr></thead><tbody>
 <tr><td>時鐘</td><td>左上「台北時間」、斜體七段 12 小時制＋AM/PM NERV 框、日期星期</td></tr>
 <tr><td>供電</td><td>內部／外部上下疊、電量 % 七段、電壓小字；語音額度「$今日/上限」與「餘 xx」（紅字）</td></tr>
-<tr><td>晶片／記憶體</td><td>A7 原圖的 CHIP／MEM 已更新，現行 CHIP 與耗電欄見第 5a 節</td></tr>
+<tr><td>晶片／記憶體</td><td>A7 原圖的 CHIP／MEM 已更新，現行 CHIP 與 PWR（原耗電）欄、粗黑標題與 AM/PM 框見第 5a 節</td></tr>
 <tr><td>天氣</td><td>左：全彩圖示（黃太陽、白雲、陰雨灰白雲、藍雨）＋氣溫、描述；右小欄：濕度、降雨機率（≥50% 黃），中間細分隔線；標題列地點</td></tr>
 <tr><td>LINK</td><td>功能 icon（直式），橫式不顯示</td></tr>
 <tr><td>快訊</td><td>中央社標題輪播、更新時間、頁碼</td></tr>
@@ -316,7 +316,8 @@ footer{margin-top:40px;font-size:12px;color:var(--mut)}
 <tr><td>離合器</td><td>按住 A 暫停游標，放開校正方向</td><td>長按 A 暫停游標，放開校正方向</td></tr>
 <tr><td>B 鍵</td><td colspan="2">選單短按切下一模式，已連線時短按為右鍵。按住約 0.8 秒顯示倒數，提早放開取消，滿 3 秒斷線回選單。</td></tr>
 <tr><td>資訊頁 CHIP</td><td colspan="2">顯示相對全速 240 MHz 的時脈比例。下方保留每秒主迴圈最長耗時及 25 ms 警戒線。</td></tr>
-<tr><td>資訊頁耗電</td><td colspan="2">紫柱為每分鐘消耗的電量百分點，最多 30 筆；綠線為累積耗電。USB 供電凍結圖表，拔線後從零累計新一段。</td></tr>
+<tr><td>資訊頁 PWR（原耗電）</td><td colspan="2">11-24（<code>31-info-pwr</code>）標題由「耗電」改為 <code>PWR</code>（無電流計不稱 Wh）。紫柱為每分鐘耗電速率（<code>0.1%</code> 精度，結合平滑浮點電量 <code>battery_ui::levelFloat()</code> 與系統負載 EMA，使用獨立 Y 軸比例尺 <code>barScale</code> 且至少 2px 高，不因累計總掉電變大而被除成 0，拔線首分鐘即顯示當前柱），最多 30 筆；綠線為拔線後累計掉電（獨立 <code>sumScale</code>）。USB 供電凍結圖表，拔線後從零累計新一段。</td></tr>
+<tr><td>資訊頁標題與 AM／PM</td><td colspan="2">11-24（<code>31-info-pwr</code>）四大英文六角標籤（<code>CHIP</code>、<code>PWR</code>、<code>WX</code>、<code>NEWS</code>）於 <code>ui_kit::hexLabel()</code> 統一改為 7px 粗黑點陣字（2px 筆畫、<code>W</code>／<code>N</code> 不黏死）；時鐘 <code>AM</code>／<code>PM</code> 框保留原版 <code>Font2</code> 加粗輪廓並依框高收為 9px（直式）／7px（橫式），四邊各留 1px 內距不壓框；「內部／外部」維持原樣。</td></tr>
 </tbody></table>
 
 <h2 id="ir1-test">5b. 紅外線 IR1 收碼測試</h2>

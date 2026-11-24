@@ -37,7 +37,7 @@ void infoSimReport(const char* what, const char* tile, const char* s, int x, int
 }
 namespace audio_io { const char* buildTag() { return "26-a5b"; } }
 static int g_bat = 87;
-namespace battery_ui { int level() { return g_bat; } int voltageMv() { return 4012; } bool charging() { return false; } bool externalPower() { return false; } }
+namespace battery_ui { int level() { return g_bat; } float levelFloat() { return (float)g_bat; } int voltageMv() { return 4012; } bool charging() { return false; } bool externalPower() { return false; } }
 namespace imu_pet { bool tilt(float* r, float* u, float* z) { *r = 0.1f; *u = 0.9f; *z = 0.1f; return true; } }
 namespace input_hal { GroveDevice device() { return GroveDevice::None; } const char* deviceName() { return "None"; } }
 namespace mode_manager { Mode current() { return Mode::Desktop; } }

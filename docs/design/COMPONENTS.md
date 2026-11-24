@@ -7,7 +7,7 @@
 | :-- | :-- | :-- | :-- |
 | C1 | 狀態列 | 高 12px；左「名稱」Font0＋2×2 點＋中文 11px 明朝點陣字（可退回 efontTW_10）；右電量 % Font0（綠／黃／紅）；y=12 一條細線；ROOT（紅底）／斷線（灰底）實心小標籤放電量左邊 | `ui_kit::statusBar()`（表情頁 `pxHeader()`、體感 `statusBar()` 都呼叫它；色票 `ui_kit::color::*`） |
 | C1b | 實心狀態標籤 | 琥珀底黑色明朝點陣字（待機…），警報時紅底 | `ui_expression.cpp`（`ui_labels.h` 的 `st_*`） |
-| C2 | 磚塊 | 框線色 1px＋左上／右下四角暗橘 4px；左上六角標籤（琥珀底黑字，10px 高，左右各削 3px） | `ui_kit::tile()`、`ui_kit::hexLabel()` |
+| C2 | 磚塊 | 框線色 1px＋左上／右下四角暗橘 4px；左上六角標籤（琥珀底黑字，10px 高，左右各削 3px；英文大寫標籤統一用 7px 粗黑點陣字、2px 筆畫，見 11-24 `31-info-pwr`） | `ui_kit::tile()`、`ui_kit::hexLabel()` |
 | C2b | 七段數字 | 段兩端削尖、段間 1px 縫、未亮段畫 `#241300`；寬 ≥11 段粗 3px；斜體版每 6 列偏 1px | `ui_kit::seg7()`（斜體版仍在 `ui_info.cpp` `seg7I()`） |
 | C2c | 小字混排 | 英文 Font0（下移 1px）、數字 efontTW_10_b、中文 efontTW_10 | `ui_kit::drawMixed()`、`ui_kit::mixedWidth()`；截斷加「…」用 `ui_kit::textFit()` |
 | C3 | 紅黑警示斜紋 | 紅 6px／週期 12px，高 4px（橫式 3px） | `ui_kit::hazardRed()` |

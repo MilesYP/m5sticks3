@@ -67,15 +67,83 @@ void tile(Gfx& g, int x, int y, int w, int h, uint16_t line, uint16_t corner) {
 
 int hexLabel(Gfx& g, int x, int y, const char* s, uint16_t fill, uint16_t ink, int cjkDy) {
   const bool cjk = (uint8_t)s[0] >= 0x80;
-  g.setFont(cjk ? (const lgfx::IFont*)&fonts::efontTW_10 : (const lgfx::IFont*)&fonts::Font0);
-  const int w = g.textWidth(s) + 8, h = 10;
+  if (cjk) {
+    g.setFont(&fonts::efontTW_10);
+    const int w = g.textWidth(s) + 8, h = 10;
+    for (int row = 0; row < h; ++row) {
+      const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
+      const int in = fc * 3 / (h / 2);
+      g.drawFastHLine(x + in, y + row, w - 2 * in, fill);
+    }
+    g.setTextColor(ink);
+    g.drawString(s, x + 4, y + cjkDy);
+    return w;
+  }
+  // 11-24（31-info-pwr）：資訊頁英文大寫六角標籤（CHIP／PWR／WX／NEWS）統一用 7px 粗黑點陣字（2px 筆畫、W/N 不黏死）
+  struct Gl { char c; uint8_t w; uint8_t r[7]; };
+  static constexpr Gl kGl[] = {
+    {'A', 6, {0x1E, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x33}},
+    {'B', 6, {0x3E, 0x33, 0x33, 0x3E, 0x33, 0x33, 0x3E}},
+    {'C', 6, {0x1E, 0x33, 0x30, 0x30, 0x30, 0x33, 0x1E}},
+    {'D', 6, {0x3C, 0x36, 0x33, 0x33, 0x33, 0x36, 0x3C}},
+    {'E', 6, {0x3F, 0x30, 0x30, 0x3E, 0x30, 0x30, 0x3F}},
+    {'F', 6, {0x3F, 0x30, 0x30, 0x3E, 0x30, 0x30, 0x30}},
+    {'G', 6, {0x1E, 0x33, 0x30, 0x37, 0x33, 0x33, 0x1E}},
+    {'H', 6, {0x33, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x33}},
+    {'I', 4, {0x0F, 0x06, 0x06, 0x06, 0x06, 0x06, 0x0F}},
+    {'K', 6, {0x33, 0x36, 0x3C, 0x38, 0x3C, 0x36, 0x33}},
+    {'L', 6, {0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3F}},
+    {'M', 7, {0x63, 0x77, 0x7F, 0x6B, 0x63, 0x63, 0x63}},
+    {'N', 6, {0x33, 0x3B, 0x3F, 0x37, 0x33, 0x33, 0x33}},
+    {'O', 6, {0x1E, 0x33, 0x33, 0x33, 0x33, 0x33, 0x1E}},
+    {'P', 6, {0x3E, 0x33, 0x33, 0x3E, 0x30, 0x30, 0x30}},
+    {'R', 6, {0x3E, 0x33, 0x33, 0x3E, 0x3C, 0x36, 0x33}},
+    {'S', 6, {0x1E, 0x33, 0x30, 0x1E, 0x03, 0x33, 0x1E}},
+    {'T', 6, {0x3F, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C}},
+    {'U', 6, {0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x1E}},
+    {'V', 6, {0x33, 0x33, 0x33, 0x33, 0x33, 0x1E, 0x0C}},
+    {'W', 7, {0x63, 0x63, 0x63, 0x6B, 0x7F, 0x77, 0x63}},
+    {'X', 6, {0x33, 0x33, 0x1E, 0x0C, 0x1E, 0x33, 0x33}},
+    {'Y', 6, {0x33, 0x33, 0x1E, 0x0C, 0x0C, 0x0C, 0x0C}},
+  };
+  auto findG = [&](char c) -> const Gl* {
+    for (const auto& g0 : kGl) if (g0.c == c) return &g0;
+    return nullptr;
+  };
+  int tw = 0;
+  bool allKnown = true;
+  for (int i = 0; s[i]; ++i) {
+    if (i) tw += 1;
+    const Gl* gl = findG(s[i]);
+    if (!gl) { allKnown = false; break; }
+    tw += gl->w;
+  }
+  if (!allKnown) {
+    g.setFont(&fonts::Font0);
+    const int w = g.textWidth(s) + 8, h = 10;
+    for (int row = 0; row < h; ++row) {
+      const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
+      const int in = fc * 3 / (h / 2);
+      g.drawFastHLine(x + in, y + row, w - 2 * in, fill);
+    }
+    g.setTextColor(ink);
+    g.drawString(s, x + 4, y + 1);
+    return w;
+  }
+  const int w = tw + 8, h = 10;
   for (int row = 0; row < h; ++row) {
     const int fc = row <= h / 2 ? h / 2 - row : row - h / 2;
     const int in = fc * 3 / (h / 2);
     g.drawFastHLine(x + in, y + row, w - 2 * in, fill);
   }
-  g.setTextColor(ink);
-  g.drawString(s, x + 4, cjk ? y + cjkDy : y + 1);
+  int cx = x + 4;
+  for (int i = 0; s[i]; ++i) {
+    const Gl* gl = findG(s[i]);
+    for (int r = 0; r < 7; ++r)
+      for (int b = 0; b < gl->w; ++b)
+        if (gl->r[r] & (1 << (gl->w - 1 - b))) g.drawPixel(cx + b, y + 1 + r, ink);
+    cx += gl->w + 1;
+  }
   return w;
 }
 

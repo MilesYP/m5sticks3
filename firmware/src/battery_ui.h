@@ -16,6 +16,7 @@ void begin();                 // 讀第一次並套用
 void loop();                  // 每圈呼叫；每 BAT_READ_MS 才真的讀
 void setOverride(int pct);    // 假裝電量（0～100）；<0＝恢復真實讀數
 int  level();                 // 平滑後的電量 %（讀不到＝−1）
+float levelFloat();           // 平滑後的浮點電量 %（供資訊頁 PWR 圖表計算 0.1% 精度掉電率；讀不到＝−1）
 const char* tierName();
 // A5-1 資訊頁：上次讀到的電池電壓（mV，跟電量同一次每 5 秒讀；讀不到＝0）、是否充電中（30 秒內見過）
 int  voltageMv();
