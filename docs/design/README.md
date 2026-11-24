@@ -106,7 +106,7 @@
 | 表情頁 | A7 像素臉（11-20／21）、A8 甩碎、A4b 充電液體 | `ui_expression.*` | [a7_face](img/a7_face.png)、[a8_a4b](img/a8_a4b_portrait.png) |
 | 資訊頁 | A7 NERV 橘黑磚塊（11-20）＋11-22 MEM 紫、11-23 CHIP／耗電、11-24 PWR 紫柱獨立比例尺＋CHIP／PWR／WX／NEWS 7px 粗黑標籤＋AM／PM Font2 加粗收框 | `ui_info.*`、`ui_kit.*` | [a7_land_info](img/a7_land_info.png) |
 | B 切模式過場 | 黃黑斜紋＋紅明朝大字＋MODE 0N / 04＋進度條（11-20） | `ui_modeswitch.*` | [modeswitch](img/modeswitch.png) |
-| 體感（M4-2） | 選單／等待／已連線／B 倒數（11-23） | `ui_airmenu.*`、`air_labels.h` | [menu](img/m42_menu.png)、[wait](img/m42_wait.png)、[link](img/m42_link.png) |
+| 體感（M4-2） | 選單／等待／已連線／B 倒數（11-23） | `ui_airmenu.*`、`air_labels.h` | [menu](img/m42_menu.png)、[wait](img/m42_wait.png)、[link](img/m42_link.png)、[橫式](img/m42_land.png) |
 | 電源鍵長按／ROOT／關機 | P2（11-22）：四邊交替斜紋、六角框進度、電源→停止→ROOT | `power_key.cpp` | [p2_powerkey](img/p2_powerkey.png) |
 | 急停 KILLED | 紅底（`ui_status`），之後改版時照本總則 | `ui_status.*` | — |
 
